@@ -23,10 +23,11 @@ public protocol FCLChatDelegate: AnyObject {
     var avatar: (any FCLAvatarDelegate)? { get }
     var layout: (any FCLLayoutDelegate)? { get }
     var input: (any FCLInputDelegate)? { get }
+    var attachment: (any FCLAttachmentDelegate)? { get }  // iOS only
 }
 ```
 
-All four properties default to `nil` via a protocol extension. When a sub-delegate is `nil`, the presenter falls back to the built-in defaults defined in `FCLDelegateDefaults.swift`.
+All five properties default to `nil` via a protocol extension. When a sub-delegate is `nil`, the presenter falls back to the built-in defaults defined in `FCLDelegateDefaults.swift`.
 
 | Property | Type | Default | Domain |
 |---|---|---|---|
@@ -34,6 +35,7 @@ All four properties default to `nil` via a protocol extension. When a sub-delega
 | `avatar` | `(any FCLAvatarDelegate)?` | `nil` | Avatar size, visibility, URL loading, caching |
 | `layout` | `(any FCLLayoutDelegate)?` | `nil` | Bubble side placement, max width, spacing |
 | `input` | `(any FCLInputDelegate)?` | `nil` | Input bar text, rows, buttons, colors, layout |
+| `attachment` | `(any FCLAttachmentDelegate)?` | `nil` | Attachment picker capabilities, compression, recent files, custom tabs (iOS only) |
 
 ---
 
@@ -348,6 +350,93 @@ private func resolveMaxRows(forAvailableHeight height: CGFloat) -> Int {
 
 ---
 
+## FCLAttachmentDelegate
+
+**File:** `Sources/FlyChat/Core/Delegate/FCLAttachmentDelegate.swift`
+
+**Platform:** iOS only (`#if canImport(UIKit)`)
+
+Controls the tabbed attachment picker sheet: media compression settings, the "Recents" section, additional custom tabs, and feature toggles for video and the Files tab.
+
+```swift
+@MainActor
+public protocol FCLAttachmentDelegate: AnyObject {
+    var mediaCompression: FCLMediaCompression { get }
+    var recentFiles: [FCLRecentFile] { get }
+    var customTabs: [any FCLCustomAttachmentTab] { get }
+    var isVideoEnabled: Bool { get }
+    var isFileTabEnabled: Bool { get }
+}
+```
+
+### Property Reference
+
+| Property | Type | Default Value | Description |
+|---|---|---|---|
+| `mediaCompression` | `FCLMediaCompression` | `.default` (`maxDimension: 1920`, `jpegQuality: 0.7`, `.mediumQuality`) | Compression settings applied to images and videos before attaching. |
+| `recentFiles` | `[FCLRecentFile]` | `[]` | Files shown in the "Recents" section of the picker. Empty array hides the section. |
+| `customTabs` | `[any FCLCustomAttachmentTab]` | `[]` | Additional tabs injected after Gallery and Files. Empty array shows only built-in tabs. |
+| `isVideoEnabled` | `Bool` | `true` | Whether video selection is available in the Gallery tab. |
+| `isFileTabEnabled` | `Bool` | `true` | Whether the Files tab is shown in the picker. |
+
+### Supporting Types
+
+#### `FCLMediaCompression`
+
+**File:** `Sources/FlyChat/Modules/Chat/AttachmentPicker/Model/FCLMediaCompression.swift`
+
+```swift
+public struct FCLMediaCompression: Sendable, Equatable {
+    public var maxDimension: CGFloat         // Maximum image dimension in pixels
+    public var jpegQuality: CGFloat          // JPEG compression quality (0.0–1.0)
+    public var videoExportPreset: FCLVideoExportPreset
+
+    public static let `default` = FCLMediaCompression()
+}
+
+public enum FCLVideoExportPreset: String, Sendable, Equatable {
+    case lowQuality
+    case mediumQuality
+    case highQuality
+    case passthrough
+}
+```
+
+#### `FCLRecentFile`
+
+**File:** `Sources/FlyChat/Modules/Chat/AttachmentPicker/Model/FCLRecentFile.swift`
+
+```swift
+public struct FCLRecentFile: Identifiable, Sendable {
+    public let id: String
+    public let url: URL
+    public let fileName: String
+    public let fileSize: Int64?   // optional; displayed as formatted string
+    public let date: Date?        // optional; displayed as relative date
+}
+```
+
+#### `FCLCustomAttachmentTab`
+
+**File:** `Sources/FlyChat/Core/Delegate/FCLCustomAttachmentTab.swift`
+
+```swift
+public protocol FCLCustomAttachmentTab: AnyObject, Sendable {
+    var tabIcon: FCLImageSource { get }
+    var tabTitle: String { get }
+
+    func makeViewController(
+        onSelect: @escaping @MainActor (FCLAttachment) -> Void
+    ) -> UIViewController
+}
+```
+
+Implement this protocol to inject a fully custom view controller as a tab in the picker sheet. The library calls `makeViewController(onSelect:)` once when the tab is first displayed. Call `onSelect` with the chosen `FCLAttachment`; the sheet dismisses automatically.
+
+> For full usage examples — compression overrides, recent files, custom tabs, and feature toggles — see [../AdvancedUsage.md#3-attachment-delegate](../AdvancedUsage.md#3-attachment-delegate).
+
+---
+
 ## How to Conform
 
 ### Minimal Example (Override One Property)
@@ -377,7 +466,8 @@ final class FullChatDelegate: FCLChatDelegate,
                                FCLAppearanceDelegate,
                                FCLAvatarDelegate,
                                FCLLayoutDelegate,
-                               FCLInputDelegate {
+                               FCLInputDelegate,
+                               FCLAttachmentDelegate {
 
     // MARK: - FCLChatDelegate
 
@@ -385,6 +475,7 @@ final class FullChatDelegate: FCLChatDelegate,
     var avatar: (any FCLAvatarDelegate)? { self }
     var layout: (any FCLLayoutDelegate)? { self }
     var input: (any FCLInputDelegate)? { self }
+    var attachment: (any FCLAttachmentDelegate)? { self }
 
     // MARK: - Appearance
 
@@ -438,6 +529,7 @@ The defaults enums are defined in `Sources/FlyChat/Core/Delegate/FCLDelegateDefa
 - `FCLLayoutDefaults`
 - `FCLAvatarDefaults`
 - `FCLInputDefaults`
+- `FCLAttachmentDefaults`
 
 ---
 

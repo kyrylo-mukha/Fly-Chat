@@ -10,7 +10,7 @@ This guide covers advanced customization patterns for FlyChat. Every delegate pr
 
 1. [Context Menu Delegate](#1-context-menu-delegate)
 2. [Custom Input Bar](#2-custom-input-bar)
-3. [Attachment System Deep Dive](#3-attachment-system-deep-dive)
+3. [Attachment Delegate](#3-attachment-delegate)
 4. [Info.plist Requirements](#4-infoplist-requirements)
 
 > **Moved:** Custom Appearance Delegate, Custom Layout Delegate, and Custom Input Delegate content has moved to [DelegateSystem/AdvancedPatterns.md](DelegateSystem/AdvancedPatterns.md).
@@ -155,7 +155,6 @@ struct MyChatView: View {
             // Your completely custom input bar
             MyCustomInputBar(
                 text: $presenter.draftText,
-                attachmentManager: presenter.attachmentManager,
                 onSend: presenter.sendDraft
             )
         }
@@ -164,17 +163,10 @@ struct MyChatView: View {
 
 struct MyCustomInputBar: View {
     @Binding var text: String
-    @ObservedObject var attachmentManager: FCLAttachmentManager
     let onSend: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            Button(action: { attachmentManager.addAttachment() }) {
-                Image(systemName: "plus.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(.blue)
-            }
-
             TextField("Say something...", text: $text)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
 
@@ -206,150 +198,189 @@ When a custom input bar is provided, the `FCLInputDelegate` is ignored entirely 
 
 ---
 
-## 3. Attachment System Deep Dive
+## 3. Attachment Delegate
 
-FlyChat ships with a complete attachment pipeline: picker presentation, file management, preview strip, and in-bubble rendering.
+FlyChat ships a tabbed attachment picker sheet (Gallery multi-select + Files tab) that is fully configurable through `FCLAttachmentDelegate`, a sub-delegate on `FCLChatDelegate`.
 
-### Architecture Overview
+### Protocol Reference
 
+```swift
+// iOS only
+@MainActor
+public protocol FCLAttachmentDelegate: AnyObject {
+    /// Compression settings applied to images and videos before they are attached.
+    var mediaCompression: FCLMediaCompression { get }
+
+    /// Files surfaced in the "Recents" section of the picker for quick re-send.
+    /// Return an empty array (the default) to hide the recents section.
+    var recentFiles: [FCLRecentFile] { get }
+
+    /// Additional tabs injected after the built-in Gallery and Files tabs.
+    /// Return an empty array (the default) to show only the built-in tabs.
+    var customTabs: [any FCLCustomAttachmentTab] { get }
+
+    /// Whether the video selection option is available in the Gallery tab.
+    var isVideoEnabled: Bool { get }
+
+    /// Whether the Files tab is shown in the picker.
+    var isFileTabEnabled: Bool { get }
+}
 ```
-FCLAttachmentPickerDelegate (protocol)
-        |
-        v
-FCLAttachmentManager (ObservableObject)
-        |
-        v
-FCLAttachmentPreviewStrip (input bar preview)
-        |
-        v
-FCLChatMessage.attachments (sent message)
-        |
-        v
-FCLAttachmentGridView / FCLFileRowView (in-bubble rendering)
+
+All properties have default implementations. Override only what you need.
+
+### Media Compression
+
+`FCLMediaCompression` controls how images and videos are processed before being packaged as `FCLAttachment` values.
+
+```swift
+public struct FCLMediaCompression: Sendable, Equatable {
+    public var maxDimension: CGFloat        // default: 1920
+    public var jpegQuality: CGFloat         // default: 0.7  (0.0 – 1.0)
+    public var videoExportPreset: FCLVideoExportPreset  // default: .mediumQuality
+}
+
+public enum FCLVideoExportPreset: String, Sendable, Equatable {
+    case lowQuality
+    case mediumQuality
+    case highQuality
+    case passthrough   // No re-encoding; original quality preserved
+}
 ```
 
-### Built-In System Pickers
+Example: override to send full-resolution images with high-quality video:
 
-When no custom `FCLAttachmentPickerDelegate` is provided, `FCLAttachmentManager` presents a system action sheet with three options:
+```swift
+final class MyAttachmentDelegate: FCLAttachmentDelegate {
+    var mediaCompression: FCLMediaCompression {
+        FCLMediaCompression(
+            maxDimension: 3840,
+            jpegQuality: 0.95,
+            videoExportPreset: .highQuality
+        )
+    }
+}
+```
 
-| Picker | Description | iOS Version |
-|---|---|---|
-| **Photo Library** | Uses `PHPickerViewController` (iOS 14+) or `UIImagePickerController` (iOS 13). Allows selecting one image or video. | iOS 13+ |
-| **Camera** | Uses `UIImagePickerController` with `.camera` source. Only shown when the device has a camera available. | iOS 13+ |
-| **Files** | Uses `UIDocumentPickerViewController` with `forOpeningContentTypes: [.item]` (iOS 14+) or `documentTypes: ["public.item"]` (iOS 13). | iOS 13+ |
+### Recent Files
 
-### FCLAttachmentManager
+Return an array of `FCLRecentFile` values to populate a "Recents" section at the top of the picker. When the array is empty (the default), the section is hidden.
+
+```swift
+public struct FCLRecentFile: Identifiable, Sendable {
+    public let id: String
+    public let url: URL
+    public let fileName: String
+    public let fileSize: Int64?  // optional; shown as formatted string
+    public let date: Date?       // optional; shown as relative date
+}
+```
+
+Example:
+
+```swift
+final class MyAttachmentDelegate: FCLAttachmentDelegate {
+    var recentFiles: [FCLRecentFile] {
+        [
+            FCLRecentFile(
+                id: "doc-1",
+                url: URL(string: "https://example.com/report.pdf")!,
+                fileName: "Q1 Report.pdf",
+                fileSize: 204_800,
+                date: Date().addingTimeInterval(-3600)
+            )
+        ]
+    }
+}
+```
+
+### Custom Tabs
+
+Inject fully custom picker screens alongside the built-in Gallery and Files tabs by returning an array of `FCLCustomAttachmentTab` objects.
+
+```swift
+// iOS only
+public protocol FCLCustomAttachmentTab: AnyObject, Sendable {
+    var tabIcon: FCLImageSource { get }    // SF Symbol or asset catalog image
+    var tabTitle: String { get }           // Label under the tab icon
+
+    func makeViewController(
+        onSelect: @escaping @MainActor (FCLAttachment) -> Void
+    ) -> UIViewController
+}
+```
+
+The library calls `makeViewController(onSelect:)` once when the tab is first shown. Call `onSelect` with each selected `FCLAttachment`; the picker sheet dismisses automatically after the first call.
+
+```swift
+final class LocationPickerTab: FCLCustomAttachmentTab {
+    var tabIcon: FCLImageSource { .system("location.fill") }
+    var tabTitle: String { "Location" }
+
+    func makeViewController(
+        onSelect: @escaping @MainActor (FCLAttachment) -> Void
+    ) -> UIViewController {
+        let vc = MyLocationPickerViewController()
+        vc.onLocationPicked = { url in
+            let attachment = FCLAttachment(
+                type: .file,
+                url: url,
+                fileName: "location.vcf"
+            )
+            Task { @MainActor in onSelect(attachment) }
+        }
+        return vc
+    }
+}
+```
+
+Inject the tab via the delegate:
+
+```swift
+final class MyAttachmentDelegate: FCLAttachmentDelegate {
+    var customTabs: [any FCLCustomAttachmentTab] { [LocationPickerTab()] }
+}
+```
+
+### Feature Toggles
+
+Disable video selection or the Files tab entirely if they are not relevant to your use case:
+
+```swift
+final class MyAttachmentDelegate: FCLAttachmentDelegate {
+    var isVideoEnabled: Bool { false }    // Gallery shows images only
+    var isFileTabEnabled: Bool { false }  // Files tab hidden
+}
+```
+
+### Wiring via FCLChatDelegate
+
+`FCLAttachmentDelegate` is exposed through the `attachment` property on `FCLChatDelegate`:
 
 ```swift
 @MainActor
-public final class FCLAttachmentManager: ObservableObject {
-    @Published public private(set) var attachments: [FCLAttachment]
-
-    public init(pickerDelegate: (any FCLAttachmentPickerDelegate)? = nil)
-
-    public func addAttachment()
-    public func removeAttachment(at index: Int)
-    public func clearAttachments()
-}
-```
-
-- `addAttachment()` either calls your custom `FCLAttachmentPickerDelegate` or presents the built-in action sheet.
-- The manager auto-resolves the presenting `UIViewController` from the SwiftUI hierarchy (no manual wiring needed).
-- When a message is sent, the presenter reads `attachmentManager.attachments` and clears them after dispatch.
-
-### FCLAttachment Model
-
-```swift
-public struct FCLAttachment: Identifiable, Hashable, Sendable {
-    public let id: UUID
-    public let type: FCLAttachmentType       // .image | .video | .file
-    public let url: URL
-    public let thumbnailData: Data?
-    public let fileName: String
-    public let fileSize: Int64?
-
-    public init(
-        id: UUID = UUID(),
-        type: FCLAttachmentType,
-        url: URL,
-        thumbnailData: Data? = nil,
-        fileName: String,
-        fileSize: Int64? = nil
-    )
-
-    // UIKit-only convenience init with UIImage thumbnail
-    public init(
-        id: UUID = UUID(),
-        type: FCLAttachmentType,
-        url: URL,
-        thumbnail: UIImage?,
-        fileName: String,
-        fileSize: Int64? = nil
-    )
-}
-```
-
-### Custom Attachment Picker
-
-Implement `FCLAttachmentPickerDelegate` to completely replace the built-in picker flow:
-
-```swift
-public protocol FCLAttachmentPickerDelegate: AnyObject {
-    func presentPicker(
-        from viewController: UIViewController,
-        completion: @escaping ([FCLAttachment]) -> Void
-    )
-}
-```
-
-#### Using FCLAttachmentActionPicker (Closure-Based)
-
-FlyChat provides a concrete convenience class for simple cases:
-
-```swift
-let customPicker = FCLAttachmentActionPicker { viewController, completion in
-    // Present your own picker UI
-    let myPicker = MyCustomImagePicker()
-    myPicker.onFinish = { selectedImages in
-        let attachments = selectedImages.map { image in
-            let url = saveToDisk(image)
-            return FCLAttachment(
-                type: .image,
-                url: url,
-                thumbnail: image,
-                fileName: url.lastPathComponent
-            )
-        }
-        completion(attachments)
-    }
-    viewController.present(myPicker, animated: true)
+final class MyChatDelegate: FCLChatDelegate {
+    var attachment: (any FCLAttachmentDelegate)? { MyAttachmentDelegate() }
+    // appearance, avatar, layout, input remain nil (defaults)
 }
 
-let presenter = FCLChatPresenter(
-    messages: [],
-    currentUser: currentUser,
-    onSendMessage: { _ in },
-    attachmentPickerDelegate: customPicker
+// Pass to SwiftUI
+FCLChatScreen(presenter: presenter, delegate: MyChatDelegate())
+
+// Or pass to UIKit
+FCLUIKitBridge.makeChatViewController(
+    messages: messages,
+    currentUser: me,
+    delegate: MyChatDelegate()
 )
 ```
-
-### Preview Strip
-
-When attachments are queued (before sending), `FCLAttachmentPreviewStrip` renders above the input bar as a horizontally scrollable strip. Each cell shows:
-
-- A thumbnail image for `.image` attachments (from `thumbnailData`).
-- A file-type icon for `.video` and `.file` attachments (SF Symbols: `film`, `doc`).
-- The file name (truncated with middle ellipsis).
-- A red "X" button to remove the attachment.
-
-The thumbnail size is controlled by `FCLInputDelegate.attachmentThumbnailSize` (default: 32pt).
 
 ### In-Bubble Rendering
 
 Once a message is sent with attachments, they render inside the bubble:
 
-- **Images and videos** are displayed in an `FCLAttachmentGridView` -- a compact grid layout that fills the bubble width.
-- **Files** are displayed as individual `FCLFileRowView` rows below the grid, each showing the file icon and name.
+- **Images and videos** are displayed in a compact grid that fills the bubble width.
+- **Files** are displayed as individual rows below the grid, each showing the file icon and name.
 - If the message has **only attachments** (no text), the timestamp appears as a floating overlay badge with a semi-transparent background.
 
 ---
@@ -370,7 +401,7 @@ The built-in attachment pickers access system-protected resources. Your host app
 
 If these keys are missing, the system will crash or silently refuse to present the picker. The Files picker (`UIDocumentPickerViewController`) does not require an additional Info.plist entry.
 
-> **Note:** If you provide a custom `FCLAttachmentPickerDelegate` that does not use the photo library or camera, you may not need these keys -- but the built-in pickers always require them.
+> **Note:** If your `FCLAttachmentDelegate` disables the Gallery tab (`isVideoEnabled: false` with no photo selection) or uses only the Files tab, you may not need the photo library or camera keys. The built-in Gallery picker always requires them when photo or video access is enabled.
 
 ---
 

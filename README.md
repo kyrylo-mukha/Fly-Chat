@@ -56,7 +56,9 @@ The Files picker (`UIDocumentPickerViewController`) does not require a usage des
 - [x] Circle Avatars with Acronym Fallback and Deterministic HSL Colors
 - [x] Async Avatar Image Loading with Pluggable Cache
 - [x] Image / Video Grid and File Row Attachment Rendering
-- [x] Photo Library, Camera, and Files Attachment Pickers
+- [x] Tabbed Attachment Picker Sheet with Gallery Multi-Select and Files Tab
+- [x] Media Compression Configuration (Max Dimension, JPEG Quality, Video Preset)
+- [x] Custom Attachment Tabs via Delegate for Host-App-Provided Picker Screens
 - [x] Auto-Expanding Input Bar with Configurable Container Modes
 - [x] Liquid Glass / Material Input Bar Background (iOS 26+ / 15+)
 - [x] Delegate-Driven Context Menu Actions per Message
@@ -75,9 +77,9 @@ The Files picker (`UIDocumentPickerViewController`) does not require a usage des
   - **Customization —** [Basic Delegate Setup](Documentation/Usage.md#basic-delegate-customization)
 - [Advanced Usage](Documentation/AdvancedUsage.md)
   - **Context Menu —** [Custom Actions](Documentation/AdvancedUsage.md#1-context-menu-delegate), [Per-Direction Actions](Documentation/AdvancedUsage.md#1-context-menu-delegate)
-  - **Input Bar —** [Custom Input Bar](Documentation/AdvancedUsage.md#2-custom-input-bar), [Attachment System](Documentation/AdvancedUsage.md#3-attachment-system-deep-dive)
+  - **Input Bar —** [Custom Input Bar](Documentation/AdvancedUsage.md#2-custom-input-bar), [Attachment Delegate](Documentation/AdvancedUsage.md#3-attachment-delegate)
 - [Delegate System](Documentation/DelegateSystem/Overview.md)
-  - **Protocols —** [Appearance](Documentation/DelegateSystem/Overview.md#fclappearancedelegate), [Avatar](Documentation/DelegateSystem/Overview.md#fclavatardelegate), [Layout](Documentation/DelegateSystem/Overview.md#fcllayoutdelegate), [Input](Documentation/DelegateSystem/Overview.md#fclinputdelegate)
+  - **Protocols —** [Appearance](Documentation/DelegateSystem/Overview.md#fclappearancedelegate), [Avatar](Documentation/DelegateSystem/Overview.md#fclavatardelegate), [Layout](Documentation/DelegateSystem/Overview.md#fcllayoutdelegate), [Input](Documentation/DelegateSystem/Overview.md#fclinputdelegate), [Attachment](Documentation/DelegateSystem/Overview.md#fclattachmentdelegate)
   - **Patterns —** [Advanced Delegate Patterns](Documentation/DelegateSystem/AdvancedPatterns.md)
 - [Avatar System](Documentation/AvatarSystem/Overview.md)
   - **Deep Dive —** [Resolution Chain](Documentation/AvatarSystem/Overview.md#resolution-chain), [HSL Colors](Documentation/AvatarSystem/Overview.md#hsl-color-generation), [Caching](Documentation/AvatarSystem/Overview.md#built-in-cache)
