@@ -48,7 +48,6 @@ public enum FCLUIKitBridge {
     ///   - currentUser: The sender identity representing the current (local) user.
     ///   - onSendMessage: An optional closure invoked when the user sends a new message.
     ///   - onDeleteMessage: An optional closure invoked when the user deletes a message.
-    ///   - attachmentPickerDelegate: An optional delegate for handling attachment selection.
     ///   - delegate: An optional delegate for customizing visual elements such as avatars.
     ///   - contextMenuDelegate: An optional delegate for customizing long-press context menu actions.
     /// - Returns: A `UIViewController` hosting the chat conversation SwiftUI screen.
@@ -59,7 +58,6 @@ public enum FCLUIKitBridge {
         currentUser: FCLChatMessageSender,
         onSendMessage: ((FCLChatMessage) -> Void)? = nil,
         onDeleteMessage: ((FCLChatMessage) -> Void)? = nil,
-        attachmentPickerDelegate: (any FCLAttachmentPickerDelegate)? = nil,
         delegate: (any FCLChatDelegate)? = nil,
         contextMenuDelegate: (any FCLContextMenuDelegate)? = nil
     ) -> UIViewController {
@@ -68,7 +66,6 @@ public enum FCLUIKitBridge {
             currentUser: currentUser,
             onSendMessage: onSendMessage,
             onDeleteMessage: onDeleteMessage,
-            attachmentPickerDelegate: attachmentPickerDelegate,
             delegate: delegate,
             contextMenuDelegate: contextMenuDelegate
         )
@@ -137,7 +134,6 @@ public enum FCLUIKitBridge {
     ///   - currentUser: The sender identity representing the current (local) user.
     ///   - onSendMessage: An optional closure invoked when the user sends a new message.
     ///   - onDeleteMessage: An optional closure invoked when the user deletes a message.
-    ///   - attachmentPickerDelegate: An optional delegate for handling attachment selection.
     ///   - delegate: An optional delegate for customizing visual elements such as avatars.
     ///   - contextMenuDelegate: An optional delegate for customizing long-press context menu actions.
     /// - Returns: The child `UIViewController` that was embedded, allowing the caller to
@@ -151,7 +147,6 @@ public enum FCLUIKitBridge {
         currentUser: FCLChatMessageSender,
         onSendMessage: ((FCLChatMessage) -> Void)? = nil,
         onDeleteMessage: ((FCLChatMessage) -> Void)? = nil,
-        attachmentPickerDelegate: (any FCLAttachmentPickerDelegate)? = nil,
         delegate: (any FCLChatDelegate)? = nil,
         contextMenuDelegate: (any FCLContextMenuDelegate)? = nil
     ) -> UIViewController {
@@ -160,7 +155,6 @@ public enum FCLUIKitBridge {
             currentUser: currentUser,
             onSendMessage: onSendMessage,
             onDeleteMessage: onDeleteMessage,
-            attachmentPickerDelegate: attachmentPickerDelegate,
             delegate: delegate,
             contextMenuDelegate: contextMenuDelegate
         )
