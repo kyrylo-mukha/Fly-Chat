@@ -131,5 +131,8 @@ enum FCLAttachmentDefaults {
 
     /// Default file tab visibility: `true`.
     static let isFileTabEnabled = true
+
+    /// Default camera video recording availability: `true`.
+    static let isCameraVideoEnabled = true
 }
 #endif

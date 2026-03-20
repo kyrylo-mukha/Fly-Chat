@@ -366,6 +366,7 @@ public protocol FCLAttachmentDelegate: AnyObject {
     var customTabs: [any FCLCustomAttachmentTab] { get }
     var isVideoEnabled: Bool { get }
     var isFileTabEnabled: Bool { get }
+    var isCameraVideoEnabled: Bool { get }
 }
 ```
 
@@ -374,10 +375,13 @@ public protocol FCLAttachmentDelegate: AnyObject {
 | Property | Type | Default Value | Description |
 |---|---|---|---|
 | `mediaCompression` | `FCLMediaCompression` | `.default` (`maxDimension: 1920`, `jpegQuality: 0.7`, `.mediumQuality`) | Compression settings applied to images and videos before attaching. |
-| `recentFiles` | `[FCLRecentFile]` | `[]` | Files shown in the "Recents" section of the picker. Empty array hides the section. |
+| `recentFiles` | `[FCLRecentFile]` | `[]` | Files shown in the "Recents" section of the picker. Host-app provided — see note below. |
 | `customTabs` | `[any FCLCustomAttachmentTab]` | `[]` | Additional tabs injected after Gallery and Files. Empty array shows only built-in tabs. |
 | `isVideoEnabled` | `Bool` | `true` | Whether video selection is available in the Gallery tab. |
 | `isFileTabEnabled` | `Bool` | `true` | Whether the Files tab is shown in the picker. |
+| `isCameraVideoEnabled` | `Bool` | `true` | Whether the in-app camera allows video recording in addition to photos. |
+
+> **Recent Files:** iOS does not provide a system API for accessing the user's recent file history. The `recentFiles` array is entirely host-app managed — populate it with files your app has recently handled (e.g., sent attachments, downloaded documents). When the array is empty, the Files tab shows a "No recent files" placeholder.
 
 ### Supporting Types
 

@@ -161,6 +161,7 @@ final class FCLCoreTests: XCTestCase {
         XCTAssertTrue(FCLAttachmentDefaults.customTabs.isEmpty)
         XCTAssertTrue(FCLAttachmentDefaults.isVideoEnabled)
         XCTAssertTrue(FCLAttachmentDefaults.isFileTabEnabled)
+        XCTAssertTrue(FCLAttachmentDefaults.isCameraVideoEnabled)
         #endif
     }
 

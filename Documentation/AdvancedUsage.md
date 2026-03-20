@@ -224,6 +224,9 @@ public protocol FCLAttachmentDelegate: AnyObject {
 
     /// Whether the Files tab is shown in the picker.
     var isFileTabEnabled: Bool { get }
+
+    /// Whether the in-app camera allows video recording in addition to photos.
+    var isCameraVideoEnabled: Bool { get }
 }
 ```
 
@@ -264,7 +267,9 @@ final class MyAttachmentDelegate: FCLAttachmentDelegate {
 
 ### Recent Files
 
-Return an array of `FCLRecentFile` values to populate a "Recents" section at the top of the picker. When the array is empty (the default), the section is hidden.
+Return an array of `FCLRecentFile` values to populate a "Recents" section in the Files tab. When the array is empty (the default), the section shows a "No recent files" placeholder.
+
+> **Note:** iOS does not provide a system API for accessing the user's recent file history. The `recentFiles` array is entirely host-app managed. Populate it with files your app has recently handled (e.g., sent attachments, downloaded documents, cached files).
 
 ```swift
 public struct FCLRecentFile: Identifiable, Sendable {
@@ -344,12 +349,13 @@ final class MyAttachmentDelegate: FCLAttachmentDelegate {
 
 ### Feature Toggles
 
-Disable video selection or the Files tab entirely if they are not relevant to your use case:
+Disable video selection, the Files tab, or camera video recording if they are not relevant to your use case:
 
 ```swift
 final class MyAttachmentDelegate: FCLAttachmentDelegate {
-    var isVideoEnabled: Bool { false }    // Gallery shows images only
-    var isFileTabEnabled: Bool { false }  // Files tab hidden
+    var isVideoEnabled: Bool { false }        // Gallery shows images only
+    var isFileTabEnabled: Bool { false }       // Files tab hidden
+    var isCameraVideoEnabled: Bool { false }   // Camera captures photos only (no video recording)
 }
 ```
 
@@ -394,12 +400,16 @@ The built-in attachment pickers access system-protected resources. Your host app
 <key>NSPhotoLibraryUsageDescription</key>
 <string>$(PRODUCT_NAME) needs access to your photo library to send images and videos.</string>
 
-<!-- Required for Camera picker -->
+<!-- Required for Camera picker (photo and video capture) -->
 <key>NSCameraUsageDescription</key>
 <string>$(PRODUCT_NAME) needs access to the camera to take photos and videos.</string>
+
+<!-- Required when isCameraVideoEnabled is true (the default) -->
+<key>NSMicrophoneUsageDescription</key>
+<string>$(PRODUCT_NAME) needs access to the microphone to record video with audio.</string>
 ```
 
-If these keys are missing, the system will crash or silently refuse to present the picker. The Files picker (`UIDocumentPickerViewController`) does not require an additional Info.plist entry.
+If these keys are missing, the system will crash or silently refuse to present the picker. The Files picker (`UIDocumentPickerViewController`) does not require an additional Info.plist entry. The microphone key is only needed when `isCameraVideoEnabled` is `true` (the default).
 
 > **Note:** If your `FCLAttachmentDelegate` disables the Gallery tab (`isVideoEnabled: false` with no photo selection) or uses only the Files tab, you may not need the photo library or camera keys. The built-in Gallery picker always requires them when photo or video access is enabled.
 

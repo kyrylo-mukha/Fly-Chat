@@ -122,8 +122,6 @@ struct FCLGalleryTabView: View {
                 onAssetTap(assetID)
             } label: {
                 FCLAssetThumbnailView(asset: asset, galleryDataSource: galleryDataSource)
-                    .aspectRatio(1, contentMode: .fit)
-                    .clipped()
             }
             .buttonStyle(.plain)
 
@@ -134,8 +132,13 @@ struct FCLGalleryTabView: View {
             }
 
             // Selection circle — tapping toggles selection
-            selectionCircle(isSelected: isSelected, number: selectionIndex.map { $0 + 1 })
-                .padding(4)
+            Button {
+                presenter.toggleAssetSelection(assetID)
+            } label: {
+                selectionCircle(isSelected: isSelected, number: selectionIndex.map { $0 + 1 })
+            }
+            .buttonStyle(.plain)
+            .padding(4)
         }
         .overlay(
             isSelected
@@ -146,27 +149,23 @@ struct FCLGalleryTabView: View {
 
     // MARK: - Selection Circle
 
+    @ViewBuilder
     private func selectionCircle(isSelected: Bool, number: Int?) -> some View {
-        Button {
-            // No-op — action is wired below via onTapGesture
-        } label: {
-            ZStack {
-                if isSelected, let number {
-                    Circle()
-                        .fill(Color.blue)
-                        .frame(width: 24, height: 24)
-                    Text("\(number)")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.white)
-                } else {
-                    Circle()
-                        .stroke(Color.white, lineWidth: 2)
-                        .frame(width: 24, height: 24)
-                        .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 1)
-                }
+        ZStack {
+            if isSelected, let number {
+                Circle()
+                    .fill(Color.blue)
+                    .frame(width: 24, height: 24)
+                Text("\(number)")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.white)
+            } else {
+                Circle()
+                    .stroke(Color.white, lineWidth: 2)
+                    .frame(width: 24, height: 24)
+                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 1)
             }
         }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Video Duration Badge
@@ -188,6 +187,10 @@ struct FCLGalleryTabView: View {
 // MARK: - FCLAssetThumbnailView
 
 /// Loads and displays a PHAsset thumbnail asynchronously.
+///
+/// Uses `Color` as a sizing base to guarantee a square aspect ratio. The loaded
+/// thumbnail image is placed in an `.overlay` with `.scaledToFill()` and `.clipped()`
+/// so it fills the square without pushing the cell size.
 private struct FCLAssetThumbnailView: View {
     let asset: PHAsset
     let galleryDataSource: FCLGalleryDataSource
@@ -195,15 +198,19 @@ private struct FCLAssetThumbnailView: View {
     @State private var image: UIImage?
 
     var body: some View {
-        ZStack {
-            Color(UIColor.tertiarySystemFill)
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            }
-        }
-        .onAppear { loadThumbnail() }
+        Color(UIColor.tertiarySystemFill)
+            .aspectRatio(1, contentMode: .fit)
+            .overlay(
+                Group {
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                    }
+                }
+            )
+            .clipped()
+            .onAppear { loadThumbnail() }
     }
 
     private func loadThumbnail() {

@@ -33,6 +33,8 @@ struct FCLAttachmentPickerSheet: View {
     let onAssetTap: (String) -> Void
 
     @State private var showCamera = false
+    @State private var previewAssetID: String?
+    @State private var cameraAttachment: FCLAttachment?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,14 +46,41 @@ struct FCLAttachmentPickerSheet: View {
         .presentationDragIndicator(.visible)
         .fullScreenCover(isPresented: $showCamera) {
             FCLCameraBridge(
+                isVideoEnabled: delegate?.isCameraVideoEnabled ?? FCLAttachmentDefaults.isCameraVideoEnabled,
                 onCapture: { attachment in
                     showCamera = false
-                    presenter.sendFileAttachment(attachment)
-                    onDismiss()
+                    cameraAttachment = attachment
                 },
                 onCancel: { showCamera = false }
             )
             .ignoresSafeArea()
+        }
+        .fullScreenCover(item: $cameraAttachment) { attachment in
+            FCLCameraCapturePreview(
+                attachment: attachment,
+                onSend: {
+                    cameraAttachment = nil
+                    presenter.sendFileAttachment(attachment)
+                    onDismiss()
+                },
+                onRetake: {
+                    cameraAttachment = nil
+                    showCamera = true
+                },
+                onCancel: { cameraAttachment = nil }
+            )
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { previewAssetID != nil },
+            set: { if !$0 { previewAssetID = nil } }
+        )) {
+            if let assetID = previewAssetID {
+                FCLPickerAssetPreview(
+                    assetID: assetID,
+                    galleryDataSource: galleryDataSource,
+                    onDismiss: { previewAssetID = nil }
+                )
+            }
         }
     }
 
@@ -69,7 +98,9 @@ struct FCLAttachmentPickerSheet: View {
                         showCamera = true
                     }
                 },
-                onAssetTap: onAssetTap
+                onAssetTap: { assetID in
+                    previewAssetID = assetID
+                }
             )
 
         case .file:

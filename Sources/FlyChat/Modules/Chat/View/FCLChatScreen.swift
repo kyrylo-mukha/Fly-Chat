@@ -311,8 +311,8 @@ private struct FCLChatMessageRow: View {
     /// The list of context menu actions available on long-press.
     let contextMenuActions: [FCLContextMenuAction]
 
-    /// The attachment currently being previewed in a full-screen cover, or `nil` if none.
-    @State private var previewAttachment: FCLAttachment?
+    /// The index of the attachment being previewed, or `nil` if no preview is shown.
+    @State private var previewAttachmentIndex: Int?
 
     /// Shared date formatter for rendering short time strings (e.g., "2:30 PM").
     private static let timeFormatter: DateFormatter = {
@@ -350,10 +350,15 @@ private struct FCLChatMessageRow: View {
             }
         }
         #if canImport(UIKit)
-        .fullScreenCover(item: $previewAttachment) { attachment in
+        .fullScreenCover(isPresented: Binding(
+            get: { previewAttachmentIndex != nil },
+            set: { if !$0 { previewAttachmentIndex = nil } }
+        )) {
+            let mediaAttachments = message.attachments.filter { $0.type == .image || $0.type == .video }
             FCLMediaPreviewView(
-                attachment: attachment,
-                onDismiss: { previewAttachment = nil }
+                attachments: mediaAttachments,
+                initialIndex: previewAttachmentIndex ?? 0,
+                onDismiss: { previewAttachmentIndex = nil }
             )
         }
         #endif
@@ -459,7 +464,9 @@ private struct FCLChatMessageRow: View {
                     attachments: mediaAttachments,
                     maxWidth: maxBubbleWidth,
                     onAttachmentTap: { attachment in
-                        previewAttachment = attachment
+                        if let index = mediaAttachments.firstIndex(of: attachment) {
+                            previewAttachmentIndex = index
+                        }
                     }
                 )
             }

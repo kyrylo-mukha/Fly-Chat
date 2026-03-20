@@ -8,12 +8,17 @@ import UIKit
 /// A `UIViewControllerRepresentable` bridge to `UIImagePickerController` configured
 /// for camera capture. Returns the captured image as an `FCLAttachment`.
 struct FCLCameraBridge: UIViewControllerRepresentable {
+    let isVideoEnabled: Bool
     let onCapture: (FCLAttachment) -> Void
     let onCancel: () -> Void
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
+        if isVideoEnabled {
+            picker.mediaTypes = ["public.image", "public.movie"]
+            picker.videoQuality = .typeMedium
+        }
         picker.delegate = context.coordinator
         return picker
     }
@@ -38,7 +43,22 @@ struct FCLCameraBridge: UIViewControllerRepresentable {
             _ picker: UIImagePickerController,
             didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
         ) {
-            picker.dismiss(animated: true)
+            // Check for video first
+            if let videoURL = info[.mediaURL] as? URL {
+                let fileName = "Camera_\(UUID().uuidString.prefix(8)).\(videoURL.pathExtension)"
+                let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+                try? FileManager.default.removeItem(at: tempURL)
+                try? FileManager.default.copyItem(at: videoURL, to: tempURL)
+                let fileSize = (try? FileManager.default.attributesOfItem(atPath: tempURL.path)[.size] as? Int64) ?? nil
+                let attachment = FCLAttachment(
+                    type: .video,
+                    url: tempURL,
+                    fileName: fileName,
+                    fileSize: fileSize
+                )
+                onCapture(attachment)
+                return
+            }
 
             guard let image = info[.originalImage] as? UIImage,
                   let data = image.jpegData(compressionQuality: 0.8) else { return }
@@ -58,7 +78,6 @@ struct FCLCameraBridge: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            picker.dismiss(animated: true)
             onCancel()
         }
     }
