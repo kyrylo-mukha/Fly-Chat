@@ -1,7 +1,7 @@
 # FlyChat
 
 [![Swift](https://img.shields.io/badge/Swift-6.0_6.1_6.2-orange?style=flat)](https://swift.org)
-[![Platforms](https://img.shields.io/badge/Platforms-iOS_15+-blue?style=flat)](https://developer.apple.com/ios/)
+[![Platforms](https://img.shields.io/badge/Platforms-iOS_16+-blue?style=flat)](https://developer.apple.com/ios/)
 [![SPM Compatible](https://img.shields.io/badge/SPM-compatible-brightgreen?style=flat)](https://swift.org/package-manager)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat)](LICENSE)
 
@@ -11,7 +11,7 @@ A lightweight Swift Package for building chat features in iOS apps.
 
 | Platform | Minimum Version |
 |---|---|
-| iOS | 15.0+ |
+| iOS | 16.0+ |
 | macOS (build only) | 10.15+ |
 | Swift | 6.0 / 6.1 / 6.2 |
 | Xcode | 16.0+ |

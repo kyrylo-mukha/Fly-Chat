@@ -88,27 +88,16 @@ public final class FCLAttachmentManager: ObservableObject {
     }
 
     private func presentPhotoPicker(from vc: UIViewController) {
-        if #available(iOS 14, *) {
-            var config = PHPickerConfiguration()
-            config.selectionLimit = 1
-            config.filter = .any(of: [.images, .videos])
-            let picker = PHPickerViewController(configuration: config)
-            let coordinator = PhotoPickerCoordinator { [weak self] attachment in
-                if let attachment { self?.attachments.append(attachment) }
-            }
-            picker.delegate = coordinator
-            objc_setAssociatedObject(picker, &AssociatedKeys.coordinator, coordinator, .OBJC_ASSOCIATION_RETAIN)
-            vc.present(picker, animated: true)
-        } else {
-            let picker = UIImagePickerController()
-            picker.sourceType = .photoLibrary
-            let coordinator = ImagePickerCoordinator { [weak self] attachment in
-                if let attachment { self?.attachments.append(attachment) }
-            }
-            picker.delegate = coordinator
-            objc_setAssociatedObject(picker, &AssociatedKeys.coordinator, coordinator, .OBJC_ASSOCIATION_RETAIN)
-            vc.present(picker, animated: true)
+        var config = PHPickerConfiguration()
+        config.selectionLimit = 1
+        config.filter = .any(of: [.images, .videos])
+        let picker = PHPickerViewController(configuration: config)
+        let coordinator = PhotoPickerCoordinator { [weak self] attachment in
+            if let attachment { self?.attachments.append(attachment) }
         }
+        picker.delegate = coordinator
+        objc_setAssociatedObject(picker, &AssociatedKeys.coordinator, coordinator, .OBJC_ASSOCIATION_RETAIN)
+        vc.present(picker, animated: true)
     }
 
     private func presentCamera(from vc: UIViewController) {
@@ -123,13 +112,7 @@ public final class FCLAttachmentManager: ObservableObject {
     }
 
     private func presentDocumentPicker(from vc: UIViewController) {
-        let picker: UIDocumentPickerViewController
-        if #available(iOS 14, *) {
-            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item])
-        } else {
-            let types = ["public.item"]
-            picker = UIDocumentPickerViewController(documentTypes: types, in: .import)
-        }
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item])
         let coordinator = DocumentPickerCoordinator { [weak self] attachment in
             if let attachment { self?.attachments.append(attachment) }
         }
@@ -147,9 +130,8 @@ private enum AssociatedKeys {
     nonisolated(unsafe) static var coordinator = 0
 }
 
-// MARK: - PHPicker Coordinator (iOS 14+)
+// MARK: - PHPicker Coordinator
 
-@available(iOS 14, *)
 private final class PhotoPickerCoordinator: NSObject, PHPickerViewControllerDelegate {
     let completion: (FCLAttachment?) -> Void
 

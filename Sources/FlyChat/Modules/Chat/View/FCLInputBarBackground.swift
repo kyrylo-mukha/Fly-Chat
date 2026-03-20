@@ -8,8 +8,7 @@ import UIKit
 /// and a translucent blur / liquid glass material effect.
 ///
 /// On iOS 26+ with `liquidGlass` enabled, it applies `.glassEffect()`.
-/// On iOS 15-25 it falls back to `.ultraThinMaterial`.
-/// On iOS 13-14 it uses a `UIVisualEffectView` wrapper.
+/// On iOS 16-25 it falls back to `.ultraThinMaterial`.
 /// When `liquidGlass` is `false`, a solid ``backgroundColor`` fill is used.
 struct FCLInputBarBackground: View {
     /// Whether to use a translucent blur / liquid glass effect instead of a solid color.
@@ -31,35 +30,14 @@ struct FCLInputBarBackground: View {
         #if canImport(UIKit)
         if #available(iOS 26, *) {
             Rectangle().fill(.clear).glassEffect()
-        } else if #available(iOS 15, *) {
-            Rectangle().fill(.ultraThinMaterial)
         } else {
-            FCLBlurView(style: .systemThinMaterial)
+            Rectangle().fill(.ultraThinMaterial)
         }
         #else
         backgroundColor.color
         #endif
     }
 }
-
-#if canImport(UIKit)
-/// UIVisualEffectView wrapper for iOS 13-14 blur fallback.
-///
-/// Bridges UIKit's `UIVisualEffectView` into SwiftUI for platforms where
-/// SwiftUI's `.material` modifiers are not yet available.
-struct FCLBlurView: UIViewRepresentable {
-    /// The blur effect style to apply (e.g., `.systemThinMaterial`).
-    let style: UIBlurEffect.Style
-
-    func makeUIView(context: Context) -> UIVisualEffectView {
-        UIVisualEffectView(effect: UIBlurEffect(style: style))
-    }
-
-    func updateUIView(_ uiView: UIVisualEffectView, context: Context) {
-        uiView.effect = UIBlurEffect(style: style)
-    }
-}
-#endif
 
 // MARK: - Previews
 
