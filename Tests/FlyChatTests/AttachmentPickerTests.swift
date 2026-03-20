@@ -78,3 +78,115 @@ final class AttachmentPickerTests: XCTestCase {
         XCTAssertNil(file.date)
     }
 }
+
+// MARK: - FCLAttachmentPickerPresenter
+
+#if canImport(UIKit)
+@MainActor
+extension AttachmentPickerTests {
+
+    func testInitialStateIsBrowsing() {
+        let presenter = FCLAttachmentPickerPresenter(delegate: nil) { _, _ in }
+        XCTAssertEqual(presenter.state, .browsing)
+        XCTAssertTrue(presenter.selectedAssets.isEmpty)
+    }
+
+    func testSelectAssetTransitionsToBrowsingToGallerySelected() {
+        let presenter = FCLAttachmentPickerPresenter(delegate: nil) { _, _ in }
+        presenter.toggleAssetSelection("asset-1")
+        XCTAssertEqual(presenter.state, .gallerySelected)
+    }
+
+    func testDeselectAllReturnsToGalleryBrowsing() {
+        let presenter = FCLAttachmentPickerPresenter(delegate: nil) { _, _ in }
+        presenter.toggleAssetSelection("asset-1")
+        presenter.toggleAssetSelection("asset-1")
+        XCTAssertEqual(presenter.state, .browsing)
+    }
+
+    func testTabSwitchingBlockedInGallerySelected() {
+        let presenter = FCLAttachmentPickerPresenter(delegate: nil) { _, _ in }
+        presenter.toggleAssetSelection("asset-1")
+        XCTAssertEqual(presenter.state, .gallerySelected)
+        presenter.selectTab(.file)
+        XCTAssertEqual(presenter.selectedTab, .gallery)
+    }
+
+    func testTabSwitchingAllowedInBrowsing() {
+        let presenter = FCLAttachmentPickerPresenter(delegate: nil) { _, _ in }
+        presenter.selectTab(.file)
+        XCTAssertEqual(presenter.selectedTab, .file)
+        presenter.selectTab(.gallery)
+        XCTAssertEqual(presenter.selectedTab, .gallery)
+    }
+
+    func testFileTabHiddenWhenDisabled() {
+        let delegate = TestAttachmentDelegate()
+        delegate.fileTabEnabled = false
+        let presenter = FCLAttachmentPickerPresenter(delegate: delegate) { _, _ in }
+        XCTAssertFalse(presenter.availableTabs.contains(.file))
+    }
+
+    func testGallerySendDeliversAttachmentsAndCaption() {
+        var receivedAttachments: [FCLAttachment] = []
+        var receivedCaption: String?
+        let presenter = FCLAttachmentPickerPresenter(delegate: nil) { attachments, caption in
+            receivedAttachments = attachments
+            receivedCaption = caption
+        }
+        presenter.toggleAssetSelection("asset-1")
+        presenter.captionText = "Hello"
+        let attachment = FCLAttachment(
+            type: .image,
+            url: URL(string: "file:///tmp/img.png")!,
+            fileName: "img.png"
+        )
+        presenter.sendGalleryAttachments([attachment])
+        XCTAssertEqual(presenter.state, .sending)
+        XCTAssertEqual(receivedAttachments.count, 1)
+        XCTAssertEqual(receivedCaption, "Hello")
+    }
+
+    func testFileSendDeliversAttachmentWithNilCaption() {
+        var receivedAttachments: [FCLAttachment] = []
+        var receivedCaption: String? = "should-be-nil"
+        let presenter = FCLAttachmentPickerPresenter(delegate: nil) { attachments, caption in
+            receivedAttachments = attachments
+            receivedCaption = caption
+        }
+        let attachment = FCLAttachment(
+            type: .file,
+            url: URL(string: "file:///tmp/doc.pdf")!,
+            fileName: "doc.pdf"
+        )
+        presenter.sendFileAttachment(attachment)
+        XCTAssertEqual(presenter.state, .sending)
+        XCTAssertEqual(receivedAttachments.count, 1)
+        XCTAssertNil(receivedCaption)
+    }
+
+    func testGallerySendWithEmptyCaptionPassesNil() {
+        var receivedCaption: String? = "should-be-nil"
+        let presenter = FCLAttachmentPickerPresenter(delegate: nil) { _, caption in
+            receivedCaption = caption
+        }
+        presenter.captionText = "   "
+        let attachment = FCLAttachment(
+            type: .image,
+            url: URL(string: "file:///tmp/img.png")!,
+            fileName: "img.png"
+        )
+        presenter.sendGalleryAttachments([attachment])
+        XCTAssertNil(receivedCaption)
+    }
+
+    func testErrorStateAndRecovery() {
+        let presenter = FCLAttachmentPickerPresenter(delegate: nil) { _, _ in }
+        presenter.toggleAssetSelection("asset-1")
+        presenter.handleError("Something went wrong")
+        XCTAssertEqual(presenter.state, .error("Something went wrong"))
+        presenter.dismissError()
+        XCTAssertEqual(presenter.state, .gallerySelected)
+    }
+}
+#endif
