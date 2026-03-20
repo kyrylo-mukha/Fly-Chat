@@ -53,6 +53,10 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
         state = selectedAssets.isEmpty ? .browsing : .gallerySelected
     }
 
+    func beginSending() {
+        state = .sending
+    }
+
     func sendFileAttachment(_ attachment: FCLAttachment) {
         state = .sending
         onSend([attachment], nil)

@@ -1,4 +1,6 @@
 #if canImport(UIKit)
+import AVFoundation
+import Photos
 import SwiftUI
 
 // MARK: - FCLAttachmentPickerSheet
@@ -10,12 +12,13 @@ import SwiftUI
 /// - ``FCLPickerTabBar`` when the state is `.browsing` or `.sending` / `.error`
 /// - ``FCLPickerInputBar`` when the state is `.gallerySelected`
 ///
-/// The bottom bar transition is animated with an ease-in-out curve. Tab content areas
-/// are placeholder views that will be replaced with real gallery/file/custom tab views
-/// in Task 8.
+/// The bottom bar transition is animated with an ease-in-out curve.
 struct FCLAttachmentPickerSheet: View {
     /// The presenter that drives picker state, selected assets, and caption text.
     @ObservedObject var presenter: FCLAttachmentPickerPresenter
+
+    /// The data source that provides photo library assets and thumbnails.
+    @ObservedObject var galleryDataSource: FCLGalleryDataSource
 
     /// The attachment delegate supplying tab configuration, custom tabs, and compression settings.
     let delegate: (any FCLAttachmentDelegate)?
@@ -43,18 +46,47 @@ struct FCLAttachmentPickerSheet: View {
 
     @ViewBuilder
     private var tabContentArea: some View {
-        // Placeholder content — replaced in Task 8 with real gallery/file/custom tab views.
         switch presenter.selectedTab {
         case .gallery:
-            Text("Gallery Tab")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .foregroundColor(Color(UIColor.secondaryLabel))
+            FCLGalleryTabView(
+                presenter: presenter,
+                galleryDataSource: galleryDataSource,
+                onCameraCapture: onCameraCapture,
+                onAssetTap: onAssetTap
+            )
+
         case .file:
-            Text("Files Tab")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .foregroundColor(Color(UIColor.secondaryLabel))
+            FCLFileTabView(
+                recentFiles: delegate?.recentFiles ?? FCLAttachmentDefaults.recentFiles,
+                onSendFile: { attachment in
+                    presenter.sendFileAttachment(attachment)
+                    onDismiss()
+                }
+            )
+
         case .custom(let id):
-            Text("Custom Tab: \(id)")
+            customTabContent(id: id)
+        }
+    }
+
+    // MARK: - Custom Tab Content
+
+    @ViewBuilder
+    private func customTabContent(id: String) -> some View {
+        let customTabs = delegate?.customTabs ?? []
+        let matchingTab = customTabs.enumerated().first { index, t in
+            "custom-\(t.tabTitle)-\(index)" == "custom-\(id)"
+        }
+        if let (_, tab) = matchingTab {
+            FCLCustomTabWrapper(
+                tab: tab,
+                onSelect: { attachment in
+                    presenter.sendFileAttachment(attachment)
+                    onDismiss()
+                }
+            )
+        } else {
+            Text("Unknown Tab")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .foregroundColor(Color(UIColor.secondaryLabel))
         }
@@ -75,7 +107,7 @@ struct FCLAttachmentPickerSheet: View {
                     hasSelection: !presenter.selectedAssets.isEmpty,
                     fieldBackgroundColor: Color(UIColor.tertiarySystemFill),
                     fieldCornerRadius: 18,
-                    onSend: { /* wired in Task 8 */ }
+                    onSend: { compressAndSendGallery() }
                 )
             } else {
                 FCLPickerTabBar(
@@ -87,6 +119,98 @@ struct FCLAttachmentPickerSheet: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: presenter.state)
+    }
+
+    // MARK: - Compress & Send Gallery
+
+    private func compressAndSendGallery() {
+        let selectedIDs = presenter.selectedAssets
+        let config = presenter.compressionConfig
+
+        presenter.beginSending()
+
+        Task { @MainActor in
+            do {
+                var attachments: [FCLAttachment] = []
+
+                for assetID in selectedIDs {
+                    let fetchResult = PHAsset.fetchAssets(
+                        withLocalIdentifiers: [assetID],
+                        options: nil
+                    )
+                    guard let asset = fetchResult.firstObject else { continue }
+
+                    if asset.mediaType == .video {
+                        let url = try await loadAndExportVideo(
+                            for: asset,
+                            preset: config.videoExportPreset
+                        )
+                        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? nil
+                        attachments.append(FCLAttachment(
+                            type: .video,
+                            url: url,
+                            fileName: url.lastPathComponent,
+                            fileSize: fileSize
+                        ))
+                    } else {
+                        let image = try await galleryDataSource.fullSizeImage(for: asset)
+                        let url = try FCLMediaCompressor.compressImageToTempFile(image, config: config)
+                        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? nil
+                        attachments.append(FCLAttachment(
+                            type: .image,
+                            url: url,
+                            fileName: url.lastPathComponent,
+                            fileSize: fileSize
+                        ))
+                    }
+                }
+
+                presenter.sendGalleryAttachments(attachments)
+                onDismiss()
+            } catch {
+                presenter.handleError(error.localizedDescription)
+            }
+        }
+    }
+
+    // MARK: - Load & Export Video
+
+    /// Loads the `AVAsset` for a `PHAsset` and exports it in one step, returning only the
+    /// resulting temp file URL (which is `Sendable`). This avoids sending a non-`Sendable`
+    /// `AVAsset` across isolation boundaries.
+    private func loadAndExportVideo(
+        for phAsset: PHAsset,
+        preset: FCLVideoExportPreset
+    ) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            let options = PHVideoRequestOptions()
+            options.isNetworkAccessAllowed = true
+            options.deliveryMode = .highQualityFormat
+
+            PHImageManager.default().requestAVAsset(
+                forVideo: phAsset,
+                options: options
+            ) { avAsset, _, _ in
+                guard let avAsset else {
+                    continuation.resume(
+                        throwing: FCLCompressionError.exportSessionCreationFailed
+                    )
+                    return
+                }
+                // Export on the current (non-isolated) thread to avoid sending AVAsset.
+                Task {
+                    do {
+                        let url = try await FCLMediaCompressor.exportVideo(
+                            asset: avAsset,
+                            preset: preset
+                        )
+                        continuation.resume(returning: url)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Helpers
@@ -122,6 +246,21 @@ struct FCLAttachmentPickerSheet: View {
     }
 }
 
+// MARK: - FCLCustomTabWrapper
+
+/// A `UIViewControllerRepresentable` that hosts a custom tab's view controller
+/// provided by the host app via ``FCLCustomAttachmentTab``.
+private struct FCLCustomTabWrapper: UIViewControllerRepresentable {
+    let tab: any FCLCustomAttachmentTab
+    let onSelect: @MainActor (FCLAttachment) -> Void
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        tab.makeViewController(onSelect: onSelect)
+    }
+
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+}
+
 // MARK: - Previews
 
 #if DEBUG
@@ -142,12 +281,14 @@ private struct FCLAttachmentPickerSheetPreviewWrapper: View {
         delegate: nil,
         onSend: { _, _ in }
     )
+    @StateObject private var galleryDataSource = FCLGalleryDataSource(isVideoEnabled: true)
 
     var body: some View {
         Color(UIColor.systemBackground)
             .sheet(isPresented: .constant(true)) {
                 FCLAttachmentPickerSheet(
                     presenter: presenter,
+                    galleryDataSource: galleryDataSource,
                     delegate: nil,
                     onDismiss: {},
                     onCameraCapture: {},
