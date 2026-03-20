@@ -11,8 +11,6 @@ import UIKit
 ///
 /// This view is used internally by ``FCLChatScreen`` when no custom input bar is provided.
 struct FCLInputBar: View {
-    /// Manages the list of user-selected attachments and presents pickers.
-    @ObservedObject private var attachmentManager: FCLAttachmentManager
     /// Two-way binding to the current draft message text.
     @Binding private var draftText: String
     /// Placeholder string shown when the text field is empty.
@@ -49,6 +47,12 @@ struct FCLInputBar: View {
     private let onSend: () -> Void
     /// The current measured height of the expanding text view.
     @State private var textViewHeight: CGFloat = 40
+    /// Whether the attachment picker sheet is presented.
+    @State private var showAttachmentPicker = false
+    /// Optional delegate providing tab configuration and compression settings for the attachment picker.
+    private let delegate: (any FCLChatDelegate)?
+    /// The chat presenter used to route attachment sends.
+    @ObservedObject private var presenter: FCLChatPresenter
 
     /// The total available screen height, used to auto-calculate max rows when not explicitly set.
     private let availableHeight: CGFloat
@@ -57,7 +61,8 @@ struct FCLInputBar: View {
     ///
     /// - Parameters:
     ///   - draftText: Binding to the current draft message text.
-    ///   - attachmentManager: The attachment manager handling file/image selection.
+    ///   - delegate: Optional delegate providing attachment picker configuration.
+    ///   - presenter: The chat presenter used to route attachment sends.
     ///   - placeholderText: Placeholder text shown when the field is empty.
     ///   - maxRows: Maximum visible text rows before scrolling. `nil` for auto-calculation.
     ///   - lineHeight: Explicit line height override. `nil` uses the font's native line height.
@@ -77,7 +82,8 @@ struct FCLInputBar: View {
     ///   - onSend: Callback invoked on send action.
     init(
         draftText: Binding<String>,
-        attachmentManager: FCLAttachmentManager,
+        delegate: (any FCLChatDelegate)?,
+        presenter: FCLChatPresenter,
         placeholderText: String = FCLInputDefaults.placeholderText,
         maxRows: Int? = FCLInputDefaults.maxRows,
         lineHeight: CGFloat? = FCLInputDefaults.lineHeight,
@@ -97,7 +103,8 @@ struct FCLInputBar: View {
         onSend: @escaping () -> Void
     ) {
         self._draftText = draftText
-        self.attachmentManager = attachmentManager
+        self.delegate = delegate
+        self.presenter = presenter
         self.placeholderText = placeholderText
         self.maxRows = maxRows
         self.lineHeight = lineHeight
@@ -133,16 +140,10 @@ struct FCLInputBar: View {
         return min(max(Int(height / 160), 4), 10)
     }
 
-    /// Builds the full input bar content: attachment preview strip on top, input row on the bottom.
+    /// Builds the full input bar content with the input row and attachment picker sheet.
     @ViewBuilder
     private func inputBarContent(maxTextHeight: CGFloat, uiFont: UIFont) -> some View {
         VStack(spacing: 0) {
-            FCLAttachmentPreviewStrip(
-                attachments: attachmentManager.attachments,
-                thumbnailSize: attachmentThumbnailSize,
-                onRemove: { attachmentManager.removeAttachment(at: $0) }
-            )
-
             inputRow(maxTextHeight: maxTextHeight, uiFont: uiFont)
                 .padding(contentInsets.edgeInsets)
         }
@@ -152,12 +153,23 @@ struct FCLInputBar: View {
                 backgroundColor: backgroundColor
             )
         )
-        .background(
-            FCLViewControllerResolver { [weak attachmentManager] vc in
-                attachmentManager?.presentingViewController = vc
-            }
-            .frame(width: 0, height: 0)
-        )
+        .sheet(isPresented: $showAttachmentPicker) {
+            FCLAttachmentPickerSheet(
+                presenter: FCLAttachmentPickerPresenter(
+                    delegate: delegate?.attachment,
+                    onSend: { [weak presenter] attachments, caption in
+                        presenter?.handleAttachments(attachments, caption: caption)
+                    }
+                ),
+                galleryDataSource: FCLGalleryDataSource(
+                    isVideoEnabled: delegate?.attachment?.isVideoEnabled ?? true
+                ),
+                delegate: delegate?.attachment,
+                onDismiss: { showAttachmentPicker = false },
+                onCameraCapture: {},
+                onAssetTap: { _ in }
+            )
+        }
     }
 
     /// Lays out the attach button, expanding text field, and send button according to the container mode.
@@ -212,7 +224,7 @@ struct FCLInputBar: View {
     @ViewBuilder
     private var attachButtonIfNeeded: some View {
         if showAttachButton {
-            Button(action: { attachmentManager.addAttachment() }) {
+            Button(action: { showAttachmentPicker = true }) {
                 Image(systemName: "paperclip")
                     .font(.system(size: 20))
                     .foregroundColor(.secondary)
@@ -238,7 +250,7 @@ struct FCLInputBar: View {
         let enabled = Self.isSendEnabled(
             text: draftText,
             minimumLength: minimumTextLength,
-            hasAttachments: !attachmentManager.attachments.isEmpty
+            hasAttachments: false
         )
         return Button(action: onSend) {
             Image(systemName: "paperplane.fill")
@@ -259,43 +271,6 @@ struct FCLInputBar: View {
             return UIFont(name: family, size: font.size) ?? UIFont.systemFont(ofSize: font.size)
         }
         return UIFont.systemFont(ofSize: font.size, weight: font.weight.uiFontWeight)
-    }
-}
-
-// MARK: - ViewController Resolver
-
-/// A hidden `UIViewRepresentable` that walks the responder chain to find the hosting
-/// `UIViewController`. Used by the input bar to provide a presenting view controller
-/// for the attachment picker.
-private struct FCLViewControllerResolver: UIViewRepresentable {
-    /// Callback invoked with the resolved view controller.
-    let onResolve: @MainActor (UIViewController) -> Void
-
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.isHidden = true
-        view.isUserInteractionEnabled = false
-        return view
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        if let vc = uiView.findViewController() {
-            onResolve(vc)
-        }
-    }
-}
-
-private extension UIView {
-    /// Walks the responder chain upward to find the nearest `UIViewController`.
-    func findViewController() -> UIViewController? {
-        var responder: UIResponder? = self
-        while let next = responder?.next {
-            if let vc = next as? UIViewController {
-                return vc
-            }
-            responder = next
-        }
-        return nil
     }
 }
 
@@ -322,12 +297,16 @@ struct FCLInputBar_Previews: PreviewProvider {
 
 private struct FCLInputBarPreviewWrapper: View {
     @State var text: String
-    @StateObject private var attachmentManager = FCLAttachmentManager()
+    @StateObject private var presenter = FCLChatPresenter(
+        messages: [],
+        currentUser: FCLChatMessageSender(id: "preview", displayName: "Preview")
+    )
 
     var body: some View {
         FCLInputBar(
             draftText: $text,
-            attachmentManager: attachmentManager,
+            delegate: nil,
+            presenter: presenter,
             availableHeight: 700,
             onSend: {}
         )

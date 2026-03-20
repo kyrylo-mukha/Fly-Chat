@@ -188,7 +188,8 @@ public struct FCLChatScreen: View {
             #if canImport(UIKit)
             FCLInputBar(
                 draftText: $presenter.draftText,
-                attachmentManager: presenter.attachmentManager,
+                delegate: delegate,
+                presenter: presenter,
                 placeholderText: inputPlaceholderText,
                 maxRows: inputMaxRows,
                 lineHeight: inputLineHeight,

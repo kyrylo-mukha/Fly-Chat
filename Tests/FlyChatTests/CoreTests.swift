@@ -152,6 +152,18 @@ final class FCLCoreTests: XCTestCase {
         XCTAssertEqual(action.role, .default)
     }
 
+    // MARK: - Attachment Delegate Defaults
+
+    func testAttachmentDefaultValues() {
+        #if canImport(UIKit)
+        XCTAssertEqual(FCLAttachmentDefaults.mediaCompression, .default)
+        XCTAssertTrue(FCLAttachmentDefaults.recentFiles.isEmpty)
+        XCTAssertTrue(FCLAttachmentDefaults.customTabs.isEmpty)
+        XCTAssertTrue(FCLAttachmentDefaults.isVideoEnabled)
+        XCTAssertTrue(FCLAttachmentDefaults.isFileTabEnabled)
+        #endif
+    }
+
     // MARK: - Context Menu Delegate
 
     @MainActor
