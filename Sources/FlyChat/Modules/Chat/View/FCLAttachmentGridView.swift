@@ -52,6 +52,8 @@ struct FCLAttachmentGridView: View {
     let attachments: [FCLAttachment]
     /// The maximum width of the grid, matching the bubble's max width.
     let maxWidth: CGFloat
+    /// Called when the user taps an attachment thumbnail to open a preview.
+    var onAttachmentTap: ((FCLAttachment) -> Void)?
 
     var body: some View {
         let layout = FCLAttachmentGridLayout.grid(for: attachments.count)
@@ -69,31 +71,36 @@ struct FCLAttachmentGridView: View {
     /// Renders a single attachment cell with a thumbnail or placeholder and an optional video overlay.
     @ViewBuilder
     private func attachmentCell(_ attachment: FCLAttachment) -> some View {
-        ZStack {
-            if let data = attachment.thumbnailData, let image = UIImage(data: data) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-            }
+        Button {
+            onAttachmentTap?(attachment)
+        } label: {
+            ZStack {
+                if let data = attachment.thumbnailData, let image = UIImage(data: data) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                }
 
-            // Play overlay for video
-            if attachment.type == .video {
-                Circle()
-                    .fill(Color.black.opacity(0.5))
-                    .frame(width: 44, height: 44)
-                    .overlay(
-                        Image(systemName: "play.fill")
-                            .foregroundColor(.white)
-                            .font(.system(size: 20))
-                    )
+                // Play overlay for video
+                if attachment.type == .video {
+                    Circle()
+                        .fill(Color.black.opacity(0.5))
+                        .frame(width: 44, height: 44)
+                        .overlay(
+                            Image(systemName: "play.fill")
+                                .foregroundColor(.white)
+                                .font(.system(size: 20))
+                        )
+                }
             }
+            .frame(height: 120)
+            .clipped()
+            .cornerRadius(4)
         }
-        .frame(height: 120)
-        .clipped()
-        .cornerRadius(4)
+        .buttonStyle(.plain)
     }
 }
 

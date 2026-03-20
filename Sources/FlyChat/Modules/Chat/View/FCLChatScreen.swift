@@ -311,6 +311,9 @@ private struct FCLChatMessageRow: View {
     /// The list of context menu actions available on long-press.
     let contextMenuActions: [FCLContextMenuAction]
 
+    /// The attachment currently being previewed in a full-screen cover, or `nil` if none.
+    @State private var previewAttachment: FCLAttachment?
+
     /// Shared date formatter for rendering short time strings (e.g., "2:30 PM").
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -346,6 +349,14 @@ private struct FCLChatMessageRow: View {
                 Spacer()
             }
         }
+        #if canImport(UIKit)
+        .fullScreenCover(item: $previewAttachment) { attachment in
+            FCLMediaPreviewView(
+                attachment: attachment,
+                onDismiss: { previewAttachment = nil }
+            )
+        }
+        #endif
     }
 
     /// Renders the avatar image for the last message in a group, or a clear spacer for mid-group messages.
@@ -444,7 +455,13 @@ private struct FCLChatMessageRow: View {
         return VStack(alignment: .leading, spacing: 0) {
             #if canImport(UIKit)
             if !mediaAttachments.isEmpty {
-                FCLAttachmentGridView(attachments: mediaAttachments, maxWidth: maxBubbleWidth)
+                FCLAttachmentGridView(
+                    attachments: mediaAttachments,
+                    maxWidth: maxBubbleWidth,
+                    onAttachmentTap: { attachment in
+                        previewAttachment = attachment
+                    }
+                )
             }
 
             ForEach(fileAttachments) { attachment in

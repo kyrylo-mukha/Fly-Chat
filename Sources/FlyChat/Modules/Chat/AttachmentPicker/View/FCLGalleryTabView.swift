@@ -95,13 +95,14 @@ struct FCLGalleryTabView: View {
 
     private var cameraCellView: some View {
         Button(action: onCameraCapture) {
-            ZStack {
-                Color(UIColor.tertiarySystemFill)
-                Image(systemName: "camera.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(Color(UIColor.secondaryLabel))
-            }
-            .aspectRatio(1, contentMode: .fill)
+            FCLCameraPreviewCell()
+                .aspectRatio(1, contentMode: .fit)
+                .overlay(
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+                )
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Take a photo")
@@ -121,7 +122,7 @@ struct FCLGalleryTabView: View {
                 onAssetTap(assetID)
             } label: {
                 FCLAssetThumbnailView(asset: asset, galleryDataSource: galleryDataSource)
-                    .aspectRatio(1, contentMode: .fill)
+                    .aspectRatio(1, contentMode: .fit)
                     .clipped()
             }
             .buttonStyle(.plain)
@@ -218,24 +219,118 @@ private struct FCLAssetThumbnailView: View {
 #if DEBUG
 struct FCLGalleryTabView_Previews: PreviewProvider {
     static var previews: some View {
-        FCLGalleryTabViewPreviewWrapper()
-            .previewDisplayName("Gallery Tab — Default")
+        FCLGalleryTabMockPreview(selectedIndices: [])
+            .previewDisplayName("Gallery Tab — Browsing")
+
+        FCLGalleryTabMockPreview(selectedIndices: [1, 4])
+            .previewDisplayName("Gallery Tab — Multi-Select")
     }
 }
 
-private struct FCLGalleryTabViewPreviewWrapper: View {
-    @StateObject private var presenter = FCLAttachmentPickerPresenter(
-        delegate: nil,
-        onSend: { _, _ in }
-    )
-    @StateObject private var dataSource = FCLGalleryDataSource(isVideoEnabled: true)
+/// A self-contained preview that replicates the gallery grid layout using
+/// programmatically generated images. This avoids Photos framework access
+/// which crashes the Xcode preview agent due to missing TCC entitlements.
+private struct FCLGalleryTabMockPreview: View {
+    let selectedIndices: Set<Int>
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
+
+    private static let mockItems: [(Color, Color, Bool, TimeInterval?)] = [
+        (.blue,    .cyan,    false, nil),
+        (.orange,  .yellow,  false, nil),
+        (.green,   .mint,    false, nil),
+        (.purple,  .pink,    true,  14),
+        (.red,     .orange,  false, nil),
+        (.teal,    .blue,    false, nil),
+        (.indigo,  .purple,  true,  67),
+        (.brown,   .orange,  false, nil),
+        (.pink,    .red,     false, nil),
+        (.cyan,    .green,   false, nil),
+        (.mint,    .teal,    false, nil),
+    ]
 
     var body: some View {
-        FCLGalleryTabView(
-            presenter: presenter,
-            galleryDataSource: dataSource,
-            onCameraCapture: {},
-            onAssetTap: { _ in }
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 2) {
+                // Camera cell
+                ZStack {
+                    Color(UIColor.tertiarySystemFill)
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(Color(UIColor.secondaryLabel))
+                }
+                .aspectRatio(1, contentMode: .fit)
+
+                // Mock asset cells
+                ForEach(0..<Self.mockItems.count, id: \.self) { index in
+                    let item = Self.mockItems[index]
+                    let isSelected = selectedIndices.contains(index)
+                    let selectionNumber: Int? = {
+                        guard isSelected else { return nil }
+                        return selectedIndices.sorted().firstIndex(of: index).map { $0 + 1 }
+                    }()
+
+                    mockAssetCell(
+                        topColor: item.0,
+                        bottomColor: item.1,
+                        isVideo: item.2,
+                        duration: item.3,
+                        isSelected: isSelected,
+                        selectionNumber: selectionNumber
+                    )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func mockAssetCell(
+        topColor: Color,
+        bottomColor: Color,
+        isVideo: Bool,
+        duration: TimeInterval?,
+        isSelected: Bool,
+        selectionNumber: Int?
+    ) -> some View {
+        ZStack(alignment: .topTrailing) {
+            LinearGradient(colors: [topColor, bottomColor], startPoint: .topLeading, endPoint: .bottomTrailing)
+                .aspectRatio(1, contentMode: .fit)
+
+            if isVideo, let duration {
+                let minutes = Int(duration) / 60
+                let seconds = Int(duration) % 60
+                Text(String(format: "%d:%02d", minutes, seconds))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Color.black.opacity(0.6))
+                    .cornerRadius(3)
+                    .padding(4)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            }
+
+            ZStack {
+                if isSelected, let selectionNumber {
+                    Circle()
+                        .fill(Color.blue)
+                        .frame(width: 24, height: 24)
+                    Text("\(selectionNumber)")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.white)
+                } else {
+                    Circle()
+                        .stroke(Color.white, lineWidth: 2)
+                        .frame(width: 24, height: 24)
+                        .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 1)
+                }
+            }
+            .padding(4)
+        }
+        .overlay(
+            isSelected
+                ? RoundedRectangle(cornerRadius: 0).stroke(Color.blue, lineWidth: 3)
+                : nil
         )
     }
 }

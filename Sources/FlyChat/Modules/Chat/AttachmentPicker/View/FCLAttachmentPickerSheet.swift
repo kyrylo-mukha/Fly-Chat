@@ -32,6 +32,8 @@ struct FCLAttachmentPickerSheet: View {
     /// Callback invoked when the user taps a gallery asset thumbnail.
     let onAssetTap: (String) -> Void
 
+    @State private var showCamera = false
+
     var body: some View {
         VStack(spacing: 0) {
             tabContentArea
@@ -40,6 +42,17 @@ struct FCLAttachmentPickerSheet: View {
         .background(Color(UIColor.systemBackground))
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .fullScreenCover(isPresented: $showCamera) {
+            FCLCameraBridge(
+                onCapture: { attachment in
+                    showCamera = false
+                    presenter.sendFileAttachment(attachment)
+                    onDismiss()
+                },
+                onCancel: { showCamera = false }
+            )
+            .ignoresSafeArea()
+        }
     }
 
     // MARK: - Tab Content Area
@@ -51,7 +64,11 @@ struct FCLAttachmentPickerSheet: View {
             FCLGalleryTabView(
                 presenter: presenter,
                 galleryDataSource: galleryDataSource,
-                onCameraCapture: onCameraCapture,
+                onCameraCapture: {
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                        showCamera = true
+                    }
+                },
                 onAssetTap: onAssetTap
             )
 

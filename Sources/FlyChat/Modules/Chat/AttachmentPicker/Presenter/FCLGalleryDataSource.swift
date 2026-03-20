@@ -11,13 +11,22 @@ final class FCLGalleryDataSource: NSObject, ObservableObject {
     private let imageManager = PHCachingImageManager()
     private let isVideoEnabled: Bool
 
+    /// Whether the code is running inside an Xcode preview. Privacy-sensitive APIs
+    /// (Photos, Camera) must not be called in this context because the preview agent
+    /// lacks the required Info.plist usage descriptions and will crash with a TCC violation.
+    private static var isRunningInPreview: Bool {
+        ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+    }
+
     init(isVideoEnabled: Bool) {
         self.isVideoEnabled = isVideoEnabled
         super.init()
+        guard !Self.isRunningInPreview else { return }
         authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     }
 
     func requestAccessAndFetch() {
+        guard !Self.isRunningInPreview else { return }
         let currentStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         if currentStatus == .authorized || currentStatus == .limited {
             fetchAssets()
@@ -86,7 +95,7 @@ final class FCLGalleryDataSource: NSObject, ObservableObject {
     }
 }
 
-extension FCLGalleryDataSource: @preconcurrency PHPhotoLibraryChangeObserver {
+extension FCLGalleryDataSource: PHPhotoLibraryChangeObserver {
     nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
         Task { @MainActor [weak self] in
             guard let self else { return }

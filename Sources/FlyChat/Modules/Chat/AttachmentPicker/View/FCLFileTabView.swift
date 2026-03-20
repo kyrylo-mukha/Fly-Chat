@@ -68,15 +68,24 @@ struct FCLFileTabView: View {
     @ViewBuilder
     private var recentFilesSection: some View {
         let filtered = filteredRecentFiles
-        if !filtered.isEmpty {
-            Section {
-                HStack {
-                    Text("Recent Files")
-                        .font(.headline)
-                    Spacer()
+        Section {
+            HStack {
+                Text("Recent Files")
+                    .font(.headline)
+                Spacer()
+                if !recentFiles.isEmpty {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(Color(UIColor.secondaryLabel))
                 }
+            }
+
+            if recentFiles.isEmpty {
+                Text("No recent files")
+                    .font(.subheadline)
+                    .foregroundColor(Color(UIColor.tertiaryLabel))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
+            } else {
                 TextField("Search files...", text: $searchText)
                     .textFieldStyle(.roundedBorder)
 
