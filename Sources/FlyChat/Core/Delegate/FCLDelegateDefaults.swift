@@ -110,3 +110,26 @@ enum FCLInputDefaults {
     /// Default attachment thumbnail preview size: 32 points.
     static let attachmentThumbnailSize: CGFloat = 32
 }
+
+#if canImport(UIKit)
+/// Default values for ``FCLAttachmentDelegate`` properties.
+///
+/// These constants are used as fallbacks when the host app does not provide
+/// a custom ``FCLAttachmentDelegate`` or does not override a specific property.
+enum FCLAttachmentDefaults {
+    /// Default media compression: ``FCLMediaCompression/default``.
+    static let mediaCompression: FCLMediaCompression = .default
+
+    /// Default recent files list: empty (no recents section shown).
+    static let recentFiles: [FCLRecentFile] = []
+
+    /// Default custom tabs list: empty (no extra tabs shown).
+    static let customTabs: [any FCLCustomAttachmentTab] = []
+
+    /// Default video availability: `true`.
+    static let isVideoEnabled = true
+
+    /// Default file tab visibility: `true`.
+    static let isFileTabEnabled = true
+}
+#endif

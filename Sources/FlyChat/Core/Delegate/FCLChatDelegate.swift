@@ -27,6 +27,13 @@ public protocol FCLChatDelegate: AnyObject {
     ///
     /// Return `nil` to use the library's default input bar configuration.
     var input: (any FCLInputDelegate)? { get }
+
+    #if canImport(UIKit)
+    /// Delegate that controls the attachment picker's capabilities and data sources.
+    ///
+    /// Return `nil` to use the library's default attachment behavior.
+    var attachment: (any FCLAttachmentDelegate)? { get }
+    #endif
 }
 
 public extension FCLChatDelegate {
@@ -34,4 +41,8 @@ public extension FCLChatDelegate {
     var avatar: (any FCLAvatarDelegate)? { nil }
     var layout: (any FCLLayoutDelegate)? { nil }
     var input: (any FCLInputDelegate)? { nil }
+
+    #if canImport(UIKit)
+    var attachment: (any FCLAttachmentDelegate)? { nil }
+    #endif
 }
