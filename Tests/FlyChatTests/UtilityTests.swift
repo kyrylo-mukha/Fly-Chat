@@ -121,30 +121,4 @@ final class FCLUtilityTests: XCTestCase {
     }
     #endif
 
-    // MARK: - Attachment Manager
-
-    #if canImport(UIKit)
-    @MainActor
-    func testAttachmentManagerAddAndRemove() {
-        let manager = FCLAttachmentManager()
-        let attachment = FCLAttachment(type: .image, url: URL(string: "file:///tmp/img.jpg")!, fileName: "img.jpg")
-
-        manager.appendAttachments([attachment])
-        XCTAssertEqual(manager.attachments.count, 1)
-
-        manager.removeAttachment(at: 0)
-        XCTAssertTrue(manager.attachments.isEmpty)
-    }
-
-    @MainActor
-    func testAttachmentManagerClearAttachments() {
-        let manager = FCLAttachmentManager()
-        let a1 = FCLAttachment(type: .image, url: URL(string: "file:///tmp/1.jpg")!, fileName: "1.jpg")
-        let a2 = FCLAttachment(type: .file, url: URL(string: "file:///tmp/2.pdf")!, fileName: "2.pdf")
-        manager.appendAttachments([a1, a2])
-
-        manager.clearAttachments()
-        XCTAssertTrue(manager.attachments.isEmpty)
-    }
-    #endif
 }

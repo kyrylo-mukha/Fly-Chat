@@ -17,11 +17,6 @@ public final class FCLChatPresenter: ObservableObject {
     /// Optional delegate providing layout and appearance customization.
     public let delegate: (any FCLChatDelegate)?
 
-    #if canImport(UIKit)
-    /// Manages picking, storing, and clearing message attachments (UIKit only).
-    public let attachmentManager: FCLAttachmentManager
-    #endif
-
     private let clipboard: any FCLChatClipboard
     /// Optional delegate that supplies context menu actions for individual messages.
     public private(set) weak var contextMenuDelegate: (any FCLContextMenuDelegate)?
@@ -63,7 +58,6 @@ public final class FCLChatPresenter: ObservableObject {
     ///   - currentUser: The sender identity for the local user.
     ///   - clipboard: The clipboard implementation for copy actions. Defaults to the system clipboard.
     ///   - router: An optional router to receive send/delete callbacks.
-    ///   - attachmentPickerDelegate: An optional delegate for custom attachment picker UI.
     ///   - delegate: An optional delegate providing layout and appearance customization.
     ///   - contextMenuDelegate: An optional delegate supplying context menu actions.
     public init(
@@ -72,7 +66,6 @@ public final class FCLChatPresenter: ObservableObject {
         currentUser: FCLChatMessageSender,
         clipboard: any FCLChatClipboard = FCLSystemChatClipboard(),
         router: (any FCLChatRouting)? = nil,
-        attachmentPickerDelegate: (any FCLAttachmentPickerDelegate)? = nil,
         delegate: (any FCLChatDelegate)? = nil,
         contextMenuDelegate: (any FCLContextMenuDelegate)? = nil
     ) {
@@ -83,7 +76,6 @@ public final class FCLChatPresenter: ObservableObject {
         self.contextMenuDelegate = contextMenuDelegate
         self.router = router
         self.delegate = delegate
-        self.attachmentManager = FCLAttachmentManager(pickerDelegate: attachmentPickerDelegate)
     }
 
     /// Convenience initializer using closure-based callbacks instead of a router (UIKit).
@@ -92,7 +84,6 @@ public final class FCLChatPresenter: ObservableObject {
     ///   - currentUser: The sender identity for the local user.
     ///   - onSendMessage: Closure called when a message is sent. Defaults to `nil`.
     ///   - onDeleteMessage: Closure called when a message is deleted. Defaults to `nil`.
-    ///   - attachmentPickerDelegate: An optional delegate for custom attachment picker UI.
     ///   - delegate: An optional delegate providing layout and appearance customization.
     ///   - contextMenuDelegate: An optional delegate supplying context menu actions.
     public convenience init(
@@ -100,7 +91,6 @@ public final class FCLChatPresenter: ObservableObject {
         currentUser: FCLChatMessageSender,
         onSendMessage: ((FCLChatMessage) -> Void)? = nil,
         onDeleteMessage: ((FCLChatMessage) -> Void)? = nil,
-        attachmentPickerDelegate: (any FCLAttachmentPickerDelegate)? = nil,
         delegate: (any FCLChatDelegate)? = nil,
         contextMenuDelegate: (any FCLContextMenuDelegate)? = nil
     ) {
@@ -109,7 +99,6 @@ public final class FCLChatPresenter: ObservableObject {
             currentUser: currentUser,
             clipboard: FCLSystemChatClipboard(),
             router: FCLChatActionRouter(onSendMessage: onSendMessage, onDeleteMessage: onDeleteMessage),
-            attachmentPickerDelegate: attachmentPickerDelegate,
             delegate: delegate,
             contextMenuDelegate: contextMenuDelegate
         )
@@ -251,28 +240,30 @@ public final class FCLChatPresenter: ObservableObject {
         return resolvedInterGroupSpacing
     }
 
-    /// Sends the current draft text (and any pending attachments on UIKit) as a new outgoing message.
+    /// Sends the current draft text as a new outgoing message.
     ///
     /// Trims whitespace from the draft, constructs an ``FCLChatMessage``, appends it to `messages`,
-    /// clears the draft and attachments, then notifies the router.
-    /// Does nothing if both the trimmed text and attachments are empty.
+    /// clears the draft, then notifies the router.
+    /// Does nothing if the trimmed text is empty.
     public func sendDraft() {
         let normalized = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        #if canImport(UIKit)
-        let currentAttachments = attachmentManager.attachments
-        guard normalized.isEmpty == false || currentAttachments.isEmpty == false else { return }
-        let message = FCLChatMessage(text: normalized, direction: .outgoing, attachments: currentAttachments, sender: currentUser)
-        messages.append(message)
-        draftText = ""
-        attachmentManager.clearAttachments()
-        #else
         guard normalized.isEmpty == false else { return }
         let message = FCLChatMessage(text: normalized, direction: .outgoing, sender: currentUser)
         messages.append(message)
         draftText = ""
-        #endif
+        router?.didSendMessage(message)
+    }
 
+    /// Handles attachments sent from the attachment picker sheet.
+    public func handleAttachments(_ attachments: [FCLAttachment], caption: String?) {
+        let text = caption ?? ""
+        let message = FCLChatMessage(
+            text: text,
+            direction: .outgoing,
+            attachments: attachments,
+            sender: currentUser
+        )
+        messages.append(message)
         router?.didSendMessage(message)
     }
 

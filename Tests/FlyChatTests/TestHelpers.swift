@@ -30,17 +30,6 @@ final class FCLChatRouterSpy: FCLChatRouting {
     }
 }
 
-#if canImport(UIKit)
-final class FCLAttachmentPickerDelegateSpy: FCLAttachmentPickerDelegate {
-    var presentPickerCalled = false
-
-    func presentPicker(from viewController: UIViewController, completion: @escaping ([FCLAttachment]) -> Void) {
-        presentPickerCalled = true
-        completion([])
-    }
-}
-#endif
-
 // MARK: - Delegate Test Spies
 
 @MainActor
@@ -49,6 +38,9 @@ final class TestChatDelegate: FCLChatDelegate {
     var avatar: (any FCLAvatarDelegate)? { nil }
     var layout: (any FCLLayoutDelegate)? { TestLayoutDelegate() }
     var input: (any FCLInputDelegate)? { nil }
+    #if canImport(UIKit)
+    var attachment: (any FCLAttachmentDelegate)? { nil }
+    #endif
 }
 
 @MainActor
@@ -56,6 +48,16 @@ final class TestLayoutDelegate: FCLLayoutDelegate {
     var incomingSide: FCLChatBubbleSide { .right }
     // other properties use protocol defaults
 }
+
+#if canImport(UIKit)
+@MainActor
+final class TestAttachmentDelegate: FCLAttachmentDelegate {
+    var fileTabEnabled = true
+    var videoEnabled = true
+    var isFileTabEnabled: Bool { fileTabEnabled }
+    var isVideoEnabled: Bool { videoEnabled }
+}
+#endif
 
 @MainActor
 final class FCLContextMenuDelegateSpy: FCLContextMenuDelegate {

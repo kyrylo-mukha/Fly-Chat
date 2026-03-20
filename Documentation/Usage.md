@@ -123,8 +123,7 @@ struct MyChatView: View {
 | `currentUser`             | `FCLChatMessageSender`                  | required| The local user (used to identify outgoing messages).      |
 | `onSendMessage`           | `((FCLChatMessage) -> Void)?`           | `nil`   | Called when the user taps Send.                           |
 | `onDeleteMessage`         | `((FCLChatMessage) -> Void)?`           | `nil`   | Called when the user deletes a message via context menu.  |
-| `attachmentPickerDelegate`| `(any FCLAttachmentPickerDelegate)?`    | `nil`   | Provides a custom attachment picker UI.                   |
-| `delegate`                | `(any FCLChatDelegate)?`                | `nil`   | Controls appearance, layout, avatar, and input styling.   |
+| `delegate`                | `(any FCLChatDelegate)?`                | `nil`   | Controls appearance, layout, avatar, input, and attachment behavior. |
 | `contextMenuDelegate`     | `(any FCLContextMenuDelegate)?`         | `nil`   | Supplies custom long-press context menu actions.          |
 
 **`FCLChatScreen`**
@@ -251,8 +250,7 @@ final class ChatCoordinator {
             onDeleteMessage: { msg in
                 print("Deleted:", msg.id)
             },
-            attachmentPickerDelegate: nil,  // Optional custom attachment picker
-            delegate: nil,                  // Optional FCLChatDelegate
+            delegate: nil,                  // Optional FCLChatDelegate (includes attachment sub-delegate)
             contextMenuDelegate: nil        // Optional context menu actions
         )
 
@@ -330,8 +328,7 @@ final class SplitViewController: UIViewController {
                 print("Sent:", msg.text)
             },
             onDeleteMessage: nil,        // Optional delete callback
-            attachmentPickerDelegate: nil,
-            delegate: nil,
+            delegate: nil,               // Optional FCLChatDelegate (includes attachment sub-delegate)
             contextMenuDelegate: nil
         )
     }
@@ -381,10 +378,11 @@ FlyChat uses a delegate chain rooted at `FCLChatDelegate`. The protocol exposes 
 ```swift
 @MainActor
 public protocol FCLChatDelegate: AnyObject {
-    var appearance: (any FCLAppearanceDelegate)? { get }  // Bubble colors, fonts, tail style
-    var avatar: (any FCLAvatarDelegate)? { get }          // Avatar images and sizing
-    var layout: (any FCLLayoutDelegate)? { get }          // Bubble side, width ratio, spacing
-    var input: (any FCLInputDelegate)? { get }            // Input bar configuration
+    var appearance: (any FCLAppearanceDelegate)? { get }   // Bubble colors, fonts, tail style
+    var avatar: (any FCLAvatarDelegate)? { get }           // Avatar images and sizing
+    var layout: (any FCLLayoutDelegate)? { get }           // Bubble side, width ratio, spacing
+    var input: (any FCLInputDelegate)? { get }             // Input bar configuration
+    var attachment: (any FCLAttachmentDelegate)? { get }   // Attachment picker capabilities (iOS only)
 }
 ```
 
@@ -578,5 +576,5 @@ Images and videos are rendered in a grid above the message text. File attachment
 
 ## Next Steps
 
-- [AdvancedUsage.md](AdvancedUsage.md) -- Custom input bars, attachment picker delegates, context menu actions, and dynamic message updates.
+- [AdvancedUsage.md](AdvancedUsage.md) -- Custom input bars, attachment delegate configuration, context menu actions, and dynamic message updates.
 - [DelegateSystem/Overview.md](DelegateSystem/Overview.md) -- Complete reference for `FCLChatDelegate`, `FCLAppearanceDelegate`, `FCLLayoutDelegate`, `FCLAvatarDelegate`, and `FCLInputDelegate` with all properties and defaults.

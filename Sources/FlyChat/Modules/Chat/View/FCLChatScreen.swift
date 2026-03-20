@@ -188,7 +188,8 @@ public struct FCLChatScreen: View {
             #if canImport(UIKit)
             FCLInputBar(
                 draftText: $presenter.draftText,
-                attachmentManager: presenter.attachmentManager,
+                delegate: delegate,
+                presenter: presenter,
                 placeholderText: inputPlaceholderText,
                 maxRows: inputMaxRows,
                 lineHeight: inputLineHeight,
@@ -375,7 +376,7 @@ private struct FCLChatMessageRow: View {
         if contextMenuActions.isEmpty {
             bubble
         } else {
-            if #available(iOS 16.0, macOS 13.0, *) {
+            if #available(macOS 13.0, *) {
                 bubble.contextMenu {
                     contextMenuButtons
                 } preview: {
@@ -393,21 +394,11 @@ private struct FCLChatMessageRow: View {
     @ViewBuilder
     private var contextMenuButtons: some View {
         ForEach(Array(contextMenuActions.enumerated()), id: \.offset) { _, action in
-            if #available(iOS 15.0, macOS 12.0, *) {
+            if #available(macOS 12.0, *) {
                 Button(role: action.role == .destructive ? .destructive : nil, action: {
                     action.handler(message)
                 }) {
                     Label(action.title, systemImage: action.systemImage ?? "")
-                }
-            } else if #available(macOS 11.0, *) {
-                Button(action: {
-                    action.handler(message)
-                }) {
-                    if let systemImage = action.systemImage {
-                        Label(action.title, systemImage: systemImage)
-                    } else {
-                        Text(action.title)
-                    }
                 }
             } else {
                 Button(action: {
@@ -439,7 +430,7 @@ private struct FCLChatMessageRow: View {
         let timeString = Self.timeFormatter.string(from: message.sentAt)
 
         let timestampFont: Font = {
-            if #available(iOS 14.0, macOS 11.0, *) {
+            if #available(macOS 11.0, *) {
                 return .caption2
             } else {
                 return .caption
@@ -529,11 +520,10 @@ private struct FCLBottomAnchoredChatModifier: ViewModifier {
 // MARK: - Height Change Helpers
 
 private extension View {
-    /// Observes changes to the given height value when running on iOS 14+ / macOS 11+.
-    /// On earlier OS versions this is a no-op (the screen height simply keeps its initial value).
+    /// Observes changes to the given height value. On macOS 10.15, this is a no-op.
     @ViewBuilder
     func onChangeOfHeightIfAvailable(_ height: CGFloat, perform action: @escaping (CGFloat) -> Void) -> some View {
-        if #available(iOS 14.0, macOS 11.0, *) {
+        if #available(macOS 11.0, *) {
             self.onChange(of: height, perform: action)
         } else {
             self
@@ -545,24 +535,12 @@ private extension View {
 
 private extension View {
     #if os(iOS)
-    /// Hides list row separators on iOS 15+. On earlier versions this is a no-op.
-    @ViewBuilder
     func hideFCLChatRowSeparatorsIfAvailable() -> some View {
-        if #available(iOS 15.0, *) {
-            self.listRowSeparator(.hidden, edges: .all)
-        } else {
-            self
-        }
+        self.listRowSeparator(.hidden, edges: .all)
     }
 
-    /// Hides list section separators on iOS 15+. On earlier versions this is a no-op.
-    @ViewBuilder
     func hideFCLChatSectionSeparatorsIfAvailable() -> some View {
-        if #available(iOS 15.0, *) {
-            self.listSectionSeparator(.hidden, edges: .all)
-        } else {
-            self
-        }
+        self.listSectionSeparator(.hidden, edges: .all)
     }
     #else
     func hideFCLChatRowSeparatorsIfAvailable() -> some View { self }
