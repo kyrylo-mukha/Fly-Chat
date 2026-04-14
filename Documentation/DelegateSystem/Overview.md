@@ -55,6 +55,8 @@ public protocol FCLAppearanceDelegate: AnyObject {
     var messageFont: FCLChatMessageFontConfiguration { get }
     var tailStyle: FCLBubbleTailStyle { get }
     var minimumBubbleHeight: CGFloat { get }
+    var attachmentInsets: FCLEdgeInsets { get }     // iOS only
+    var attachmentItemSpacing: CGFloat { get }       // iOS only
 }
 ```
 
@@ -69,6 +71,8 @@ public protocol FCLAppearanceDelegate: AnyObject {
 | `messageFont` | `FCLChatMessageFontConfiguration` | `FCLChatMessageFontConfiguration()` -- system font, size 17, weight `.regular` | Font used for message body text. See **Supporting Types** below. |
 | `tailStyle` | `FCLBubbleTailStyle` | `.edged(.bottom)` | Bubble corner tail style. See **Supporting Types** below. |
 | `minimumBubbleHeight` | `CGFloat` | `40` | Minimum height (in points) for any message bubble. Prevents short messages from collapsing too small. |
+| `attachmentInsets` | `FCLEdgeInsets` | `FCLEdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1)` | Inner padding (in points) applied around the attachment image grid inside a bubble. iOS only. |
+| `attachmentItemSpacing` | `CGFloat` | `1` | Spacing (in points) between adjacent cells in the attachment grid. iOS only. |
 
 ### Supporting Types
 
@@ -356,7 +360,7 @@ private func resolveMaxRows(forAvailableHeight height: CGFloat) -> Int {
 
 **Platform:** iOS only (`#if canImport(UIKit)`)
 
-Controls the tabbed attachment picker sheet: media compression settings, the "Recents" section, additional custom tabs, and feature toggles for video and the Files tab.
+Controls the tabbed attachment picker sheet: media compression settings, the "Recents" section, additional custom tabs, and feature toggles for video, camera video, and the Files tab. The in-app camera uses Apple's native `UIImagePickerController`; this delegate does not replace or configure the camera UI itself.
 
 ```swift
 @MainActor
@@ -379,7 +383,7 @@ public protocol FCLAttachmentDelegate: AnyObject {
 | `customTabs` | `[any FCLCustomAttachmentTab]` | `[]` | Additional tabs injected after Gallery and Files. Empty array shows only built-in tabs. |
 | `isVideoEnabled` | `Bool` | `true` | Whether video selection is available in the Gallery tab. |
 | `isFileTabEnabled` | `Bool` | `true` | Whether the Files tab is shown in the picker. |
-| `isCameraVideoEnabled` | `Bool` | `true` | Whether the in-app camera allows video recording in addition to photos. |
+| `isCameraVideoEnabled` | `Bool` | `true` | Whether the native camera allows video recording in addition to photos. When `false`, `UIImagePickerController` is restricted to photos only. |
 
 > **Recent Files:** iOS does not provide a system API for accessing the user's recent file history. The `recentFiles` array is entirely host-app managed — populate it with files your app has recently handled (e.g., sent attachments, downloaded documents). When the array is empty, the Files tab shows a "No recent files" placeholder.
 
@@ -387,7 +391,7 @@ public protocol FCLAttachmentDelegate: AnyObject {
 
 #### `FCLMediaCompression`
 
-**File:** `Sources/FlyChat/Modules/Chat/AttachmentPicker/Model/FCLMediaCompression.swift`
+**File:** `Sources/FlyChat/Modules/AttachmentPicker/Model/FCLMediaCompression.swift`
 
 ```swift
 public struct FCLMediaCompression: Sendable, Equatable {
@@ -408,7 +412,7 @@ public enum FCLVideoExportPreset: String, Sendable, Equatable {
 
 #### `FCLRecentFile`
 
-**File:** `Sources/FlyChat/Modules/Chat/AttachmentPicker/Model/FCLRecentFile.swift`
+**File:** `Sources/FlyChat/Modules/AttachmentPicker/Model/FCLRecentFile.swift`
 
 ```swift
 public struct FCLRecentFile: Identifiable, Sendable {

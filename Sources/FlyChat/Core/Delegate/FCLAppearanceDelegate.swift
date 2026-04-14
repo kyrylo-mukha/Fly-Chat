@@ -43,6 +43,17 @@ public protocol FCLAppearanceDelegate: AnyObject {
     /// Ensures that very short messages still render a comfortably tappable bubble.
     /// Default: `40`.
     var minimumBubbleHeight: CGFloat { get }
+
+    /// Edge insets applied around the attachment image grid inside a bubble, in points.
+    ///
+    /// Controls the gap between the bubble edges and the attachment grid content.
+    /// Default: `FCLEdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1)`.
+    var attachmentInsets: FCLEdgeInsets { get }
+
+    /// Spacing between individual attachment cells within the image grid, in points.
+    ///
+    /// Default: `1`.
+    var attachmentItemSpacing: CGFloat { get }
 }
 
 public extension FCLAppearanceDelegate {
@@ -53,4 +64,6 @@ public extension FCLAppearanceDelegate {
     var messageFont: FCLChatMessageFontConfiguration { FCLAppearanceDefaults.messageFont }
     var tailStyle: FCLBubbleTailStyle { FCLAppearanceDefaults.tailStyle }
     var minimumBubbleHeight: CGFloat { FCLAppearanceDefaults.minimumBubbleHeight }
+    var attachmentInsets: FCLEdgeInsets { FCLAppearanceDefaults.attachmentInsets }
+    var attachmentItemSpacing: CGFloat { FCLAppearanceDefaults.attachmentItemSpacing }
 }

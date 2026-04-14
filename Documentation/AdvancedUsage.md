@@ -11,7 +11,8 @@ This guide covers advanced customization patterns for FlyChat. Every delegate pr
 1. [Context Menu Delegate](#1-context-menu-delegate)
 2. [Custom Input Bar](#2-custom-input-bar)
 3. [Attachment Delegate](#3-attachment-delegate)
-4. [Info.plist Requirements](#4-infoplist-requirements)
+4. [Full-Screen Media Preview](#4-full-screen-media-preview)
+5. [Info.plist Requirements](#5-infoplist-requirements)
 
 > **Moved:** Custom Appearance Delegate, Custom Layout Delegate, and Custom Input Delegate content has moved to [DelegateSystem/AdvancedPatterns.md](DelegateSystem/AdvancedPatterns.md).
 
@@ -270,6 +271,8 @@ final class MyAttachmentDelegate: FCLAttachmentDelegate {
 Return an array of `FCLRecentFile` values to populate a "Recents" section in the Files tab. When the array is empty (the default), the section shows a "No recent files" placeholder.
 
 > **Note:** iOS does not provide a system API for accessing the user's recent file history. The `recentFiles` array is entirely host-app managed. Populate it with files your app has recently handled (e.g., sent attachments, downloaded documents, cached files).
+>
+> **Built-in fallback:** When `recentFiles` is empty (the default), FlyChat automatically tracks the last 20 files sent through any picker pipeline and displays them in the Files tab's Recents section. This built-in tracking requires no configuration. Call `FCLRecentFilesStore.shared.clear()` to reset it if needed (for example, on sign-out).
 
 ```swift
 public struct FCLRecentFile: Identifiable, Sendable {
@@ -355,7 +358,7 @@ Disable video selection, the Files tab, or camera video recording if they are no
 final class MyAttachmentDelegate: FCLAttachmentDelegate {
     var isVideoEnabled: Bool { false }        // Gallery shows images only
     var isFileTabEnabled: Bool { false }       // Files tab hidden
-    var isCameraVideoEnabled: Bool { false }   // Camera captures photos only (no video recording)
+    var isCameraVideoEnabled: Bool { false }   // Native camera restricted to photos only (no video recording)
 }
 ```
 
@@ -381,17 +384,50 @@ FCLUIKitBridge.makeChatViewController(
 )
 ```
 
+### Camera Capture Flow
+
+Tapping the camera cell in the gallery tab opens Apple's native `UIImagePickerController` with `sourceType: .camera`. The standard Apple capture interface is shown, including the Use/Retake confirmation after each shot.
+
+After each confirmed capture, the library transitions to an in-app multi-capture preview (`FCLCameraStackPreview`) that accumulates all captures taken so far. From this screen the user can:
+
+- Review thumbnails of all captured items.
+- Remove individual captures.
+- Tap **Add another** to return to the native camera and capture additional items.
+- Add an optional caption.
+- Tap **Send** to dispatch all accumulated captures in a single batched message.
+
+Whether video recording is available during capture is controlled by `isCameraVideoEnabled` on `FCLAttachmentDelegate` (default: `true`). When `isCameraVideoEnabled` is `false`, the native picker is restricted to photos only.
+
 ### In-Bubble Rendering
 
 Once a message is sent with attachments, they render inside the bubble:
 
-- **Images and videos** are displayed in a compact grid that fills the bubble width.
+- **Images and videos** are displayed in an aspect-ratio-aware grid. Each row's height is derived from the combined aspect ratios of its cells, so portrait and landscape thumbnails in the same row scale naturally. Thumbnails are loaded asynchronously from the attachment's file URL by an internal loader; gallery attachments display real asset previews rather than gray placeholders. `thumbnailData` is used as a loading-state fallback for camera captures that carry JPEG data directly.
 - **Files** are displayed as individual rows below the grid, each showing the file icon and name.
-- If the message has **only attachments** (no text), the timestamp appears as a floating overlay badge with a semi-transparent background.
+- **Media-only messages** (no text): the image grid covers the full bubble area and the timestamp renders as a translucent pill overlay in the bottom-trailing corner over the last image.
+- **Messages with both media and text**: the grid appears above the text, and the timestamp is inline as usual.
 
 ---
 
-## 4. Info.plist Requirements
+## 4. Full-Screen Media Preview
+
+When the user taps an attachment thumbnail in a chat bubble, `FCLMediaPreviewView` opens as a full-screen cover. No delegate configuration is required — the preview is handled entirely by the library.
+
+### Features
+
+| Feature | Description |
+|---|---|
+| **Conversation-wide swipe** | Swiping left/right navigates across all media in the conversation, not only the current message. |
+| **Message-scoped carousel** | A bottom thumbnail strip shows all media from the current message. The focused item updates automatically as the user swipes across message boundaries. Tapping a carousel thumbnail jumps to that asset. |
+| **Chrome toggle** | A single tap anywhere on the media hides or reveals the close button and the carousel. |
+| **Swipe-to-dismiss** | Dragging the media downward dismisses the preview. The gesture is vertical-only — horizontal movement is ignored, so left/right swipes continue to navigate between media items. When the originating grid cell is still visible on screen, a hero animation returns the image to its bubble position. When the cell is off-screen, the preview fades out. |
+| **Transparent backdrop** | The preview opens with a transparent background, so the chat timeline remains visible behind the media during the drag-to-dismiss animation. |
+
+The `FCLChatScreen` wires these interactions automatically. No host-app code is required to enable full-screen preview.
+
+---
+
+## 5. Info.plist Requirements
 
 The built-in attachment pickers access system-protected resources. Your host app must include the following keys in `Info.plist`:
 
@@ -421,3 +457,4 @@ If these keys are missing, the system will crash or silently refuse to present t
 - **[DelegateSystem/AdvancedPatterns.md](DelegateSystem/AdvancedPatterns.md)** -- Custom appearance, layout, and input delegate patterns (moved from this file).
 - **[AvatarSystem/Overview.md](AvatarSystem/Overview.md)** -- `FCLAvatarDelegate`, `FCLAvatarCacheDelegate`, avatar sizing, visibility, and URL resolution.
 - **[AvatarSystem/AdvancedUsage.md](AvatarSystem/AdvancedUsage.md)** -- Custom cache implementations, external avatar URL loading, and avatar visibility customization.
+- **[Architecture.md](Architecture.md)** -- Module layout, file structure, and type responsibilities.

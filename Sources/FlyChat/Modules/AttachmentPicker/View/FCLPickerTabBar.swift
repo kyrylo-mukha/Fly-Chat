@@ -1,4 +1,4 @@
-#if canImport(UIKit)
+#if os(iOS)
 import SwiftUI
 
 // MARK: - FCLImageSource Image Extension
@@ -51,7 +51,7 @@ struct FCLPickerTabBar: View {
             }
         }
         .frame(height: 56)
-        .background(Color(UIColor.secondarySystemBackground))
+        .background(Color(.secondarySystemBackground))
         .opacity(isEnabled ? 1.0 : 0.4)
         .allowsHitTesting(isEnabled)
         .animation(.easeInOut(duration: 0.2), value: isEnabled)
@@ -74,7 +74,7 @@ struct FCLPickerTabBar: View {
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
             }
-            .foregroundColor(isSelected ? .blue : Color(UIColor.secondaryLabel))
+            .foregroundColor(isSelected ? .blue : .secondary)
             .animation(.easeInOut(duration: 0.15), value: isSelected)
         }
         .buttonStyle(.plain)

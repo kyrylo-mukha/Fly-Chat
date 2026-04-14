@@ -25,7 +25,7 @@ enum FCLFileSizeFormatter {
 
 // MARK: - File Row View
 
-#if canImport(UIKit)
+#if os(iOS)
 /// Renders a single file attachment row inside a chat bubble, showing a document icon,
 /// filename, and optional file size.
 ///

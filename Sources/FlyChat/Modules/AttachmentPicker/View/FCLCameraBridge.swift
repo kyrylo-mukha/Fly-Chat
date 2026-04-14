@@ -5,8 +5,12 @@ import UIKit
 
 // MARK: - FCLCameraBridge
 
-/// A `UIViewControllerRepresentable` bridge to `UIImagePickerController` configured
-/// for camera capture. Returns the captured image as an `FCLAttachment`.
+/// A thin `UIViewControllerRepresentable` bridge over `UIImagePickerController` for
+/// capturing photos and (optionally) videos from the device camera.
+///
+/// After a successful capture the `onCapture` closure is invoked with the resulting
+/// `FCLAttachment`. The temporary file is written to `FileManager.default.temporaryDirectory`
+/// and the caller is responsible for consuming or moving it.
 struct FCLCameraBridge: UIViewControllerRepresentable {
     let isVideoEnabled: Bool
     let onCapture: (FCLAttachment) -> Void
@@ -15,22 +19,23 @@ struct FCLCameraBridge: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
-        if isVideoEnabled {
-            picker.mediaTypes = ["public.image", "public.movie"]
-            picker.videoQuality = .typeMedium
-        }
+        picker.cameraCaptureMode = .photo
+        picker.allowsEditing = false
+        picker.mediaTypes = isVideoEnabled ? ["public.image", "public.movie"] : ["public.image"]
         picker.delegate = context.coordinator
         return picker
     }
 
     func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
 
-    func makeCoordinator() -> Coordinator { Coordinator(onCapture: onCapture, onCancel: onCancel) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onCapture: onCapture, onCancel: onCancel)
+    }
 
-    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate, @unchecked Sendable {
-        // Safety invariant: onCapture/onCancel are always called on the main thread
-        // (UIImagePickerControllerDelegate callbacks are dispatched on the main queue).
-        // Follow-up: remove @unchecked Sendable when delegate gains MainActor isolation.
+    // MARK: - Coordinator
+
+    @MainActor
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         let onCapture: (FCLAttachment) -> Void
         let onCancel: () -> Void
 
@@ -43,38 +48,31 @@ struct FCLCameraBridge: UIViewControllerRepresentable {
             _ picker: UIImagePickerController,
             didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
         ) {
-            // Check for video first
-            if let videoURL = info[.mediaURL] as? URL {
-                let fileName = "Camera_\(UUID().uuidString.prefix(8)).\(videoURL.pathExtension)"
-                let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-                try? FileManager.default.removeItem(at: tempURL)
-                try? FileManager.default.copyItem(at: videoURL, to: tempURL)
-                let fileSize = (try? FileManager.default.attributesOfItem(atPath: tempURL.path)[.size] as? Int64) ?? nil
-                let attachment = FCLAttachment(
+            if let movieURL = info[.mediaURL] as? URL {
+                // Video: move to a stable temp file so the system can reclaim the original.
+                let dest = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("Camera_\(UUID().uuidString.prefix(8)).mov")
+                try? FileManager.default.removeItem(at: dest)
+                try? FileManager.default.moveItem(at: movieURL, to: dest)
+                let size = (try? FileManager.default.attributesOfItem(atPath: dest.path)[.size] as? Int64) ?? nil
+                onCapture(FCLAttachment(
                     type: .video,
-                    url: tempURL,
-                    fileName: fileName,
-                    fileSize: fileSize
-                )
-                onCapture(attachment)
-                return
+                    url: dest,
+                    fileName: dest.lastPathComponent,
+                    fileSize: size
+                ))
+            } else if let image = info[.originalImage] as? UIImage,
+                      let data = image.jpegData(compressionQuality: 0.85) {
+                let dest = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("Camera_\(UUID().uuidString.prefix(8)).jpg")
+                try? data.write(to: dest)
+                onCapture(FCLAttachment(
+                    type: .image,
+                    url: dest,
+                    fileName: dest.lastPathComponent,
+                    fileSize: Int64(data.count)
+                ))
             }
-
-            guard let image = info[.originalImage] as? UIImage,
-                  let data = image.jpegData(compressionQuality: 0.8) else { return }
-
-            let fileName = "Camera_\(UUID().uuidString.prefix(8)).jpg"
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-            try? data.write(to: tempURL)
-
-            let fileSize = Int64(data.count)
-            let attachment = FCLAttachment(
-                type: .image,
-                url: tempURL,
-                fileName: fileName,
-                fileSize: fileSize
-            )
-            onCapture(attachment)
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {

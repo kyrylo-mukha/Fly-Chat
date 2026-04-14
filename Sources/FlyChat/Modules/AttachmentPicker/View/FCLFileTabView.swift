@@ -8,9 +8,14 @@ import UniformTypeIdentifiers
 
 /// The file tab view showing action rows (gallery picker, document picker, scanner)
 /// and an optional recent files section.
+///
+/// When `delegateRecentFiles` is non-empty it is displayed directly. When it is empty
+/// the view asynchronously loads from `FCLRecentFilesStore` on first appear and shows
+/// that list instead. This gives a Telegram-like "recents" experience for apps that do
+/// not supply their own list.
 struct FCLFileTabView: View {
     /// Recent files provided by the delegate for quick re-send.
-    let recentFiles: [FCLRecentFile]
+    let delegateRecentFiles: [FCLRecentFile]
 
     /// Called when a file attachment is ready to send.
     let onSendFile: (FCLAttachment) -> Void
@@ -19,6 +24,12 @@ struct FCLFileTabView: View {
     @State private var showPhotoPicker = false
     @State private var showDocumentPicker = false
     @State private var showScanner = false
+    @State private var storeRecentFiles: [FCLRecentFile] = []
+
+    // The effective list: delegate takes precedence; store is the fallback.
+    private var recentFiles: [FCLRecentFile] {
+        delegateRecentFiles.isEmpty ? storeRecentFiles : delegateRecentFiles
+    }
 
     var body: some View {
         List {
@@ -26,6 +37,11 @@ struct FCLFileTabView: View {
             recentFilesSection
         }
         .listStyle(.insetGrouped)
+        .task {
+            if delegateRecentFiles.isEmpty {
+                storeRecentFiles = await FCLRecentFilesStore.shared.list()
+            }
+        }
         .sheet(isPresented: $showPhotoPicker) {
             FCLFilePhotoPickerBridge(onSendFile: onSendFile)
         }
@@ -75,14 +91,14 @@ struct FCLFileTabView: View {
                 Spacer()
                 if !recentFiles.isEmpty {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(Color(UIColor.secondaryLabel))
+                        .foregroundColor(Color(.secondaryLabel))
                 }
             }
 
             if recentFiles.isEmpty {
                 Text("No recent files")
                     .font(.subheadline)
-                    .foregroundColor(Color(UIColor.tertiaryLabel))
+                    .foregroundColor(Color(.tertiaryLabel))
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 8)
             } else {
@@ -126,18 +142,18 @@ struct FCLFileTabView: View {
                     .font(.subheadline)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .foregroundColor(Color(UIColor.label))
+                    .foregroundColor(Color(.label))
 
                 HStack(spacing: 6) {
                     if let sizeText = FCLFileSizeFormatter.format(bytes: file.fileSize) {
                         Text(sizeText)
                             .font(.caption)
-                            .foregroundColor(Color(UIColor.secondaryLabel))
+                            .foregroundColor(Color(.secondaryLabel))
                     }
                     if let date = file.date {
                         Text(date, style: .date)
                             .font(.caption)
-                            .foregroundColor(Color(UIColor.tertiaryLabel))
+                            .foregroundColor(Color(.tertiaryLabel))
                     }
                 }
             }
@@ -367,7 +383,7 @@ struct FCLDocumentScannerBridge: UIViewControllerRepresentable {
 struct FCLFileTabView_Previews: PreviewProvider {
     static var previews: some View {
         FCLFileTabView(
-            recentFiles: [
+            delegateRecentFiles: [
                 FCLRecentFile(
                     id: "1",
                     url: URL(string: "file:///tmp/report.pdf")!,
@@ -392,13 +408,13 @@ struct FCLFileTabView_Previews: PreviewProvider {
             ],
             onSendFile: { _ in }
         )
-        .previewDisplayName("File Tab — With Recent Files")
+        .previewDisplayName("File Tab — With Delegate Recent Files")
 
         FCLFileTabView(
-            recentFiles: [],
+            delegateRecentFiles: [],
             onSendFile: { _ in }
         )
-        .previewDisplayName("File Tab — Empty Recent Files")
+        .previewDisplayName("File Tab — Empty Delegate (store fallback)")
     }
 }
 #endif

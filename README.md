@@ -1,7 +1,7 @@
 # FlyChat
 
 [![Swift](https://img.shields.io/badge/Swift-6.0_6.1_6.2-orange?style=flat)](https://swift.org)
-[![Platforms](https://img.shields.io/badge/Platforms-iOS_16+-blue?style=flat)](https://developer.apple.com/ios/)
+[![Platforms](https://img.shields.io/badge/Platforms-iOS_17+-blue?style=flat)](https://developer.apple.com/ios/)
 [![SPM Compatible](https://img.shields.io/badge/SPM-compatible-brightgreen?style=flat)](https://swift.org/package-manager)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat)](LICENSE)
 
@@ -11,8 +11,8 @@ A lightweight Swift Package for building chat features in iOS apps.
 
 | Platform | Minimum Version |
 |---|---|
-| iOS | 16.0+ |
-| macOS (build only) | 10.15+ |
+| iOS | 17.0+ |
+| macOS (build only) | 14.0+ |
 | Swift | 6.0 / 6.1 / 6.2 |
 | Xcode | 16.0+ |
 
@@ -45,9 +45,11 @@ If your app uses the attachment pickers (Photo Library, Camera), add these usage
 <string>Required to attach photos from your library.</string>
 <key>NSCameraUsageDescription</key>
 <string>Required to take a photo or video to attach.</string>
+<key>NSMicrophoneUsageDescription</key>
+<string>Required to record video with audio.</string>
 ```
 
-The Files picker (`UIDocumentPickerViewController`) does not require a usage description key.
+The microphone key is only required when `isCameraVideoEnabled` is `true` (the default). The Files picker (`UIDocumentPickerViewController`) does not require a usage description key.
 
 ## Features
 
@@ -55,8 +57,13 @@ The Files picker (`UIDocumentPickerViewController`) does not require a usage des
 - [x] Configurable Bubble Tail Styles, Colors, Fonts, and Max Width Ratio
 - [x] Circle Avatars with Acronym Fallback and Deterministic HSL Colors
 - [x] Async Avatar Image Loading with Pluggable Cache
-- [x] Image / Video Grid and File Row Attachment Rendering
+- [x] Aspect-Aware Image / Video Grid with Telegram-Inspired Layout Planner and Async Thumbnail Loading
+- [x] Timestamp Overlay on Media-Only Bubbles with Full Bubble Clipping
+- [x] Full-Screen Media Preview with Transparent Backdrop, Vertical-Only Drag-to-Dismiss, Hero Transition, and Message-Scoped Carousel
+- [x] In-Picker Image Editor: Rotate, Flip, and Preset Aspect Crop (Square / 4:3 / 16:9)
 - [x] Tabbed Attachment Picker Sheet with Gallery Multi-Select and Files Tab
+- [x] Native Camera (UIImagePickerController) with Multi-Capture Stack and Batched Send
+- [x] Built-In Recent Files Tracking (Last 20 Sent Files, UserDefaults-Persisted, Fallback When Delegate Does Not Supply a List)
 - [x] Media Compression Configuration (Max Dimension, JPEG Quality, Video Preset)
 - [x] Custom Attachment Tabs via Delegate for Host-App-Provided Picker Screens
 - [x] Auto-Expanding Input Bar with Configurable Container Modes
@@ -77,7 +84,7 @@ The Files picker (`UIDocumentPickerViewController`) does not require a usage des
   - **Customization —** [Basic Delegate Setup](Documentation/Usage.md#basic-delegate-customization)
 - [Advanced Usage](Documentation/AdvancedUsage.md)
   - **Context Menu —** [Custom Actions](Documentation/AdvancedUsage.md#1-context-menu-delegate), [Per-Direction Actions](Documentation/AdvancedUsage.md#1-context-menu-delegate)
-  - **Input Bar —** [Custom Input Bar](Documentation/AdvancedUsage.md#2-custom-input-bar), [Attachment Delegate](Documentation/AdvancedUsage.md#3-attachment-delegate)
+  - **Input Bar —** [Custom Input Bar](Documentation/AdvancedUsage.md#2-custom-input-bar), [Attachment Delegate](Documentation/AdvancedUsage.md#3-attachment-delegate), [Full-Screen Media Preview](Documentation/AdvancedUsage.md#4-full-screen-media-preview)
 - [Delegate System](Documentation/DelegateSystem/Overview.md)
   - **Protocols —** [Appearance](Documentation/DelegateSystem/Overview.md#fclappearancedelegate), [Avatar](Documentation/DelegateSystem/Overview.md#fclavatardelegate), [Layout](Documentation/DelegateSystem/Overview.md#fcllayoutdelegate), [Input](Documentation/DelegateSystem/Overview.md#fclinputdelegate), [Attachment](Documentation/DelegateSystem/Overview.md#fclattachmentdelegate)
   - **Patterns —** [Advanced Delegate Patterns](Documentation/DelegateSystem/AdvancedPatterns.md)

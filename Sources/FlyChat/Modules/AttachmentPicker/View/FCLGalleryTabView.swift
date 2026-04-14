@@ -41,7 +41,7 @@ struct FCLGalleryTabView: View {
             HStack {
                 Text("You gave access to selected photos only.")
                     .font(.caption)
-                    .foregroundColor(Color(UIColor.secondaryLabel))
+                    .foregroundColor(Color(.secondaryLabel))
                 Spacer()
                 Button("Manage") {
                     guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
@@ -52,13 +52,13 @@ struct FCLGalleryTabView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color(UIColor.secondarySystemBackground))
+            .background(Color(.secondarySystemBackground))
 
         case .denied, .restricted:
             VStack(spacing: 12) {
                 Text("Photo access is required to select images.")
                     .font(.subheadline)
-                    .foregroundColor(Color(UIColor.secondaryLabel))
+                    .foregroundColor(Color(.secondaryLabel))
                     .multilineTextAlignment(.center)
                 Button("Open Settings") {
                     guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
@@ -117,34 +117,31 @@ struct FCLGalleryTabView: View {
         let isSelected = selectionIndex != nil
 
         ZStack(alignment: .topTrailing) {
-            // Thumbnail body — tapping calls onAssetTap
-            Button {
-                onAssetTap(assetID)
-            } label: {
-                FCLAssetThumbnailView(asset: asset, galleryDataSource: galleryDataSource)
-            }
-            .buttonStyle(.plain)
+            // Body — tap opens preview
+            FCLAssetThumbnailView(asset: asset, galleryDataSource: galleryDataSource)
+                .aspectRatio(1, contentMode: .fit)
+                .contentShape(Rectangle())
+                .onTapGesture { onAssetTap(assetID) }
 
-            // Video duration badge
-            if asset.mediaType == .video {
-                videoDurationBadge(duration: asset.duration)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            }
-
-            // Selection circle — tapping toggles selection
-            Button {
-                presenter.toggleAssetSelection(assetID)
-            } label: {
-                selectionCircle(isSelected: isSelected, number: selectionIndex.map { $0 + 1 })
-            }
-            .buttonStyle(.plain)
-            .padding(4)
+            // Selection circle — 40pt hit target, own tap region
+            selectionCircle(isSelected: isSelected, number: selectionIndex.map { $0 + 1 })
+                .frame(width: 40, height: 40)
+                .padding(.top, 2)
+                .padding(.trailing, 2)
+                .contentShape(Rectangle())
+                .onTapGesture { presenter.toggleAssetSelection(assetID) }
         }
         .overlay(
             isSelected
                 ? RoundedRectangle(cornerRadius: 0).stroke(Color.blue, lineWidth: 3)
                 : nil
         )
+        .overlay(alignment: .bottomTrailing) {
+            if asset.mediaType == .video {
+                videoDurationBadge(duration: asset.duration)
+                    .padding(4)
+            }
+        }
     }
 
     // MARK: - Selection Circle
@@ -198,7 +195,7 @@ private struct FCLAssetThumbnailView: View {
     @State private var image: UIImage?
 
     var body: some View {
-        Color(UIColor.tertiarySystemFill)
+        Color(.tertiarySystemFill)
             .aspectRatio(1, contentMode: .fit)
             .overlay(
                 Group {
@@ -261,10 +258,10 @@ private struct FCLGalleryTabMockPreview: View {
             LazyVGrid(columns: columns, spacing: 2) {
                 // Camera cell
                 ZStack {
-                    Color(UIColor.tertiarySystemFill)
+                    Color(.tertiarySystemFill)
                     Image(systemName: "camera.fill")
                         .font(.system(size: 24))
-                        .foregroundColor(Color(UIColor.secondaryLabel))
+                        .foregroundColor(Color(.secondaryLabel))
                 }
                 .aspectRatio(1, contentMode: .fit)
 

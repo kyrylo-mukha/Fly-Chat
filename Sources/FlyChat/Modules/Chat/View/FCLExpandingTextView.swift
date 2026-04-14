@@ -158,7 +158,7 @@ private struct FCLExpandingTextViewPreviewWrapper: View {
                 height: $height
             )
             .frame(height: height)
-            .background(Color(UIColor.secondarySystemBackground))
+            .background(Color(.secondarySystemBackground))
             .cornerRadius(18)
 
             Text("Height: \(Int(height))pt")

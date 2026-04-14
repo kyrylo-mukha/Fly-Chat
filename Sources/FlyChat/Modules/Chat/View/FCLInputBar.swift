@@ -154,20 +154,10 @@ struct FCLInputBar: View {
             )
         )
         .sheet(isPresented: $showAttachmentPicker) {
-            FCLAttachmentPickerSheet(
-                presenter: FCLAttachmentPickerPresenter(
-                    delegate: delegate?.attachment,
-                    onSend: { [weak presenter] attachments, caption in
-                        presenter?.handleAttachments(attachments, caption: caption)
-                    }
-                ),
-                galleryDataSource: FCLGalleryDataSource(
-                    isVideoEnabled: delegate?.attachment?.isVideoEnabled ?? true
-                ),
+            FCLAttachmentPickerHost(
+                chatPresenter: presenter,
                 delegate: delegate?.attachment,
-                onDismiss: { showAttachmentPicker = false },
-                onCameraCapture: {},
-                onAssetTap: { _ in }
+                onDismiss: { showAttachmentPicker = false }
             )
         }
     }
@@ -271,6 +261,46 @@ struct FCLInputBar: View {
             return UIFont(name: family, size: font.size) ?? UIFont.systemFont(ofSize: font.size)
         }
         return UIFont.systemFont(ofSize: font.size, weight: font.weight.uiFontWeight)
+    }
+}
+
+// MARK: - Attachment Picker Host
+
+/// A private wrapper that owns the attachment picker's presenter and gallery data source
+/// as `@StateObject` so their identity persists across `FCLInputBar` body re-evaluations.
+/// Without this, the picker presenter would be re-instantiated on every parent render,
+/// losing `selectedAssets` state after the first selection.
+private struct FCLAttachmentPickerHost: View {
+    @StateObject private var presenter: FCLAttachmentPickerPresenter
+    @StateObject private var galleryDataSource: FCLGalleryDataSource
+    private let delegate: (any FCLAttachmentDelegate)?
+    private let onDismiss: () -> Void
+
+    init(
+        chatPresenter: FCLChatPresenter,
+        delegate: (any FCLAttachmentDelegate)?,
+        onDismiss: @escaping () -> Void
+    ) {
+        _presenter = StateObject(wrappedValue: FCLAttachmentPickerPresenter(
+            delegate: delegate,
+            onSend: { [weak chatPresenter] attachments, caption in
+                chatPresenter?.handleAttachments(attachments, caption: caption)
+            }
+        ))
+        _galleryDataSource = StateObject(wrappedValue: FCLGalleryDataSource(
+            isVideoEnabled: delegate?.isVideoEnabled ?? true
+        ))
+        self.delegate = delegate
+        self.onDismiss = onDismiss
+    }
+
+    var body: some View {
+        FCLAttachmentPickerSheet(
+            presenter: presenter,
+            galleryDataSource: galleryDataSource,
+            delegate: delegate,
+            onDismiss: onDismiss
+        )
     }
 }
 

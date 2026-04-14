@@ -570,7 +570,7 @@ let message = FCLChatMessage(
 )
 ```
 
-Images and videos are rendered in a grid above the message text. File attachments appear as labeled rows.
+Images and videos are rendered in an aspect-ratio-aware grid above the message text. Thumbnails are loaded asynchronously from `attachment.url` by the library's internal loader, so gallery-sourced attachments display real asset previews. The `thumbnailData` field is optional and is used as a loading-state placeholder — it is most useful for camera captures where JPEG data is available immediately. File attachments appear as labeled rows below the grid.
 
 ---
 

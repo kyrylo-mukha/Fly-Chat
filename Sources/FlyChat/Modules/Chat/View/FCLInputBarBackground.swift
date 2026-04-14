@@ -1,9 +1,5 @@
 import SwiftUI
 
-#if canImport(UIKit)
-import UIKit
-#endif
-
 /// A background view for the chat input bar that switches between a solid color
 /// and a translucent blur / liquid glass material effect.
 ///
@@ -27,7 +23,7 @@ struct FCLInputBarBackground: View {
     /// Renders the appropriate blur/glass effect for the current iOS version.
     @ViewBuilder
     private var liquidGlassView: some View {
-        #if canImport(UIKit)
+        #if os(iOS)
         if #available(iOS 26, *) {
             Rectangle().fill(.clear).glassEffect()
         } else {

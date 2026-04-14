@@ -50,6 +50,16 @@ public final class FCLChatPresenter: ObservableObject {
         delegate?.layout?.interGroupSpacing ?? FCLLayoutDefaults.interGroupSpacing
     }
 
+    /// The resolved edge insets for the in-bubble attachment image grid.
+    public var resolvedAttachmentInsets: FCLEdgeInsets {
+        delegate?.appearance?.attachmentInsets ?? FCLAppearanceDefaults.attachmentInsets
+    }
+
+    /// The resolved inter-cell spacing for the in-bubble attachment image grid.
+    public var resolvedAttachmentItemSpacing: CGFloat {
+        delegate?.appearance?.attachmentItemSpacing ?? FCLAppearanceDefaults.attachmentItemSpacing
+    }
+
     #if canImport(UIKit)
     /// Creates a chat presenter with full dependency injection (UIKit).
     /// - Parameters:
@@ -273,4 +283,23 @@ public final class FCLChatPresenter: ObservableObject {
         messages.removeAll { $0.id == message.id }
         router?.didDeleteMessage(message)
     }
+
+    #if canImport(UIKit)
+    /// All image and video attachments across the conversation in chronological order.
+    public var allConversationMedia: [(messageID: UUID, attachmentIndex: Int, attachment: FCLAttachment)] {
+        var result: [(messageID: UUID, attachmentIndex: Int, attachment: FCLAttachment)] = []
+        for message in messages {
+            let media = message.attachments.filter { $0.type == .image || $0.type == .video }
+            for (index, attachment) in media.enumerated() {
+                result.append((messageID: message.id, attachmentIndex: index, attachment: attachment))
+            }
+        }
+        return result
+    }
+
+    /// Finds the global media index for a specific attachment in a specific message.
+    public func globalMediaIndex(for attachment: FCLAttachment, in messageID: UUID) -> Int? {
+        allConversationMedia.firstIndex { $0.messageID == messageID && $0.attachment.id == attachment.id }
+    }
+    #endif
 }

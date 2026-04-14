@@ -87,7 +87,6 @@ public struct FCLChatScreen: View {
         self.customInputBar = nil
     }
 
-    #if canImport(UIKit)
     /// Creates a chat screen with a custom input bar replacing the built-in one.
     ///
     /// - Parameters:
@@ -103,10 +102,16 @@ public struct FCLChatScreen: View {
         self.delegate = delegate
         self.customInputBar = AnyView(customInputBar())
     }
-    #endif
 
     /// Tracks the current screen height for dynamic input bar row calculations.
     @State private var screenHeight: CGFloat = 700
+
+    #if canImport(UIKit)
+    /// The ID of the attachment currently being previewed in full-screen, or `nil` when no preview is active.
+    @State private var previewAttachmentID: UUID?
+    #endif
+    /// Namespace used for hero-style matched geometry transitions between grid thumbnails and the full-screen preview.
+    @Namespace private var mediaHeroNamespace
 
     public var body: some View {
         GeometryReader { proxy in
@@ -123,6 +128,27 @@ public struct FCLChatScreen: View {
             .onChangeOfHeightIfAvailable(proxy.size.height) { newHeight in
                 screenHeight = newHeight
             }
+            #if canImport(UIKit)
+            .fclTransparentFullScreenCover(
+                isPresented: Binding(
+                    get: { previewAttachmentID != nil },
+                    set: { if !$0 { withTransaction(Transaction(animation: nil)) { previewAttachmentID = nil } } }
+                )
+            ) {
+                if let attachmentID = previewAttachmentID {
+                    FCLMediaPreviewView(
+                        presenter: presenter,
+                        initialAttachmentID: attachmentID,
+                        namespace: mediaHeroNamespace,
+                        onDismiss: {
+                            withTransaction(Transaction(animation: nil)) {
+                                previewAttachmentID = nil
+                            }
+                        }
+                    )
+                }
+            }
+            #endif
         }
     }
 
@@ -138,6 +164,8 @@ public struct FCLChatScreen: View {
         let showOutgoing = avatarDelegate?.showOutgoingAvatar ?? FCLAvatarDefaults.showOutgoingAvatar
 
         let minHeight = minimumBubbleHeight
+        let attachmentInsets = presenter.resolvedAttachmentInsets
+        let attachmentItemSpacing = presenter.resolvedAttachmentItemSpacing
 
         return List {
             Section {
@@ -158,7 +186,15 @@ public struct FCLChatScreen: View {
                         senderTextColor: senderTextColor,
                         receiverTextColor: receiverTextColor,
                         messageFont: messageFont,
-                        contextMenuActions: presenter.contextMenuActions(for: message)
+                        attachmentInsets: attachmentInsets,
+                        attachmentItemSpacing: attachmentItemSpacing,
+                        contextMenuActions: presenter.contextMenuActions(for: message),
+                        heroNamespace: mediaHeroNamespace,
+                        onMediaTap: { attachment in
+                            #if canImport(UIKit)
+                            previewAttachmentID = attachment.id
+                            #endif
+                        }
                     )
                     .modifier(FCLBottomAnchoredChatModifier())
                     .listRowInsets(EdgeInsets(top: spacing / 2, leading: 10, bottom: spacing / 2, trailing: 10))
@@ -308,11 +344,16 @@ private struct FCLChatMessageRow: View {
     let receiverTextColor: FCLChatColorToken
     /// Font configuration for message body text.
     let messageFont: FCLChatMessageFontConfiguration
+    /// Edge insets applied around the in-bubble attachment image grid.
+    var attachmentInsets: FCLEdgeInsets = FCLAppearanceDefaults.attachmentInsets
+    /// Spacing between adjacent cells in the in-bubble attachment image grid.
+    var attachmentItemSpacing: CGFloat = FCLAppearanceDefaults.attachmentItemSpacing
     /// The list of context menu actions available on long-press.
     let contextMenuActions: [FCLContextMenuAction]
-
-    /// The index of the attachment being previewed, or `nil` if no preview is shown.
-    @State private var previewAttachmentIndex: Int?
+    /// Namespace for hero-style matched geometry transitions from grid thumbnails to full-screen preview.
+    let heroNamespace: Namespace.ID
+    /// Called when a media attachment is tapped, passing the tapped attachment to the parent.
+    var onMediaTap: ((FCLAttachment) -> Void)?
 
     /// Shared date formatter for rendering short time strings (e.g., "2:30 PM").
     private static let timeFormatter: DateFormatter = {
@@ -326,7 +367,7 @@ private struct FCLChatMessageRow: View {
     /// Uses the same caption2 font as the visible timestamp. Placeholder is wide enough
     /// for the widest locale time (e.g., "00:00 AM" + padding).
     private var timestampSpacer: String {
-        "     00:00 AM"
+        " 00:00"
     }
 
     var body: some View {
@@ -349,19 +390,6 @@ private struct FCLChatMessageRow: View {
                 Spacer()
             }
         }
-        #if canImport(UIKit)
-        .fullScreenCover(isPresented: Binding(
-            get: { previewAttachmentIndex != nil },
-            set: { if !$0 { previewAttachmentIndex = nil } }
-        )) {
-            let mediaAttachments = message.attachments.filter { $0.type == .image || $0.type == .video }
-            FCLMediaPreviewView(
-                attachments: mediaAttachments,
-                initialIndex: previewAttachmentIndex ?? 0,
-                onDismiss: { previewAttachmentIndex = nil }
-            )
-        }
-        #endif
     }
 
     /// Renders the avatar image for the last message in a group, or a clear spacer for mid-group messages.
@@ -440,42 +468,115 @@ private struct FCLChatMessageRow: View {
     ///
     /// - Parameter tailStyle: The tail style to apply to the bubble shape background.
     /// - Returns: A view representing the complete bubble with all its content layers.
+    @ViewBuilder
     private func bubbleContent(tailStyle: FCLBubbleTailStyle) -> some View {
         let textColor: Color = isSender ? senderTextColor.color : receiverTextColor.color
         let timeColor: Color = textColor.opacity(0.6)
         let timeString = Self.timeFormatter.string(from: message.sentAt)
-
-        let timestampFont: Font = {
-            if #available(macOS 11.0, *) {
-                return .caption2
-            } else {
-                return .caption
-            }
-        }()
-
+        let timestampFont: Font = .caption2
         let mediaAttachments = message.attachments.filter { $0.type == .image || $0.type == .video }
         let fileAttachments = message.attachments.filter { $0.type == .file }
         let hasAttachments = !message.attachments.isEmpty
 
-        return VStack(alignment: .leading, spacing: 0) {
-            #if canImport(UIKit)
-            if !mediaAttachments.isEmpty {
-                FCLAttachmentGridView(
-                    attachments: mediaAttachments,
-                    maxWidth: maxBubbleWidth,
-                    onAttachmentTap: { attachment in
-                        if let index = mediaAttachments.firstIndex(of: attachment) {
-                            previewAttachmentIndex = index
+        #if canImport(UIKit)
+        // Media-only message: grid fills the bubble, timestamp pill overlaid at bottom-trailing.
+        if message.text.isEmpty && !mediaAttachments.isEmpty && fileAttachments.isEmpty {
+            FCLAttachmentGridView(
+                attachments: mediaAttachments,
+                maxWidth: maxBubbleWidth,
+                insets: attachmentInsets,
+                itemSpacing: attachmentItemSpacing,
+                heroNamespace: heroNamespace,
+                onAttachmentTap: { attachment in
+                    onMediaTap?(attachment)
+                }
+            )
+            .overlay(alignment: .bottomTrailing) {
+                Text(timeString)
+                    .font(timestampFont)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.black.opacity(0.4))
+                    .cornerRadius(8)
+                    .padding(4)
+            }
+            .clipShape(FCLChatBubbleShape(side: side, tailStyle: tailStyle))
+            .background(
+                FCLChatBubbleShape(side: side, tailStyle: tailStyle)
+                    .fill(isSender ? senderBubbleColor.color : receiverBubbleColor.color)
+                    .animation(.easeInOut(duration: 0.25), value: tailStyle)
+            )
+            .frame(minWidth: minimumBubbleHeight, idealWidth: maxBubbleWidth, alignment: side == .right ? .trailing : .leading)
+        } else {
+            VStack(alignment: side == .right ? .trailing : .leading, spacing: 0) {
+                if !mediaAttachments.isEmpty {
+                    FCLAttachmentGridView(
+                        attachments: mediaAttachments,
+                        maxWidth: maxBubbleWidth,
+                        insets: attachmentInsets,
+                        itemSpacing: attachmentItemSpacing,
+                        heroNamespace: heroNamespace,
+                        onAttachmentTap: { attachment in
+                            onMediaTap?(attachment)
                         }
+                    )
+                }
+
+                #if os(iOS)
+                ForEach(fileAttachments) { attachment in
+                    FCLFileRowView(attachment: attachment)
+                }
+                #endif
+
+                if !message.text.isEmpty {
+                    (
+                        Text(message.text)
+                            .font(messageFont.font)
+                            .foregroundColor(textColor)
+                        + Text(timestampSpacer)
+                            .font(timestampFont)
+                            .foregroundColor(.clear)
+                    )
+                    .multilineTextAlignment(side == .right ? .trailing : .leading)
+                    .lineLimit(nil)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 6)
+                    .padding(.bottom, 4)
+                    .overlay(
+                        Text(timeString)
+                            .font(timestampFont)
+                            .foregroundColor(timeColor)
+                            .offset(y: 3)
+                            .padding(.trailing, 8)
+                            .padding(.bottom, 4),
+                        alignment: .bottomTrailing
+                    )
+                } else if hasAttachments {
+                    HStack {
+                        Spacer()
+                        Text(timeString)
+                            .font(timestampFont)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.black.opacity(0.4))
+                            .cornerRadius(8)
+                            .padding(4)
                     }
-                )
+                }
             }
-
-            ForEach(fileAttachments) { attachment in
-                FCLFileRowView(attachment: attachment)
-            }
-            #endif
-
+            .frame(minHeight: minimumBubbleHeight)
+            .frame(minWidth: minimumBubbleHeight, idealWidth: maxBubbleWidth, alignment: side == .right ? .trailing : .leading)
+            .clipShape(FCLChatBubbleShape(side: side, tailStyle: tailStyle))
+            .background(
+                FCLChatBubbleShape(side: side, tailStyle: tailStyle)
+                    .fill(isSender ? senderBubbleColor.color : receiverBubbleColor.color)
+                    .animation(.easeInOut(duration: 0.25), value: tailStyle)
+            )
+        }
+        #else
+        VStack(alignment: side == .right ? .trailing : .leading, spacing: 0) {
             if !message.text.isEmpty {
                 (
                     Text(message.text)
@@ -485,7 +586,7 @@ private struct FCLChatMessageRow: View {
                         .font(timestampFont)
                         .foregroundColor(.clear)
                 )
-                .multilineTextAlignment(.leading)
+                .multilineTextAlignment(side == .right ? .trailing : .leading)
                 .lineLimit(nil)
                 .padding(.horizontal, 8)
                 .padding(.top, 6)
@@ -514,12 +615,13 @@ private struct FCLChatMessageRow: View {
             }
         }
         .frame(minHeight: minimumBubbleHeight)
-        .frame(maxWidth: maxBubbleWidth, alignment: side == .right ? .trailing : .leading)
+        .frame(minWidth: minimumBubbleHeight, idealWidth: maxBubbleWidth, alignment: side == .right ? .trailing : .leading)
         .background(
             FCLChatBubbleShape(side: side, tailStyle: tailStyle)
                 .fill(isSender ? senderBubbleColor.color : receiverBubbleColor.color)
                 .animation(.easeInOut(duration: 0.25), value: tailStyle)
         )
+        #endif
     }
 
     /// Whether this message was sent by the current user (outgoing direction).
@@ -544,13 +646,10 @@ private struct FCLBottomAnchoredChatModifier: ViewModifier {
 // MARK: - Height Change Helpers
 
 private extension View {
-    /// Observes changes to the given height value. On macOS 10.15, this is a no-op.
-    @ViewBuilder
+    /// Observes changes to the given height value.
     func onChangeOfHeightIfAvailable(_ height: CGFloat, perform action: @escaping (CGFloat) -> Void) -> some View {
-        if #available(macOS 11.0, *) {
-            self.onChange(of: height, perform: action)
-        } else {
-            self
+        onChange(of: height) { _, newValue in
+            action(newValue)
         }
     }
 }
@@ -635,6 +734,39 @@ struct FCLChatScreen_Previews: PreviewProvider {
     }
 }
 
+/// A wrapper view used in previews to provide a `Namespace.ID` to `FCLChatMessageRow`.
+private struct FCLChatMessageRowPreviewWrapper: View {
+    let message: FCLChatMessage
+    let side: FCLChatBubbleSide
+    let tailStyle: FCLBubbleTailStyle
+    let showAvatar: Bool
+    let isLastInGroup: Bool
+    @Namespace private var ns
+
+    var body: some View {
+        FCLChatMessageRow(
+            message: message,
+            side: side,
+            tailStyle: tailStyle,
+            maxBubbleWidth: 280,
+            minimumBubbleHeight: FCLAppearanceDefaults.minimumBubbleHeight,
+            showAvatar: showAvatar,
+            isLastInGroup: isLastInGroup,
+            avatarSize: FCLAvatarDefaults.avatarSize,
+            avatarDelegate: nil,
+            senderBubbleColor: FCLAppearanceDefaults.senderBubbleColor,
+            receiverBubbleColor: FCLAppearanceDefaults.receiverBubbleColor,
+            senderTextColor: FCLAppearanceDefaults.senderTextColor,
+            receiverTextColor: FCLAppearanceDefaults.receiverTextColor,
+            messageFont: FCLAppearanceDefaults.messageFont,
+            attachmentInsets: FCLAppearanceDefaults.attachmentInsets,
+            attachmentItemSpacing: FCLAppearanceDefaults.attachmentItemSpacing,
+            contextMenuActions: [],
+            heroNamespace: ns
+        )
+    }
+}
+
 private struct FCLChatMessageRow_Previews: PreviewProvider {
     static var previews: some View {
         previewContent
@@ -642,85 +774,45 @@ private struct FCLChatMessageRow_Previews: PreviewProvider {
 
     @ViewBuilder
     private static var previewContent: some View {
-        FCLChatMessageRow(
+        FCLChatMessageRowPreviewWrapper(
             message: FCLChatMessage(text: "Incoming sample", direction: .incoming, sender: previewIncomingSender),
             side: .left,
             tailStyle: .edged(.bottom),
-            maxBubbleWidth: 280,
-            minimumBubbleHeight: FCLAppearanceDefaults.minimumBubbleHeight,
             showAvatar: true,
-            isLastInGroup: true,
-            avatarSize: FCLAvatarDefaults.avatarSize,
-            avatarDelegate: nil,
-            senderBubbleColor: FCLAppearanceDefaults.senderBubbleColor,
-            receiverBubbleColor: FCLAppearanceDefaults.receiverBubbleColor,
-            senderTextColor: FCLAppearanceDefaults.senderTextColor,
-            receiverTextColor: FCLAppearanceDefaults.receiverTextColor,
-            messageFont: FCLAppearanceDefaults.messageFont,
-            contextMenuActions: []
+            isLastInGroup: true
         )
         .previewDisplayName("Incoming with Avatar")
         .previewLayout(.sizeThatFits)
         .padding()
 
-        FCLChatMessageRow(
+        FCLChatMessageRowPreviewWrapper(
             message: FCLChatMessage(text: "Incoming mid-group", direction: .incoming, sender: previewIncomingSender),
             side: .left,
             tailStyle: .none,
-            maxBubbleWidth: 280,
-            minimumBubbleHeight: FCLAppearanceDefaults.minimumBubbleHeight,
             showAvatar: true,
-            isLastInGroup: false,
-            avatarSize: FCLAvatarDefaults.avatarSize,
-            avatarDelegate: nil,
-            senderBubbleColor: FCLAppearanceDefaults.senderBubbleColor,
-            receiverBubbleColor: FCLAppearanceDefaults.receiverBubbleColor,
-            senderTextColor: FCLAppearanceDefaults.senderTextColor,
-            receiverTextColor: FCLAppearanceDefaults.receiverTextColor,
-            messageFont: FCLAppearanceDefaults.messageFont,
-            contextMenuActions: []
+            isLastInGroup: false
         )
         .previewDisplayName("Incoming Mid-Group (Spacer)")
         .previewLayout(.sizeThatFits)
         .padding()
 
-        FCLChatMessageRow(
+        FCLChatMessageRowPreviewWrapper(
             message: FCLChatMessage(text: "Outgoing sample", direction: .outgoing, sender: previewOutgoingSender),
             side: .right,
             tailStyle: .edged(.bottom),
-            maxBubbleWidth: 280,
-            minimumBubbleHeight: FCLAppearanceDefaults.minimumBubbleHeight,
             showAvatar: false,
-            isLastInGroup: true,
-            avatarSize: FCLAvatarDefaults.avatarSize,
-            avatarDelegate: nil,
-            senderBubbleColor: FCLAppearanceDefaults.senderBubbleColor,
-            receiverBubbleColor: FCLAppearanceDefaults.receiverBubbleColor,
-            senderTextColor: FCLAppearanceDefaults.senderTextColor,
-            receiverTextColor: FCLAppearanceDefaults.receiverTextColor,
-            messageFont: FCLAppearanceDefaults.messageFont,
-            contextMenuActions: []
+            isLastInGroup: true
         )
         .previewDisplayName("Outgoing (No Avatar)")
         .previewLayout(.sizeThatFits)
         .padding()
 
-        FCLChatMessageRow(
+        FCLChatMessageRowPreviewWrapper(
             message: FCLChatMessage(text: "Short", direction: .outgoing, sender: previewOutgoingSender),
             side: .right,
             tailStyle: .edged(.bottom),
-            maxBubbleWidth: 280,
-            minimumBubbleHeight: FCLAppearanceDefaults.minimumBubbleHeight,
             showAvatar: false,
-            isLastInGroup: true,
-            avatarSize: FCLAvatarDefaults.avatarSize,
-            avatarDelegate: nil,
-            senderBubbleColor: FCLAppearanceDefaults.senderBubbleColor,
-            receiverBubbleColor: FCLAppearanceDefaults.receiverBubbleColor,
-            senderTextColor: FCLAppearanceDefaults.senderTextColor,
-            receiverTextColor: FCLAppearanceDefaults.receiverTextColor,
-            messageFont: FCLAppearanceDefaults.messageFont,
-            contextMenuActions: []
+            isLastInGroup: true
         )
         .previewDisplayName("Short Dynamic Width")
         .previewLayout(.sizeThatFits)

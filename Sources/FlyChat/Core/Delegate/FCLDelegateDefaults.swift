@@ -25,6 +25,12 @@ enum FCLAppearanceDefaults {
 
     /// Default minimum bubble height: 40 points.
     static let minimumBubbleHeight: CGFloat = 40
+
+    /// Default edge insets for the in-bubble attachment image grid: 1pt on all sides.
+    static let attachmentInsets = FCLEdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1)
+
+    /// Default inter-cell spacing within the in-bubble attachment image grid: 1pt.
+    static let attachmentItemSpacing: CGFloat = 1
 }
 
 /// Default values for ``FCLLayoutDelegate`` properties.

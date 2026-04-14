@@ -72,6 +72,24 @@ Fly-Chat/
 |       |       +-- FCLUIKitBridge.swift
 |       |
 |       +-- Modules/
+|           +-- AttachmentPicker/
+|           |   +-- Model/
+|           |   |   +-- FCLMediaCompression.swift
+|           |   |   +-- FCLPickerTab.swift
+|           |   |   +-- FCLRecentFile.swift
+|           |   +-- Presenter/
+|           |   |   +-- FCLAttachmentPickerPresenter.swift
+|           |   |   +-- FCLGalleryDataSource.swift
+|           |   |   +-- FCLMediaCompressor.swift
+|           |   |   +-- FCLRecentFilesStore.swift
+|           |   +-- View/
+|           |       +-- FCLAttachmentPickerSheet.swift
+|           |       +-- FCLCameraBridge.swift
+|           |       +-- FCLFileTabView.swift
+|           |       +-- FCLGalleryTabView.swift
+|           |       +-- FCLPickerInputBar.swift
+|           |       +-- FCLPickerTabBar.swift
+|           |
 |           +-- Chat/
 |           |   +-- Model/
 |           |   |   +-- FCLAttachment.swift
@@ -81,13 +99,12 @@ Fly-Chat/
 |           |   |   +-- FCLContextMenuAction.swift
 |           |   |   +-- FCLImageSource.swift
 |           |   +-- Presenter/
-|           |   |   +-- FCLAttachmentManager.swift
 |           |   |   +-- FCLAvatarImageCache.swift
 |           |   |   +-- FCLChatPresenter.swift
 |           |   |   +-- FCLContextMenuDelegate.swift
 |           |   +-- View/
+|           |   |   +-- FCLAsyncThumbnailLoader.swift
 |           |   |   +-- FCLAttachmentGridView.swift
-|           |   |   +-- FCLAttachmentPreviewStrip.swift
 |           |   |   +-- FCLAvatarView.swift
 |           |   |   +-- FCLChatBubbleShape.swift
 |           |   |   +-- FCLChatScreen.swift
@@ -96,8 +113,9 @@ Fly-Chat/
 |           |   |   +-- FCLFileRowView.swift
 |           |   |   +-- FCLInputBar.swift
 |           |   |   +-- FCLInputBarBackground.swift
+|           |   |   +-- FCLMediaEditorView.swift
+|           |   |   +-- FCLMediaPreviewView.swift
 |           |   +-- Router/
-|           |       +-- FCLAttachmentPickerDelegate.swift
 |           |       +-- FCLChatRouter.swift
 |           |
 |           +-- ChatList/
@@ -159,6 +177,40 @@ All four sub-delegate protocols are `@MainActor` and `AnyObject`-constrained (cl
 
 ---
 
+## AttachmentPicker Module
+
+The tabbed attachment picker sheet. Located at `Sources/FlyChat/Modules/AttachmentPicker/`. This is a standalone module — even though it is closely related to the Chat module, it lives at the top level of `Modules/` following the project convention that every feature gets its own module directory.
+
+### Model (3 files)
+
+| File | Type | Description |
+|---|---|---|
+| `FCLMediaCompression.swift` | `FCLMediaCompression` (struct) + `FCLVideoExportPreset` (enum) | Configuration for compressing media attachments before sending. Fields: `maxDimension`, `jpegQuality`, `videoExportPreset`. |
+| `FCLPickerTab.swift` | `FCLPickerTab` (enum) | Identifies a tab in the attachment picker sheet: `.gallery`, `.file`, or `.custom(id:)`. |
+| `FCLRecentFile.swift` | `FCLRecentFile` (struct) | A file previously sent or available for quick re-send, provided by the host app via delegate. |
+
+### Presenter (3 files)
+
+| File | Type | Description |
+|---|---|---|
+| `FCLAttachmentPickerPresenter.swift` | `FCLAttachmentPickerPresenter` (class) | `@MainActor`, `ObservableObject`. Drives picker state (browsing, gallery selected, sending, error), selected assets, caption text, tab selection, the camera-capture stack, and per-asset image edit state (`editStateByAssetID`, `editedImageByAssetID`). Methods `appendCameraCapture(_:)`, `removeCameraCapture(_:)`, `clearCameraCaptures()`, and `sendCameraAttachments()` manage the multi-capture accumulation flow. All three send methods add to `FCLRecentFilesStore` via a detached Task. |
+| `FCLRecentFilesStore.swift` | `FCLRecentFilesStore` (actor) | Public `actor`. Persists the last 20 files sent through any pipeline to `UserDefaults` under `com.flychat.recentFiles.v1`. Provides `add(_:)`, `list()`, and `clear()`. Deduplicates by URL (re-adds move to front). Used as a fallback by `FCLFileTabView` when the delegate's `recentFiles` array is empty. |
+| `FCLGalleryDataSource.swift` | `FCLGalleryDataSource` (class) | `@MainActor`, `ObservableObject`. Manages PHPhotoLibrary authorization, asset fetching, thumbnail loading, and full-size image retrieval. |
+| `FCLMediaCompressor.swift` | `FCLMediaCompressor` (enum) | Static utility for image downscaling, JPEG compression, and video export via `AVAssetExportSession`. |
+
+### View (6 files)
+
+| File | Type | Description |
+|---|---|---|
+| `FCLAttachmentPickerSheet.swift` | `FCLAttachmentPickerSheet` | Root sheet view for the attachment picker. Presents tab content, bottom bar (tab bar or input bar), camera capture, camera-stack preview, and asset preview full-screen covers. Contains `FCLCustomTabWrapper` (`UIViewControllerRepresentable`) and the private `FCLCameraStackPreview` view (accumulating multi-capture preview with caption field, "Add another" button, and batched send). |
+| `FCLCameraBridge.swift` | `FCLCameraBridge` + `FCLCameraPreviewCell` | `UIViewControllerRepresentable` bridge to Apple's native `UIImagePickerController` for camera capture. Uses Apple's standard capture and Use/Retake confirmation UI. After each confirmed capture the `onCapture` closure is called with an `FCLAttachment`. `FCLCameraPreviewCell` is a `UIViewRepresentable` live camera preview cell (AVCapture-backed) shown in the gallery grid. |
+| `FCLFileTabView.swift` | `FCLFileTabView` | Files tab showing action rows (gallery picker, document picker, scanner) and recent files. Contains `UIViewControllerRepresentable` bridges for `PHPickerViewController`, `UIDocumentPickerViewController`, and `VNDocumentCameraViewController`. |
+| `FCLGalleryTabView.swift` | `FCLGalleryTabView` | Gallery tab displaying a photo library grid with camera cell, selection circles, and video duration badges. |
+| `FCLPickerInputBar.swift` | `FCLPickerInputBar` | Caption input bar shown when gallery assets are selected. Pure SwiftUI, iOS-only (`#if os(iOS)`). |
+| `FCLPickerTabBar.swift` | `FCLPickerTabBar` + `FCLPickerTabDisplayItem` | Horizontally scrollable tab bar for the picker sheet. Pure SwiftUI, iOS-only (`#if os(iOS)`). |
+
+---
+
 ## Chat Module
 
 The main conversation screen. Located at `Sources/FlyChat/Modules/Chat/`.
@@ -174,12 +226,11 @@ The main conversation screen. Located at `Sources/FlyChat/Modules/Chat/`.
 | `FCLContextMenuAction.swift` | `FCLContextMenuAction` (struct) + `FCLContextMenuActionRole` (enum) | Defines a single context menu item with `title`, optional `systemImage`, `role` (`.default`/`.destructive`), and a `@Sendable` handler closure. |
 | `FCLImageSource.swift` | `FCLImageSource` (enum) | Platform-agnostic image reference: `.name(String)` for asset catalog images, `.system(String)` for SF Symbols. |
 
-### Presenter (4 files)
+### Presenter (3 files)
 
 | File | Type | Description |
 |---|---|---|
-| `FCLChatPresenter.swift` | `FCLChatPresenter` (class) | `@MainActor`, `ObservableObject`. The central coordinator for the chat screen. Owns `@Published messages` and `@Published draftText`. Resolves all delegate layout/appearance values with clamped fallbacks. Provides `renderedMessagesFromBottom` (reversed array for the flipped-list trick), `side(for:)`, `tailStyle(for:configStyle:)`, `isLastInGroup(for:)`, `spacing(after:)` for layout. Actions: `sendDraft()`, `deleteMessage(_:)`, `copyMessage(_:)`, `contextMenuActions(for:)`. On UIKit platforms, owns an `FCLAttachmentManager`. Routes events through `FCLChatRouting`. |
-| `FCLAttachmentManager.swift` | `FCLAttachmentManager` (class) | UIKit-only (`#if canImport(UIKit)`). `@MainActor`, `ObservableObject`. Manages the pending attachment list for the compose area. Integrates with `PHPickerViewController` (iOS 14+), `UIImagePickerController`, and `UIDocumentPickerViewController` via internal coordinator classes. Supports custom picker injection through `FCLAttachmentPickerDelegate`. |
+| `FCLChatPresenter.swift` | `FCLChatPresenter` (class) | `@MainActor`, `ObservableObject`. The central coordinator for the chat screen. Owns `@Published messages` and `@Published draftText`. Resolves all delegate layout/appearance values with clamped fallbacks. Provides `renderedMessagesFromBottom` (reversed array for the flipped-list trick), `side(for:)`, `tailStyle(for:configStyle:)`, `isLastInGroup(for:)`, `spacing(after:)` for layout. Provides `allConversationMedia` (flat array of all image/video attachments across all messages, used by `FCLMediaPreviewView` for conversation-wide swipe navigation). Actions: `sendDraft()`, `deleteMessage(_:)`, `copyMessage(_:)`, `contextMenuActions(for:)`. Routes events through `FCLChatRouting`. |
 | `FCLAvatarImageCache.swift` | `FCLAvatarImageCache` (actor) | UIKit-only. Swift `actor` that wraps `NSCache<NSString, UIImage>` for thread-safe in-memory avatar caching. Internal to the package. |
 | `FCLContextMenuDelegate.swift` | `FCLContextMenuDelegate` (protocol) | `@MainActor`, `AnyObject`-constrained. Host apps implement this to provide custom context menu actions per message and direction. |
 
@@ -194,16 +245,17 @@ The main conversation screen. Located at `Sources/FlyChat/Modules/Chat/`.
 | `FCLExpandingTextView.swift` | `FCLExpandingTextView` | UIKit-only. Auto-expanding `UITextView` wrapper that grows with content up to a configurable max row count. |
 | `FCLInputBarBackground.swift` | `FCLInputBarBackground` | Background shape/style for the input bar, supporting the three container modes. |
 | `FCLAvatarView.swift` | `FCLAvatarView` | UIKit-only. Circular avatar that loads images asynchronously via `FCLAvatarDelegate.avatarURL(for:)`, caches them through `FCLAvatarCacheDelegate`, and falls back to an initial-letter placeholder or a default image source. |
-| `FCLAttachmentGridView.swift` | `FCLAttachmentGridView` | UIKit-only. Grid layout for image/video attachment thumbnails within a message bubble. |
-| `FCLAttachmentPreviewStrip.swift` | `FCLAttachmentPreviewStrip` | UIKit-only. Horizontal scrollable strip showing pending attachments in the input bar before sending. |
-| `FCLFileRowView.swift` | `FCLFileRowView` | UIKit-only. Row view for file-type attachments within a message bubble, showing file name and size. |
+| `FCLAttachmentGridView.swift` | `FCLAttachmentGridView` + `FCLAttachmentGridLayout` | UIKit-only (grid view); layout utility is platform-independent. Renders a grid of image/video attachment thumbnails within a message bubble. Uses `FCLAttachmentGridLayout` for aspect-ratio-aware row height calculation and `FCLAsyncThumbnailLoader` for off-main-actor thumbnail loading. The grid is clipped to the bubble shape so rounded corners align. For media-only messages (no text), the timestamp renders as a translucent pill overlay in the bottom-trailing corner. |
+| `FCLAsyncThumbnailLoader.swift` | `FCLAsyncThumbnailLoader` (actor) | UIKit-only. `actor`-isolated, process-wide singleton that loads and downscales attachment thumbnails from `attachment.url` off the main actor. Results are cached by attachment ID and target size in an `NSCache`. Used by `FCLAttachmentGridView` to display real asset previews. |
+| `FCLFileRowView.swift` | `FCLFileRowView` | iOS-only (`#if os(iOS)`). Row view for file-type attachments within a message bubble, showing file name and size. Pure SwiftUI. |
+| `FCLMediaPreviewView.swift` | `FCLMediaPreviewView` + `FCLPickerAssetPreview` + `FCLTransparentFullScreenCover` | UIKit-only. Full-screen media viewers. `FCLMediaPreviewView` is the conversation media preview: swipes across all conversation media, shows a bottom thumbnail carousel scoped to the current message, supports tap-to-toggle chrome, and dismisses via a vertical-only drag gesture (horizontal movement is ignored to preserve TabView paging) presented through `FCLTransparentFullScreenCover` so the chat is visible behind during the drag. `FCLPickerAssetPreview` is the picker-side preview: swipes the full gallery, shows a selection toggle, keyboard-aware caption field, fixed send button, and an Edit button that opens `FCLMediaEditorView`. |
+| `FCLMediaEditorView.swift` | `FCLMediaEditorView` | UIKit-only, internal. Simple image editor with rotate 90° CW, horizontal flip, and preset-aspect center crop (free / square / 4:3 / 16:9). Presented from `FCLPickerAssetPreview`. Per-asset edit state is written back to `FCLAttachmentPickerPresenter`; the send pipeline uses the edited image when present. |
 
-### Router (2 files)
+### Router (1 file)
 
 | File | Type | Description |
 |---|---|---|
 | `FCLChatRouter.swift` | `FCLChatRouting` (protocol) + `FCLChatActionRouter` (class) | The routing protocol defines `didSendMessage(_:)` and `didDeleteMessage(_:)`. The concrete `FCLChatActionRouter` forwards these to optional closures provided by the host app at initialization. |
-| `FCLAttachmentPickerDelegate.swift` | `FCLAttachmentPickerDelegate` (protocol) + `FCLAttachmentActionPicker` (class) | UIKit-only. Allows host apps to provide a custom attachment picker UI. The protocol requires `presentPicker(from:completion:)`. `FCLAttachmentActionPicker` is a closure-based convenience conformance. |
 
 ---
 
@@ -277,13 +329,13 @@ The following types and members are `public` and form the stable API that host a
 
 **Models:** `FCLChatMessage`, `FCLChatMessageDirection`, `FCLChatMessageSender`, `FCLAttachment`, `FCLAttachmentType`, `FCLChatSummary`, `FCLContextMenuAction`, `FCLContextMenuActionRole`, `FCLImageSource`, `FCLChatColorToken`, `FCLChatFontWeight`, `FCLChatMessageFontConfiguration`, `FCLEdgeInsets`, `FCLInputBarContainerMode`, `FCLChatBubbleSide`, `FCLBubbleTailEdge`, `FCLBubbleTailStyle`
 
-**Protocols:** `FCLChatDelegate`, `FCLAppearanceDelegate`, `FCLAvatarDelegate`, `FCLAvatarCacheDelegate`, `FCLLayoutDelegate`, `FCLInputDelegate`, `FCLContextMenuDelegate`, `FCLChatClipboard`, `FCLChatRouting`, `FCLChatListRouting`, `FCLAttachmentPickerDelegate`
+**Protocols:** `FCLChatDelegate`, `FCLAppearanceDelegate`, `FCLAvatarDelegate`, `FCLAvatarCacheDelegate`, `FCLLayoutDelegate`, `FCLInputDelegate`, `FCLAttachmentDelegate`, `FCLContextMenuDelegate`, `FCLChatClipboard`, `FCLChatRouting`, `FCLChatListRouting`, `FCLCustomAttachmentTab`
 
-**Presenters:** `FCLChatPresenter`, `FCLChatListPresenter`, `FCLAttachmentManager`
+**Presenters:** `FCLChatPresenter`, `FCLChatListPresenter`
 
 **Views:** `FCLChatScreen`, `FCLChatListScreen`, `FCLChatBubbleShape`
 
-**Routers:** `FCLChatActionRouter`, `FCLChatListActionRouter`, `FCLAttachmentActionPicker`
+**Routers:** `FCLChatActionRouter`, `FCLChatListActionRouter`
 
 **Integrations:** `FCLUIKitBridge`
 
@@ -308,13 +360,13 @@ Presenters use `public private(set)` for published state properties, meaning hos
 | Attribute | Value |
 |---|---|
 | **Swift tools version** | 6.2 |
-| **iOS runtime minimum** | iOS 15.0 |
-| **macOS build support** | macOS 10.15+ (basic fallback composer; no attachment support) |
+| **iOS runtime minimum** | iOS 17.0 |
+| **macOS build support** | macOS 14.0+ (basic fallback composer; no attachment support) |
 | **Concurrency model** | Swift 6 strict concurrency |
 | **Main actor isolation** | All presenters, delegates, views, and UIKit bridge methods are `@MainActor` |
 | **Sendable conformance** | All model types (`FCLChatMessage`, `FCLAttachment`, `FCLChatSummary`, etc.) are `Sendable` |
 | **Actor usage** | `FCLAvatarImageCache` is a Swift `actor` for thread-safe image caching |
-| **Conditional compilation** | `#if canImport(UIKit)` gates attachment features, avatar view, input bar, and the UIKit bridge. `#if canImport(AppKit)` provides a minimal macOS composer fallback. |
+| **Conditional compilation** | `#if canImport(UIKit)` gates UIKit wrappers (UIViewRepresentable bridges, UIImage usage, avatar view, input bar) and the UIKit bridge. `#if os(iOS)` gates iOS-only features that are pure SwiftUI (picker tab bar, picker input bar, file row view). `#if canImport(AppKit)` provides a minimal macOS composer fallback. |
 
 ---
 

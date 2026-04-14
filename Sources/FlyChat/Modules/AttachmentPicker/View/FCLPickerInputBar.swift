@@ -1,4 +1,4 @@
-#if canImport(UIKit)
+#if os(iOS)
 import SwiftUI
 
 // MARK: - FCLPickerInputBar
@@ -29,7 +29,7 @@ struct FCLPickerInputBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(UIColor.secondarySystemBackground))
+        .background(Color(.secondarySystemBackground))
     }
 
     // MARK: - Private
@@ -48,7 +48,7 @@ struct FCLPickerInputBar: View {
             Image(systemName: "paperplane.fill")
                 .foregroundColor(.white)
                 .padding(9)
-                .background(hasSelection ? Color.blue : Color(UIColor.systemGray3))
+                .background(hasSelection ? Color.blue : Color(.systemGray3))
                 .clipShape(Circle())
         }
         .disabled(!hasSelection)
@@ -93,7 +93,7 @@ private struct FCLPickerInputBarPreviewWrapper: View {
         FCLPickerInputBar(
             captionText: $captionText,
             hasSelection: hasSelection,
-            fieldBackgroundColor: Color(UIColor.tertiarySystemFill),
+            fieldBackgroundColor: Color(.tertiarySystemFill),
             fieldCornerRadius: 18,
             onSend: {}
         )
