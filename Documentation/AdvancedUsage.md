@@ -386,17 +386,17 @@ FCLUIKitBridge.makeChatViewController(
 
 ### Camera Capture Flow
 
-Tapping the camera cell in the gallery tab opens Apple's native `UIImagePickerController` with `sourceType: .camera`. The standard Apple capture interface is shown, including the Use/Retake confirmation after each shot.
+Tapping the in-gallery camera cell presents the standalone Camera module via `FCLCameraRouter`. The screen is built directly on `AVCaptureSession` and shows a live `AVCaptureVideoPreviewLayer`-backed preview with a system-Camera-app fidelity UI: shutter button, flash pill (Auto / On / Off), flip button with 3D rotation animation and a mid-flip blur, Photo / Video mode switch, record timer pill, pinch-to-zoom, a 0.5× / 1× / 2× zoom preset ring, and a tap-to-focus reticle.
 
-After each confirmed capture, the library transitions to an in-app multi-capture preview (`FCLCameraStackPreview`) that accumulates all captures taken so far. From this screen the user can:
+After each capture the library accumulates results into the shared multi-capture stack on `FCLAttachmentPickerPresenter` (`cameraCaptures`). From the preview that follows, the user can:
 
 - Review thumbnails of all captured items.
 - Remove individual captures.
-- Tap **Add another** to return to the native camera and capture additional items.
+- Tap **Add another** to re-open the camera and capture additional items.
 - Add an optional caption.
 - Tap **Send** to dispatch all accumulated captures in a single batched message.
 
-Whether video recording is available during capture is controlled by `isCameraVideoEnabled` on `FCLAttachmentDelegate` (default: `true`). When `isCameraVideoEnabled` is `false`, the native picker is restricted to photos only.
+Whether video recording is available is controlled by `isCameraVideoEnabled` on `FCLAttachmentDelegate` (default: `true`). When `isCameraVideoEnabled` is `false`, the camera module's `FCLCameraConfiguration.allowsVideo` is forced off and the Photo / Video mode switch hides `.video`. See [CameraModule.md](CameraModule.md) for the full module reference.
 
 ### In-Bubble Rendering
 

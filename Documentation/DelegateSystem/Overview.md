@@ -360,7 +360,7 @@ private func resolveMaxRows(forAvailableHeight height: CGFloat) -> Int {
 
 **Platform:** iOS only (`#if canImport(UIKit)`)
 
-Controls the tabbed attachment picker sheet: media compression settings, the "Recents" section, additional custom tabs, and feature toggles for video, camera video, and the Files tab. The in-app camera uses Apple's native `UIImagePickerController`; this delegate does not replace or configure the camera UI itself.
+Controls the tabbed attachment picker sheet: media compression settings, the "Recents" section, additional custom tabs, and feature toggles for video, camera video, and the Files tab. The in-app camera is the standalone Camera module (`AVCaptureSession`-backed, presented via `FCLCameraRouter`); this delegate does not replace or configure the camera UI itself, but `isCameraVideoEnabled` toggles the `.video` mode availability in `FCLCameraConfiguration.allowsVideo`.
 
 ```swift
 @MainActor
@@ -383,7 +383,7 @@ public protocol FCLAttachmentDelegate: AnyObject {
 | `customTabs` | `[any FCLCustomAttachmentTab]` | `[]` | Additional tabs injected after Gallery and Files. Empty array shows only built-in tabs. |
 | `isVideoEnabled` | `Bool` | `true` | Whether video selection is available in the Gallery tab. |
 | `isFileTabEnabled` | `Bool` | `true` | Whether the Files tab is shown in the picker. |
-| `isCameraVideoEnabled` | `Bool` | `true` | Whether the native camera allows video recording in addition to photos. When `false`, `UIImagePickerController` is restricted to photos only. |
+| `isCameraVideoEnabled` | `Bool` | `true` | Whether the in-app Camera module exposes the Video mode. When `false`, `FCLCameraConfiguration.allowsVideo` is forced off and the Photo / Video mode switch hides `.video`. |
 
 > **Recent Files:** iOS does not provide a system API for accessing the user's recent file history. The `recentFiles` array is entirely host-app managed — populate it with files your app has recently handled (e.g., sent attachments, downloaded documents). When the array is empty, the Files tab shows a "No recent files" placeholder.
 

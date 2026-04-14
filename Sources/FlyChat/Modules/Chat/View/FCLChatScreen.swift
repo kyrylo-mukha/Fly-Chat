@@ -105,50 +105,97 @@ public struct FCLChatScreen: View {
 
     /// Tracks the current screen height for dynamic input bar row calculations.
     @State private var screenHeight: CGFloat = 700
+    /// Tracks the current container width for dynamic max-bubble-width calculations.
+    @State private var screenWidth: CGFloat = 375
+    /// One-shot guard preventing the global `UITableView.appearance()` configuration from
+    /// re-running on every `onAppear` (which also fires on `fullScreenCover` dismissals and
+    /// scene-phase transitions). The appearance proxy only needs to be set once per process
+    /// lifetime; repeated toggling causes visible relayout churn of the list on foreground.
+    @State private var didConfigureListAppearance = false
 
     #if canImport(UIKit)
     /// The ID of the attachment currently being previewed in full-screen, or `nil` when no preview is active.
     @State private var previewAttachmentID: UUID?
+    /// Relay that bridges per-cell window-space frames from the visible attachment grids
+    /// into ``FCLMediaPreviewView`` so it can animate the dismiss back into the source cell.
+    /// SwiftUI view structs cannot be `AnyObject`, so the screen owns this small relay
+    /// reference-type instead of adopting ``FCLMediaPreviewSource`` directly.
+    @State private var previewRelay = FCLChatMediaPreviewRelay()
     #endif
     /// Namespace used for hero-style matched geometry transitions between grid thumbnails and the full-screen preview.
     @Namespace private var mediaHeroNamespace
 
     public var body: some View {
-        GeometryReader { proxy in
-            VStack(spacing: 0) {
-                messagesList(availableWidth: proxy.size.width)
-                inputBarSection
+        VStack(spacing: 0) {
+            messagesList(availableWidth: screenWidth)
+            inputBarSection
+        }
+        .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+        // Read container size via a background GeometryReader + PreferenceKey.
+        // Unlike wrapping the entire hierarchy in a `GeometryReader`, this pattern
+        // does not cause the `VStack`/`List` subtree to rebuild when the container
+        // momentarily re-emits its size on scene reactivation (background → foreground).
+        // The size is propagated only through a stable `@State` and an equality-guarded
+        // `onChange`, so transient identical-value emissions are ignored by SwiftUI.
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(key: FCLChatScreenSizeKey.self, value: proxy.size)
             }
-            .background(Color(red: 0.96, green: 0.97, blue: 0.99))
-            .onAppear {
-                screenHeight = proxy.size.height
+        )
+        .onPreferenceChange(FCLChatScreenSizeKey.self) { newSize in
+            if abs(newSize.width - screenWidth) > 0.5 {
+                screenWidth = newSize.width
+            }
+            if abs(newSize.height - screenHeight) > 0.5 {
+                screenHeight = newSize.height
+            }
+        }
+        .onAppear {
+            if !didConfigureListAppearance {
                 configureListAppearance()
+                didConfigureListAppearance = true
             }
-            .onDisappear(perform: restoreListAppearance)
-            .onChangeOfHeightIfAvailable(proxy.size.height) { newHeight in
-                screenHeight = newHeight
-            }
-            #if canImport(UIKit)
-            .fclTransparentFullScreenCover(
-                isPresented: Binding(
-                    get: { previewAttachmentID != nil },
-                    set: { if !$0 { withTransaction(Transaction(animation: nil)) { previewAttachmentID = nil } } }
-                )
-            ) {
-                if let attachmentID = previewAttachmentID {
-                    FCLMediaPreviewView(
-                        presenter: presenter,
-                        initialAttachmentID: attachmentID,
-                        namespace: mediaHeroNamespace,
-                        onDismiss: {
-                            withTransaction(Transaction(animation: nil)) {
-                                previewAttachmentID = nil
-                            }
+        }
+        // Note: we intentionally do NOT restore `UITableView.appearance()` in `onDisappear`.
+        // The previous implementation toggled the proxy on every disappear (including when a
+        // `fullScreenCover` or sheet was presented on top of the chat, and when the app
+        // backgrounded), causing the list to relayout separators and insets on reappear.
+        // Leaving the configured appearance in place avoids that visible jump; the proxy
+        // values are scoped by `UITableView.appearance()` which only affects table views
+        // created while the package's chat screen is in use.
+        #if canImport(UIKit)
+        .fclTransparentFullScreenCover(
+            isPresented: Binding(
+                get: { previewAttachmentID != nil },
+                set: { if !$0 { withTransaction(Transaction(animation: nil)) { previewAttachmentID = nil } } }
+            )
+        ) {
+            if let attachmentID = previewAttachmentID {
+                FCLMediaPreviewView(
+                    presenter: presenter,
+                    initialAttachmentID: attachmentID,
+                    namespace: mediaHeroNamespace,
+                    onDismiss: {
+                        withTransaction(Transaction(animation: nil)) {
+                            previewAttachmentID = nil
                         }
-                    )
-                }
+                    },
+                    source: previewRelay
+                )
             }
-            #endif
+        }
+        #endif
+        .overlay(alignment: .top) {
+            if let errorMessage = presenter.lastSendError {
+                FCLChatSendErrorToast(message: errorMessage) {
+                    presenter.lastSendError = nil
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .animation(.easeOut(duration: 0.2), value: presenter.lastSendError)
+            }
         }
     }
 
@@ -193,6 +240,21 @@ public struct FCLChatScreen: View {
                         onMediaTap: { attachment in
                             #if canImport(UIKit)
                             previewAttachmentID = attachment.id
+                            #endif
+                        },
+                        onAttachmentCellFramesChange: { frames in
+                            #if canImport(UIKit)
+                            previewRelay.frames.merge(frames) { _, new in new }
+                            #endif
+                        },
+                        onAttachmentCellFramesInvalidate: { keys in
+                            #if canImport(UIKit)
+                            // Prune stale keys so the preview dismiss never
+                            // animates back to a cell that has scrolled off
+                            // or whose row left the list.
+                            for key in keys {
+                                previewRelay.frames.removeValue(forKey: key)
+                            }
                             #endif
                         }
                     )
@@ -296,15 +358,20 @@ public struct FCLChatScreen: View {
         #endif
     }
 
-    /// Restores `UITableView` global appearance to system defaults.
-    /// Called when the chat screen disappears.
-    private func restoreListAppearance() {
-        #if canImport(UIKit)
-        UITableView.appearance().separatorStyle = .singleLine
-        UITableView.appearance().separatorColor = nil
-        UITableView.appearance().tableFooterView = nil
-        UITableView.appearance().keyboardDismissMode = .none
-        #endif
+}
+
+// MARK: - Size Preference Key
+
+/// Propagates the container size of `FCLChatScreen` from a background `GeometryReader`
+/// to the enclosing view hierarchy without wrapping the entire view tree in a
+/// `GeometryReader` (which would cause subtree relayout on scene reactivation).
+private struct FCLChatScreenSizeKey: PreferenceKey {
+    static let defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        let next = nextValue()
+        if next != .zero {
+            value = next
+        }
     }
 }
 
@@ -354,6 +421,12 @@ private struct FCLChatMessageRow: View {
     let heroNamespace: Namespace.ID
     /// Called when a media attachment is tapped, passing the tapped attachment to the parent.
     var onMediaTap: ((FCLAttachment) -> Void)?
+    /// Forwards the attachment grid's per-cell window-space frames up to the chat screen,
+    /// which stores them in ``FCLChatMediaPreviewRelay`` for the preview dismiss animation.
+    var onAttachmentCellFramesChange: (([String: CGRect]) -> Void)?
+    /// Forwards the attachment grid's disappear-invalidation event up to the
+    /// chat screen so it can prune stale keys from the preview relay.
+    var onAttachmentCellFramesInvalidate: ((Set<String>) -> Void)?
 
     /// Shared date formatter for rendering short time strings (e.g., "2:30 PM").
     private static let timeFormatter: DateFormatter = {
@@ -489,6 +562,12 @@ private struct FCLChatMessageRow: View {
                 heroNamespace: heroNamespace,
                 onAttachmentTap: { attachment in
                     onMediaTap?(attachment)
+                },
+                onCellFramesChange: { frames in
+                    onAttachmentCellFramesChange?(frames)
+                },
+                onCellFramesInvalidate: { keys in
+                    onAttachmentCellFramesInvalidate?(keys)
                 }
             )
             .overlay(alignment: .bottomTrailing) {
@@ -509,6 +588,8 @@ private struct FCLChatMessageRow: View {
             )
             .frame(minWidth: minimumBubbleHeight, idealWidth: maxBubbleWidth, alignment: side == .right ? .trailing : .leading)
         } else {
+            // Whether content follows the media grid determines which corners stay rounded.
+            let hasContentBelowGrid = !message.text.isEmpty || !fileAttachments.isEmpty
             VStack(alignment: side == .right ? .trailing : .leading, spacing: 0) {
                 if !mediaAttachments.isEmpty {
                     FCLAttachmentGridView(
@@ -519,7 +600,19 @@ private struct FCLChatMessageRow: View {
                         heroNamespace: heroNamespace,
                         onAttachmentTap: { attachment in
                             onMediaTap?(attachment)
-                        }
+                        },
+                        onCellFramesChange: { frames in
+                            onAttachmentCellFramesChange?(frames)
+                        },
+                        onCellFramesInvalidate: { keys in
+                            onAttachmentCellFramesInvalidate?(keys)
+                        },
+                        containerCorners: FCLChatBubbleShape.imageContainerCorners(
+                            side: side,
+                            tailStyle: tailStyle,
+                            contentAbove: false,
+                            contentBelow: hasContentBelowGrid
+                        )
                     )
                 }
 
@@ -643,17 +736,6 @@ private struct FCLBottomAnchoredChatModifier: ViewModifier {
     }
 }
 
-// MARK: - Height Change Helpers
-
-private extension View {
-    /// Observes changes to the given height value.
-    func onChangeOfHeightIfAvailable(_ height: CGFloat, perform action: @escaping (CGFloat) -> Void) -> some View {
-        onChange(of: height) { _, newValue in
-            action(newValue)
-        }
-    }
-}
-
 // MARK: - Separator Helpers
 
 private extension View {
@@ -669,6 +751,45 @@ private extension View {
     func hideFCLChatRowSeparatorsIfAvailable() -> some View { self }
     func hideFCLChatSectionSeparatorsIfAvailable() -> some View { self }
     #endif
+}
+
+// MARK: - FCLChatSendErrorToast
+
+/// Lightweight top-anchored toast used by ``FCLChatScreen`` to surface send-path
+/// errors reported via ``FCLChatPresenter/reportSendError(_:)``.
+///
+/// The toast auto-dismisses after a short interval by invoking ``onDismiss``.
+/// Consumers can tap the toast to dismiss it immediately.
+@MainActor
+private struct FCLChatSendErrorToast: View {
+    let message: String
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.white)
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.leading)
+                .lineLimit(3)
+            Spacer(minLength: 4)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.black.opacity(0.82))
+        )
+        .onTapGesture { onDismiss() }
+        .task(id: message) {
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            onDismiss()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Send error: \(message)")
+    }
 }
 
 // MARK: - Previews

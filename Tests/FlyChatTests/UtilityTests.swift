@@ -121,4 +121,26 @@ final class FCLUtilityTests: XCTestCase {
     }
     #endif
 
+    // MARK: - Attachment Input Line Count Clamp
+
+    func testAttachmentInputDefaultDeltaChatMax10() {
+        XCTAssertEqual(fclAttachmentInputEffectiveLines(chatMax: 10, delta: -3), 7)
+    }
+
+    func testAttachmentInputDefaultDeltaClampsToTwo() {
+        XCTAssertEqual(fclAttachmentInputEffectiveLines(chatMax: 4, delta: -3), 2)
+    }
+
+    func testAttachmentInputChatMaxOneOverrides() {
+        XCTAssertEqual(fclAttachmentInputEffectiveLines(chatMax: 1, delta: 0), 1)
+    }
+
+    func testAttachmentInputSentinelForcesSingleLine() {
+        XCTAssertEqual(fclAttachmentInputEffectiveLines(chatMax: 10, delta: .min), 1)
+    }
+
+    func testAttachmentInputLargeNegativeDeltaClamps() {
+        XCTAssertEqual(fclAttachmentInputEffectiveLines(chatMax: 10, delta: -100), 2)
+    }
+
 }

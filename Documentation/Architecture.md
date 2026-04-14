@@ -84,11 +84,20 @@ Fly-Chat/
 |           |   |   +-- FCLRecentFilesStore.swift
 |           |   +-- View/
 |           |       +-- FCLAttachmentPickerSheet.swift
-|           |       +-- FCLCameraBridge.swift
 |           |       +-- FCLFileTabView.swift
 |           |       +-- FCLGalleryTabView.swift
 |           |       +-- FCLPickerInputBar.swift
 |           |       +-- FCLPickerTabBar.swift
+|           |       +-- Editors/
+|           |           +-- FCLRotateCropEditor.swift
+|           |           +-- FCLMarkupEditor.swift
+|           |           +-- FCLAttachmentEditToolbar.swift
+|           |
+|           +-- Camera/
+|           |   +-- Model/
+|           |   +-- Presenter/
+|           |   +-- View/
+|           |   +-- Router/
 |           |
 |           +-- Chat/
 |           |   +-- Model/
@@ -113,7 +122,6 @@ Fly-Chat/
 |           |   |   +-- FCLFileRowView.swift
 |           |   |   +-- FCLInputBar.swift
 |           |   |   +-- FCLInputBarBackground.swift
-|           |   |   +-- FCLMediaEditorView.swift
 |           |   |   +-- FCLMediaPreviewView.swift
 |           |   +-- Router/
 |           |       +-- FCLChatRouter.swift
@@ -198,12 +206,16 @@ The tabbed attachment picker sheet. Located at `Sources/FlyChat/Modules/Attachme
 | `FCLGalleryDataSource.swift` | `FCLGalleryDataSource` (class) | `@MainActor`, `ObservableObject`. Manages PHPhotoLibrary authorization, asset fetching, thumbnail loading, and full-size image retrieval. |
 | `FCLMediaCompressor.swift` | `FCLMediaCompressor` (enum) | Static utility for image downscaling, JPEG compression, and video export via `AVAssetExportSession`. |
 
-### View (6 files)
+### View (5 files + Editors/)
 
 | File | Type | Description |
 |---|---|---|
 | `FCLAttachmentPickerSheet.swift` | `FCLAttachmentPickerSheet` | Root sheet view for the attachment picker. Presents tab content, bottom bar (tab bar or input bar), camera capture, camera-stack preview, and asset preview full-screen covers. Contains `FCLCustomTabWrapper` (`UIViewControllerRepresentable`) and the private `FCLCameraStackPreview` view (accumulating multi-capture preview with caption field, "Add another" button, and batched send). |
-| `FCLCameraBridge.swift` | `FCLCameraBridge` + `FCLCameraPreviewCell` | `UIViewControllerRepresentable` bridge to Apple's native `UIImagePickerController` for camera capture. Uses Apple's standard capture and Use/Retake confirmation UI. After each confirmed capture the `onCapture` closure is called with an `FCLAttachment`. `FCLCameraPreviewCell` is a `UIViewRepresentable` live camera preview cell (AVCapture-backed) shown in the gallery grid. |
+| `Editors/FCLRotateCropEditor.swift` | `FCLRotateCropEditor` | UIKit-only, internal. In-place rotate / flip / crop editor with aspect segmented control (Free / 1:1 / 4:3 / 16:9), ±45° rotation slider, 90° rotate-left, L-shape corner + edge handles, interior pan, and rule-of-thirds grid. Per-asset edit state lives on `FCLAttachmentPickerPresenter`. |
+| `Editors/FCLMarkupEditor.swift` | `FCLMarkupEditor` | UIKit-only, internal. PencilKit (`PKCanvasView` + `PKToolPicker`) markup tool. Tool picker is lazily created once per coordinator and torn down via `dismantleUIView`. Canvas is constrained to the image's aspect-fit rect so strokes burn at native size. |
+| `Editors/FCLAttachmentEditToolbar.swift` | `FCLAttachmentEditToolbar` | UIKit-only, internal. Toolbar shown above the editor with Cancel (semibold white) and Done (semibold yellow) chips and tool entry points. |
+
+The camera capture screen lives in the standalone Camera module (`Sources/FlyChat/Modules/Camera/{Model,Presenter,View,Router}`); the AttachmentPicker invokes it through `FCLCameraRouter`.
 | `FCLFileTabView.swift` | `FCLFileTabView` | Files tab showing action rows (gallery picker, document picker, scanner) and recent files. Contains `UIViewControllerRepresentable` bridges for `PHPickerViewController`, `UIDocumentPickerViewController`, and `VNDocumentCameraViewController`. |
 | `FCLGalleryTabView.swift` | `FCLGalleryTabView` | Gallery tab displaying a photo library grid with camera cell, selection circles, and video duration badges. |
 | `FCLPickerInputBar.swift` | `FCLPickerInputBar` | Caption input bar shown when gallery assets are selected. Pure SwiftUI, iOS-only (`#if os(iOS)`). |
@@ -234,7 +246,7 @@ The main conversation screen. Located at `Sources/FlyChat/Modules/Chat/`.
 | `FCLAvatarImageCache.swift` | `FCLAvatarImageCache` (actor) | UIKit-only. Swift `actor` that wraps `NSCache<NSString, UIImage>` for thread-safe in-memory avatar caching. Internal to the package. |
 | `FCLContextMenuDelegate.swift` | `FCLContextMenuDelegate` (protocol) | `@MainActor`, `AnyObject`-constrained. Host apps implement this to provide custom context menu actions per message and direction. |
 
-### View (10 files)
+### View (9 files)
 
 | File | Type | Description |
 |---|---|---|
@@ -248,8 +260,7 @@ The main conversation screen. Located at `Sources/FlyChat/Modules/Chat/`.
 | `FCLAttachmentGridView.swift` | `FCLAttachmentGridView` + `FCLAttachmentGridLayout` | UIKit-only (grid view); layout utility is platform-independent. Renders a grid of image/video attachment thumbnails within a message bubble. Uses `FCLAttachmentGridLayout` for aspect-ratio-aware row height calculation and `FCLAsyncThumbnailLoader` for off-main-actor thumbnail loading. The grid is clipped to the bubble shape so rounded corners align. For media-only messages (no text), the timestamp renders as a translucent pill overlay in the bottom-trailing corner. |
 | `FCLAsyncThumbnailLoader.swift` | `FCLAsyncThumbnailLoader` (actor) | UIKit-only. `actor`-isolated, process-wide singleton that loads and downscales attachment thumbnails from `attachment.url` off the main actor. Results are cached by attachment ID and target size in an `NSCache`. Used by `FCLAttachmentGridView` to display real asset previews. |
 | `FCLFileRowView.swift` | `FCLFileRowView` | iOS-only (`#if os(iOS)`). Row view for file-type attachments within a message bubble, showing file name and size. Pure SwiftUI. |
-| `FCLMediaPreviewView.swift` | `FCLMediaPreviewView` + `FCLPickerAssetPreview` + `FCLTransparentFullScreenCover` | UIKit-only. Full-screen media viewers. `FCLMediaPreviewView` is the conversation media preview: swipes across all conversation media, shows a bottom thumbnail carousel scoped to the current message, supports tap-to-toggle chrome, and dismisses via a vertical-only drag gesture (horizontal movement is ignored to preserve TabView paging) presented through `FCLTransparentFullScreenCover` so the chat is visible behind during the drag. `FCLPickerAssetPreview` is the picker-side preview: swipes the full gallery, shows a selection toggle, keyboard-aware caption field, fixed send button, and an Edit button that opens `FCLMediaEditorView`. |
-| `FCLMediaEditorView.swift` | `FCLMediaEditorView` | UIKit-only, internal. Simple image editor with rotate 90° CW, horizontal flip, and preset-aspect center crop (free / square / 4:3 / 16:9). Presented from `FCLPickerAssetPreview`. Per-asset edit state is written back to `FCLAttachmentPickerPresenter`; the send pipeline uses the edited image when present. |
+| `FCLMediaPreviewView.swift` | `FCLMediaPreviewView` + `FCLPickerAssetPreview` + `FCLTransparentFullScreenCover` | UIKit-only. Full-screen media viewers. `FCLMediaPreviewView` is the conversation media preview: swipes across all conversation media, shows a bottom thumbnail carousel scoped to the current message, supports tap-to-toggle chrome, per-asset `UIScrollView`-backed pinch and double-tap zoom (1.0×–3.0×), and dismisses via a vertical-only drag gesture (horizontal movement is ignored to preserve TabView paging) presented through `FCLTransparentFullScreenCover` so the chat is visible behind during the drag. `FCLPickerAssetPreview` is the picker-side preview: swipes the full gallery, shows a selection toggle, keyboard-aware caption field, fixed send button, and Edit toolbar entry points into the in-place editors. |
 
 ### Router (1 file)
 
@@ -384,7 +395,37 @@ If a dependency is ever added, it must be documented in `README.md` with justifi
 
 ---
 
+## Camera Module
+
+The camera flow is implemented as a standalone module at `Sources/FlyChat/Modules/Camera/` following the project convention that every feature gets its own top-level module directory. It replaces the former `UIImagePickerController`-based `FCLCameraBridge`.
+
+The module is MVP-shaped:
+
+- **Model** — `FCLCameraConfiguration`, `FCLCameraMode`, `FCLCameraFlashMode`, `FCLCameraPosition`, `FCLCameraAuthorizationState`, `FCLCameraError`, `FCLCameraCaptureResult`.
+- **Presenter** — `@MainActor class FCLCameraPresenter` owns the `AVCaptureSession`, mode, flash, position, zoom, focus, the capture stack, and recording timer.
+- **View** — `FCLCameraView` renders the live preview, capture controls, and the capture stack tile.
+- **Router** — `@MainActor public final class FCLCameraRouter` presents the camera screen and delivers `FCLCameraCaptureResult` values back to the attachment flow.
+
+Host apps must declare `NSCameraUsageDescription` and `NSMicrophoneUsageDescription` in their Info.plist. See [CameraModule.md](CameraModule.md).
+
+## Attachment Editor State Machine
+
+The attachment preview screen hosts an in-place editor that transitions between preview and editing layouts without a full screen swap. The editor state is modeled as:
+
+- `FCLAttachmentEditState` — idle / entering / editing / committing.
+- `FCLAttachmentEditTool` — `.rotateCrop` or `.markup`.
+- `FCLAttachmentEditCommit` — the result written back to the asset pipeline.
+- `FCLAttachmentEditHistory` — per-asset, per-tool undo/redo stack, capacity 32, keyed by asset id.
+
+See [EditorTools.md](EditorTools.md) for the tool set and dirty-exit rules, and [PreviewTransition.md](PreviewTransition.md) for the source-aware zoom-back transition used by in-chat media preview.
+
+---
+
 ## Cross-links
 
 - **[Usage.md](Usage.md)** -- Integration guide with SwiftUI and UIKit code examples, delegate configuration, and customization recipes.
 - **[DelegateSystem/Overview.md](DelegateSystem/Overview.md)** -- Deep dive into the composite delegate architecture, all delegate protocols and their defaults, and host-app customization patterns.
+- **[AttachmentFlow.md](AttachmentFlow.md)** -- End-to-end attachment flow from picker to send.
+- **[CameraModule.md](CameraModule.md)** -- Camera module configuration and public API.
+- **[EditorTools.md](EditorTools.md)** -- Rotate/crop and markup tools.
+- **[PreviewTransition.md](PreviewTransition.md)** -- Source-aware preview transition.

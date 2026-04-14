@@ -95,7 +95,7 @@ struct FCLGalleryTabView: View {
 
     private var cameraCellView: some View {
         Button(action: onCameraCapture) {
-            FCLCameraPreviewCell()
+            FCLGalleryCameraPreviewCell()
                 .aspectRatio(1, contentMode: .fit)
                 .overlay(
                     Image(systemName: "camera.fill")

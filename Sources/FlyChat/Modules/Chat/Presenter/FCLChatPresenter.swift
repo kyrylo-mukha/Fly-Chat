@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 
 /// The main presenter for the chat module, managing message state, draft composition,
 /// layout resolution, and user actions (send, delete, copy).
@@ -11,6 +12,12 @@ public final class FCLChatPresenter: ObservableObject {
     @Published public private(set) var messages: [FCLChatMessage]
     /// The text currently being composed by the user.
     @Published public var draftText: String
+    /// The most recent send-path error surfaced to the chat UI, or `nil` when no error is active.
+    ///
+    /// Populated via ``reportSendError(_:)`` from any component that detects a failure
+    /// during send (e.g. attachment compression failing after the picker sheet has been
+    /// dismissed). The chat screen observes this and renders a lightweight toast.
+    @Published public var lastSendError: String?
 
     /// The sender identity representing the current (local) user.
     public let currentUser: FCLChatMessageSender
@@ -275,6 +282,48 @@ public final class FCLChatPresenter: ObservableObject {
         )
         messages.append(message)
         router?.didSendMessage(message)
+    }
+
+    /// Handles attachments by inserting the outgoing message synchronously.
+    ///
+    /// The outgoing bubble is appended to `messages` inside a
+    /// `withAnimation(.easeOut(duration: 0.25))` block on the same UI tick the
+    /// caller fires its own dismissal. Both the modal dismiss and the bubble
+    /// slide-in start simultaneously; the bubble animates in on top of the
+    /// chat as it is revealed, producing a single synchronized transition
+    /// rather than a chained sleep-based handoff.
+    ///
+    /// - Parameters:
+    ///   - attachments: Attachments to attach to the outgoing message.
+    ///   - caption: Optional caption text applied to the message body.
+    public func handleAttachmentsDeferred(
+        _ attachments: [FCLAttachment],
+        caption: String?
+    ) {
+        let text = caption ?? ""
+        let message = FCLChatMessage(
+            text: text,
+            direction: .outgoing,
+            attachments: attachments,
+            sender: currentUser
+        )
+        withAnimation(.easeOut(duration: 0.25)) {
+            messages.append(message)
+        }
+        router?.didSendMessage(message)
+    }
+
+    /// Reports a send-path error to the chat UI.
+    ///
+    /// Used when an asynchronous send operation fails after its originating modal
+    /// (e.g. the attachment picker sheet) has been dismissed — the originating
+    /// surface is gone, so the error must travel through the chat screen instead.
+    /// The chat screen observes ``lastSendError`` and presents a toast. The caller
+    /// does not need to clear the value; the toast clears it on auto-dismiss.
+    ///
+    /// - Parameter message: Localized description of the error to surface.
+    public func reportSendError(_ message: String) {
+        lastSendError = message
     }
 
     /// Deletes a message from the conversation and notifies the router.

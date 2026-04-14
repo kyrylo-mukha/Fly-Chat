@@ -284,7 +284,19 @@ private struct FCLAttachmentPickerHost: View {
         _presenter = StateObject(wrappedValue: FCLAttachmentPickerPresenter(
             delegate: delegate,
             onSend: { [weak chatPresenter] attachments, caption in
-                chatPresenter?.handleAttachments(attachments, caption: caption)
+                // Append the outgoing bubble synchronously. The picker sheet's
+                // synchronized dismiss animation runs in parallel; both the
+                // modal collapse and the bubble slide-in share the same UI
+                // tick instead of being chained through a sleep-based delay.
+                chatPresenter?.handleAttachmentsDeferred(
+                    attachments,
+                    caption: caption
+                )
+            },
+            onSendError: { [weak chatPresenter] message in
+                // Send-path errors must surface on the chat screen, not the
+                // already-dismissed picker sheet. See FCLChatPresenter.reportSendError.
+                chatPresenter?.reportSendError(message)
             }
         ))
         _galleryDataSource = StateObject(wrappedValue: FCLGalleryDataSource(

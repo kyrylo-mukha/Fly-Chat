@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Protocol defining routing callbacks for chat message lifecycle events.
 ///
@@ -46,3 +49,22 @@ public final class FCLChatActionRouter: FCLChatRouting {
         onDeleteMessage?(message)
     }
 }
+
+#if canImport(UIKit)
+/// Carries the optional preview source used by ``FCLMediaPreviewView`` to anchor its
+/// zoom-in / zoom-out dismiss animation. The chat screen populates this at construction
+/// time and hands it to the preview; downstream tasks attach a concrete source-adopting
+/// view that reports attachment-cell frames in window coordinates.
+@MainActor
+public final class FCLChatMediaPreviewRouter {
+    /// The source queried for attachment cell frames on dismiss, or `nil` to fall back
+    /// to a centered collapse animation.
+    public weak var source: (any FCLMediaPreviewSource)?
+
+    /// Creates a new router with an optional starting source.
+    /// - Parameter source: The source adopter used to locate attachment cell frames.
+    public init(source: (any FCLMediaPreviewSource)? = nil) {
+        self.source = source
+    }
+}
+#endif

@@ -1,3 +1,15 @@
+// MARK: - Host app Info.plist requirements
+//
+// The host app must declare the following keys in its Info.plist before using
+// the attachment picker's camera feature:
+//
+//   NSCameraUsageDescription      — describes why camera access is needed.
+//   NSMicrophoneUsageDescription  — describes why microphone access is needed
+//                                   (required when video recording is enabled).
+//
+// Failing to include these keys causes the system to terminate the host app
+// when camera or microphone authorization is requested.
+
 #if canImport(UIKit)
 import Combine
 import Foundation
@@ -21,18 +33,38 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
 
     // MARK: - Per-asset edit state
 
-    @Published private(set) var editStateByAssetID: [String: FCLMediaEditState] = [:]
     @Published private(set) var editedImageByAssetID: [String: UIImage] = [:]
 
     private let delegate: (any FCLAttachmentDelegate)?
     private let onSend: @MainActor ([FCLAttachment], String?) -> Void
+    /// Optional callback invoked when a send-path error occurs after the picker
+    /// modal stack has been dismissed. The host (typically the chat screen)
+    /// forwards this to ``FCLChatPresenter/reportSendError(_:)`` so the error
+    /// surfaces as a toast on the chat, not on the already-gone sheet.
+    private let onSendError: (@MainActor (String) -> Void)?
 
     init(
         delegate: (any FCLAttachmentDelegate)?,
-        onSend: @escaping @MainActor ([FCLAttachment], String?) -> Void
+        onSend: @escaping @MainActor ([FCLAttachment], String?) -> Void,
+        onSendError: (@MainActor (String) -> Void)? = nil
     ) {
         self.delegate = delegate
         self.onSend = onSend
+        self.onSendError = onSendError
+    }
+
+    /// Reports an error originating from an asynchronous send operation to the
+    /// host, after the picker modal has already been dismissed. Also updates
+    /// local state so any still-attached picker surface can react.
+    func reportSendError(_ message: String) {
+        onSendError?(message)
+        state = .error(message)
+    }
+
+    /// Clears all per-asset edit state (bitmaps and tool history). Called on
+    /// send completion, on dismiss, and whenever the staged asset set empties.
+    func clearEditState() {
+        editedImageByAssetID.removeAll()
     }
 
     var availableTabs: [FCLPickerTab] {
@@ -58,6 +90,11 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
             selectedAssets.append(assetID)
         }
         state = selectedAssets.isEmpty ? .browsing : .gallerySelected
+        // Drop any edit state when the selection empties — otherwise stale
+        // per-asset edits would apply to a future, unrelated selection.
+        if selectedAssets.isEmpty {
+            clearEditState()
+        }
     }
 
     func beginSending() {
@@ -77,6 +114,7 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
             Task { await FCLRecentFilesStore.shared.add(fileURL: attachment.url, fileName: attachment.fileName, fileSize: attachment.fileSize) }
         }
         onSend(attachments, caption.isEmpty ? nil : caption)
+        clearEditState()
     }
 
     func appendCameraCapture(_ attachment: FCLAttachment) {
@@ -84,10 +122,46 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
         state = .gallerySelected
     }
 
+    /// Converts an array of ``FCLCameraCaptureResult`` values (produced by the Camera module)
+    /// into ``FCLAttachment`` values and appends them to `cameraCaptures`.
+    ///
+    /// File size is read from the filesystem on-the-fly; if the file is unavailable
+    /// the size is left as `nil`. Thumbnail data is decoded from `thumbnailURL` when
+    /// present; otherwise the field is `nil`.
+    func appendCameraResults(_ results: [FCLCameraCaptureResult]) {
+        for result in results {
+            let fileSize = (try? FileManager.default.attributesOfItem(
+                atPath: result.fileURL.path
+            )[.size] as? Int64) ?? nil
+
+            let thumbnailData: Data? = result.thumbnailURL.flatMap { url in
+                try? Data(contentsOf: url)
+            }
+
+            let attachmentType: FCLAttachmentType = result.mediaType == .video ? .video : .image
+
+            let attachment = FCLAttachment(
+                type: attachmentType,
+                url: result.fileURL,
+                thumbnailData: thumbnailData,
+                fileName: result.fileURL.lastPathComponent,
+                fileSize: fileSize
+            )
+            cameraCaptures.append(attachment)
+        }
+        if !cameraCaptures.isEmpty {
+            state = .gallerySelected
+        }
+    }
+
     func removeCameraCapture(_ id: UUID) {
         cameraCaptures.removeAll { $0.id == id }
+        // Drop any edit state keyed by this capture's UUID string so a
+        // re-captured asset does not inherit stale edits.
+        editedImageByAssetID.removeValue(forKey: id.uuidString)
         if cameraCaptures.isEmpty && selectedAssets.isEmpty {
             state = .browsing
+            clearEditState()
         }
     }
 
@@ -95,15 +169,26 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
         state = .sending
         let caption = captionText.trimmingCharacters(in: .whitespacesAndNewlines)
         let all = cameraCaptures
-        cameraCaptures.removeAll()
         for attachment in all {
             Task { await FCLRecentFilesStore.shared.add(fileURL: attachment.url, fileName: attachment.fileName, fileSize: attachment.fileSize) }
         }
         onSend(all, caption.isEmpty ? nil : caption)
+        // Defer the `cameraCaptures` emptying to the next runloop
+        // turn. Emitting an empty `@Published` value synchronously here
+        // would propagate to the still-mounted preview/stack views
+        // before the host finishes its dismiss animation, causing a
+        // visible flash where the stack thumbnail collapses to nothing
+        // mid-transition. Posting onto the main queue runs the wipe
+        // after SwiftUI has committed the dismiss transaction.
+        DispatchQueue.main.async { [weak self] in
+            self?.cameraCaptures.removeAll()
+            self?.clearEditState()
+        }
     }
 
     func clearCameraCaptures() {
         cameraCaptures.removeAll()
+        clearEditState()
     }
 
     func handleError(_ message: String) {
@@ -116,16 +201,8 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
 
     // MARK: - Edit State
 
-    func setEditState(_ state: FCLMediaEditState, for assetID: String) {
-        editStateByAssetID[assetID] = state
-    }
-
     func setEditedImage(_ image: UIImage, for assetID: String) {
         editedImageByAssetID[assetID] = image
-    }
-
-    func editState(for assetID: String) -> FCLMediaEditState {
-        editStateByAssetID[assetID] ?? FCLMediaEditState()
     }
 
     func editedImage(for assetID: String) -> UIImage? {

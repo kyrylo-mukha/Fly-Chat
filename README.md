@@ -59,10 +59,12 @@ The microphone key is only required when `isCameraVideoEnabled` is `true` (the d
 - [x] Async Avatar Image Loading with Pluggable Cache
 - [x] Aspect-Aware Image / Video Grid with Telegram-Inspired Layout Planner and Async Thumbnail Loading
 - [x] Timestamp Overlay on Media-Only Bubbles with Full Bubble Clipping
-- [x] Full-Screen Media Preview with Transparent Backdrop, Vertical-Only Drag-to-Dismiss, Hero Transition, and Message-Scoped Carousel
-- [x] In-Picker Image Editor: Rotate, Flip, and Preset Aspect Crop (Square / 4:3 / 16:9)
+- [x] iOS-Photos-Style Full-Screen Media Preview with Source-Aware Zoom-Back Transition, Aspect-Correct Fit, Vertical-Only Drag-to-Dismiss, and Parallax Thumbnail Carousel
+- [x] Aspect-Correct Image Bubble Containers with Per-Corner Radii that Square Opposite Corners when Text Flows Above or Below
+- [x] Telegram-Style Attachment Preview: Media Pager, Thumbnail Carousel, Caption Row with Keyboard-Synced Send Button Glide, and Add-More Camera Button
+- [x] In-Place Attachment Editor with Per-Asset Undo/Redo History: Rotate/Crop (Flip H/V, Free/1:1/4:3/16:9, ±45° Slider, L-Shape Handles, Rule-of-Thirds Grid) and PencilKit Markup
+- [x] Custom Camera Module (AVCaptureSession) with Photo + Video Modes, Multi-Capture Stack, Pinch-to-Zoom, Tap-to-Focus Reticle, Flash (Auto/On/Off), Flip with 3D Rotation + Mid-Flip Blur, Record Timer Pill, and Shutter Flash
 - [x] Tabbed Attachment Picker Sheet with Gallery Multi-Select and Files Tab
-- [x] Native Camera (UIImagePickerController) with Multi-Capture Stack and Batched Send
 - [x] Built-In Recent Files Tracking (Last 20 Sent Files, UserDefaults-Persisted, Fallback When Delegate Does Not Supply a List)
 - [x] Media Compression Configuration (Max Dimension, JPEG Quality, Video Preset)
 - [x] Custom Attachment Tabs via Delegate for Host-App-Provided Picker Screens
@@ -91,6 +93,10 @@ The microphone key is only required when `isCameraVideoEnabled` is `true` (the d
 - [Avatar System](Documentation/AvatarSystem/Overview.md)
   - **Deep Dive —** [Resolution Chain](Documentation/AvatarSystem/Overview.md#resolution-chain), [HSL Colors](Documentation/AvatarSystem/Overview.md#hsl-color-generation), [Caching](Documentation/AvatarSystem/Overview.md#built-in-cache)
   - **Advanced —** [Custom Cache](Documentation/AvatarSystem/AdvancedUsage.md), [External Loading](Documentation/AvatarSystem/AdvancedUsage.md)
+- [Attachment Flow](Documentation/AttachmentFlow.md) — end-to-end flow from picker to send
+- [Camera Module](Documentation/CameraModule.md) — configuration, public API, authorization
+- [Editor Tools](Documentation/EditorTools.md) — rotate/crop and markup, history, dirty-exit confirm
+- [Preview Transition](Documentation/PreviewTransition.md) — `FCLMediaPreviewSource` conformance and aspect-fit rules
 - [Architecture](Documentation/Architecture.md)
 
 ## Quick Start

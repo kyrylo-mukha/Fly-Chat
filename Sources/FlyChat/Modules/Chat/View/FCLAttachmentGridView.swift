@@ -364,6 +364,17 @@ enum FCLAttachmentGridLayoutPlanner {
 #if canImport(UIKit)
 import UIKit
 
+/// Preference key used to aggregate per-cell window-space frames reported by the grid.
+///
+/// Each cell writes a single-entry dictionary keyed by `attachment.id.uuidString`; the
+/// reduction merges entries so the grid surfaces one consolidated dictionary per update.
+private struct FCLAttachmentCellFramesKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
 /// Renders a grid of image and video attachment thumbnails inside a chat bubble.
 ///
 /// Media attachments are arranged using a Telegram-inspired dynamic layout algorithm
@@ -372,7 +383,12 @@ import UIKit
 ///
 /// Each cell loads its thumbnail asynchronously via ``FCLAsyncThumbnailLoader``.
 /// Video attachments display a centred play-button overlay.
-/// The outer bubble shape clips all cell content, so no per-cell corner radius is applied.
+///
+/// Supply ``containerCorners`` to clip the grid container with an `UnevenRoundedRectangle`
+/// whose corners match the enclosing bubble. Corners that touch an adjacent content element
+/// (text row above or below) should be `0`; corners flush with the bubble edge inherit the
+/// bubble's corner radius. Use ``FCLChatBubbleShape/imageContainerCorners(side:tailStyle:contentAbove:contentBelow:)``
+/// to compute the right values.
 struct FCLAttachmentGridView: View {
     /// The media attachments to display (filtered to `.image` and `.video` types only).
     let attachments: [FCLAttachment]
@@ -386,6 +402,28 @@ struct FCLAttachmentGridView: View {
     var heroNamespace: Namespace.ID?
     /// Called when the user taps an attachment thumbnail to open a preview.
     var onAttachmentTap: ((FCLAttachment) -> Void)?
+    /// Optional callback invoked with the window-space frames of each rendered cell,
+    /// keyed by `attachment.id.uuidString`.
+    ///
+    /// The grid measures every visible cell using a `GeometryReader` in `.global`
+    /// coordinate space and reports the aggregated dictionary whenever it changes.
+    /// Hosts use this to drive the media-preview dismiss animation, which needs to
+    /// know where the originating cell currently is on screen.
+    var onCellFramesChange: (([String: CGRect]) -> Void)?
+    /// Invoked when the grid leaves the view hierarchy, passing the set of
+    /// attachment keys that this grid was reporting. Hosts use this to
+    /// prune stale entries from the preview-relay's window-frame cache so
+    /// the media preview's dismiss animation never targets a frame for a
+    /// cell that is no longer on screen.
+    var onCellFramesInvalidate: ((Set<String>) -> Void)?
+    /// Per-corner radii used to clip the image container with an `UnevenRoundedRectangle`.
+    ///
+    /// When `nil` (default) no additional clipping is applied — the parent bubble shape
+    /// is relied upon to clip the grid (suitable for media-only bubbles where the bubble
+    /// shape itself provides the mask). When non-nil, the grid is clipped to the given
+    /// corner radii. Compute the correct values with
+    /// ``FCLChatBubbleShape/imageContainerCorners(side:tailStyle:contentAbove:contentBelow:)``.
+    var containerCorners: FCLBubbleCorners?
 
     /// Loaded thumbnail images keyed by attachment ID.
     @State private var thumbnailsByID: [UUID: UIImage] = [:]
@@ -401,7 +439,7 @@ struct FCLAttachmentGridView: View {
             insets: insets
         )
 
-        ZStack(alignment: .topLeading) {
+        let gridContent = ZStack(alignment: .topLeading) {
             // Invisible full-size canvas
             Color.clear
                 .frame(width: maxWidth, height: totalHeight)
@@ -410,6 +448,15 @@ struct FCLAttachmentGridView: View {
                 let attachment = attachments[cell.index]
                 attachmentCell(attachment, frame: cell.rect)
                     .frame(width: cell.rect.width, height: cell.rect.height)
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear
+                                .preference(
+                                    key: FCLAttachmentCellFramesKey.self,
+                                    value: [attachment.id.uuidString: geo.frame(in: .global)]
+                                )
+                        }
+                    )
                     .position(
                         x: cell.rect.midX,
                         y: cell.rect.midY
@@ -417,6 +464,33 @@ struct FCLAttachmentGridView: View {
             }
         }
         .frame(width: maxWidth, height: totalHeight)
+        .onPreferenceChange(FCLAttachmentCellFramesKey.self) { newFrames in
+            onCellFramesChange?(newFrames)
+        }
+        .onDisappear {
+            // Prune this grid's keys from any parent-held frame cache.
+            // Without this, a scrolled-off or disappearing row leaves stale
+            // window-space rects in the cache, causing the preview's dismiss
+            // animation to fly to a location that is no longer visible.
+            let keys = Set(attachments.map { $0.id.uuidString })
+            onCellFramesInvalidate?(keys)
+        }
+
+        if let corners = containerCorners {
+            gridContent
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        cornerRadii: RectangleCornerRadii(
+                            topLeading: corners.topLeft,
+                            bottomLeading: corners.bottomLeft,
+                            bottomTrailing: corners.bottomRight,
+                            topTrailing: corners.topRight
+                        )
+                    )
+                )
+        } else {
+            gridContent
+        }
     }
 
     /// Renders a single attachment cell with an async-loaded thumbnail and an optional video overlay.
@@ -534,58 +608,160 @@ private func mockImageAttachment(
 
 struct FCLAttachmentGridView_Previews: PreviewProvider {
     static var previews: some View {
-        previewContent
+        imageOnlyOutgoingPreview
+        imageOnlyIncomingPreview
+        imagePlusTextBelowPreview
+        textAboveImagePreview
+        multiImageGridPreview
     }
 
-    @ViewBuilder
-    private static var previewContent: some View {
-        // 1 image — landscape (wide)
-        FCLAttachmentGridView(
-            attachments: [
-                mockImageAttachment(color: .systemBlue, aspectWidth: 16, aspectHeight: 9, fileName: "wide.jpg")
-            ],
-            maxWidth: 280
+    // MARK: - Image-only bubble (outgoing, right side, edged bottom tail)
+    // All four corners should match the bubble corners; bottom-right is reduced (tail).
+
+    private static var imageOnlyOutgoingPreview: some View {
+        let corners = FCLChatBubbleShape.imageContainerCorners(
+            side: .right,
+            tailStyle: .edged(.bottom),
+            contentAbove: false,
+            contentBelow: false
         )
-        .previewDisplayName("1 Image — Wide")
+        return ZStack {
+            FCLChatBubbleShape(side: .right, tailStyle: .edged(.bottom))
+                .fill(Color.blue)
+                .frame(width: 280, height: 200)
+            FCLAttachmentGridView(
+                attachments: [
+                    mockImageAttachment(color: .systemBlue, aspectWidth: 16, aspectHeight: 9, fileName: "out1.jpg")
+                ],
+                maxWidth: 280,
+                containerCorners: corners
+            )
+        }
+        .previewDisplayName("Image-Only — Outgoing (right, edged bottom)")
         .previewLayout(.sizeThatFits)
         .padding()
+    }
 
-        // 2 images — both landscape side by side
-        FCLAttachmentGridView(
-            attachments: [
-                mockImageAttachment(color: .systemGreen, aspectWidth: 4, aspectHeight: 3, fileName: "a.jpg"),
-                mockImageAttachment(color: .systemOrange, aspectWidth: 3, aspectHeight: 4, fileName: "b.jpg")
-            ],
-            maxWidth: 280
+    // MARK: - Image-only bubble (incoming, left side, edged bottom tail)
+    // All four corners match bubble; bottom-left is reduced.
+
+    private static var imageOnlyIncomingPreview: some View {
+        let corners = FCLChatBubbleShape.imageContainerCorners(
+            side: .left,
+            tailStyle: .edged(.bottom),
+            contentAbove: false,
+            contentBelow: false
         )
-        .previewDisplayName("2 Images — Wide + Narrow (stacked)")
+        return ZStack {
+            FCLChatBubbleShape(side: .left, tailStyle: .edged(.bottom))
+                .fill(Color(red: 0.93, green: 0.93, blue: 0.95))
+                .frame(width: 280, height: 200)
+            FCLAttachmentGridView(
+                attachments: [
+                    mockImageAttachment(color: .systemGreen, aspectWidth: 4, aspectHeight: 3, fileName: "in1.jpg")
+                ],
+                maxWidth: 280,
+                containerCorners: corners
+            )
+        }
+        .previewDisplayName("Image-Only — Incoming (left, edged bottom)")
         .previewLayout(.sizeThatFits)
         .padding()
+    }
 
-        // 3 images — portrait left + two landscape right
-        FCLAttachmentGridView(
-            attachments: [
-                mockImageAttachment(color: .systemPurple, aspectWidth: 3, aspectHeight: 5, fileName: "portrait.jpg"),
-                mockImageAttachment(color: .systemTeal, aspectWidth: 16, aspectHeight: 9, fileName: "land1.jpg"),
-                mockImageAttachment(color: .systemIndigo, aspectWidth: 16, aspectHeight: 9, fileName: "land2.jpg")
-            ],
-            maxWidth: 280
+    // MARK: - Image + text below (outgoing): top corners rounded, bottom corners square.
+
+    private static var imagePlusTextBelowPreview: some View {
+        let corners = FCLChatBubbleShape.imageContainerCorners(
+            side: .right,
+            tailStyle: .edged(.bottom),
+            contentAbove: false,
+            contentBelow: true
         )
-        .previewDisplayName("3 Images — Narrow + 2 Wide")
+        return VStack(spacing: 0) {
+            FCLAttachmentGridView(
+                attachments: [
+                    mockImageAttachment(color: .systemOrange, aspectWidth: 4, aspectHeight: 3, fileName: "img_above.jpg"),
+                    mockImageAttachment(color: .systemYellow, aspectWidth: 3, aspectHeight: 4, fileName: "img_above2.jpg")
+                ],
+                maxWidth: 280,
+                containerCorners: corners
+            )
+            Text("Caption below the images")
+                .font(.body)
+                .foregroundColor(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+        }
+        .background(Color.blue)
+        .clipShape(FCLChatBubbleShape(side: .right, tailStyle: .edged(.bottom)))
+        .previewDisplayName("Image + Text Below — Outgoing (bottom corners square)")
         .previewLayout(.sizeThatFits)
         .padding()
+    }
 
-        // 4 images — 2×2 grid
-        FCLAttachmentGridView(
-            attachments: [
-                mockImageAttachment(color: .systemRed, aspectWidth: 4, aspectHeight: 3, fileName: "r1.jpg"),
-                mockImageAttachment(color: .systemYellow, aspectWidth: 1, aspectHeight: 1, fileName: "r2.jpg"),
-                mockImageAttachment(color: .systemMint, aspectWidth: 3, aspectHeight: 4, fileName: "r3.jpg"),
-                mockImageAttachment(color: .systemCyan, aspectWidth: 16, aspectHeight: 9, fileName: "r4.jpg")
-            ],
-            maxWidth: 280
+    // MARK: - Text above + image below (incoming): top corners square, bottom corners rounded.
+
+    private static var textAboveImagePreview: some View {
+        let corners = FCLChatBubbleShape.imageContainerCorners(
+            side: .left,
+            tailStyle: .edged(.bottom),
+            contentAbove: true,
+            contentBelow: false
         )
-        .previewDisplayName("4 Images — Mixed Aspects 2×2")
+        return VStack(spacing: 0) {
+            Text("Caption above the images")
+                .font(.body)
+                .foregroundColor(.primary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            FCLAttachmentGridView(
+                attachments: [
+                    mockImageAttachment(color: .systemPurple, aspectWidth: 3, aspectHeight: 5, fileName: "text_above.jpg"),
+                    mockImageAttachment(color: .systemTeal, aspectWidth: 16, aspectHeight: 9, fileName: "text_above2.jpg")
+                ],
+                maxWidth: 280,
+                containerCorners: corners
+            )
+        }
+        .background(Color(red: 0.93, green: 0.93, blue: 0.95))
+        .clipShape(FCLChatBubbleShape(side: .left, tailStyle: .edged(.bottom)))
+        .previewDisplayName("Text Above + Image — Incoming (top corners square)")
+        .previewLayout(.sizeThatFits)
+        .padding()
+    }
+
+    // MARK: - Multi-image grid (4 images, no adjacent content) — both sides.
+
+    private static var multiImageGridPreview: some View {
+        let attachments: [FCLAttachment] = [
+            mockImageAttachment(color: .systemRed, aspectWidth: 4, aspectHeight: 3, fileName: "r1.jpg"),
+            mockImageAttachment(color: .systemYellow, aspectWidth: 1, aspectHeight: 1, fileName: "r2.jpg"),
+            mockImageAttachment(color: .systemMint, aspectWidth: 3, aspectHeight: 4, fileName: "r3.jpg"),
+            mockImageAttachment(color: .systemCyan, aspectWidth: 16, aspectHeight: 9, fileName: "r4.jpg")
+        ]
+        return VStack(spacing: 20) {
+            // Outgoing
+            FCLAttachmentGridView(
+                attachments: attachments,
+                maxWidth: 280,
+                containerCorners: FCLChatBubbleShape.imageContainerCorners(
+                    side: .right, tailStyle: .edged(.bottom), contentAbove: false, contentBelow: false
+                )
+            )
+            .clipShape(FCLChatBubbleShape(side: .right, tailStyle: .edged(.bottom)))
+            // Incoming
+            FCLAttachmentGridView(
+                attachments: attachments,
+                maxWidth: 280,
+                containerCorners: FCLChatBubbleShape.imageContainerCorners(
+                    side: .left, tailStyle: .edged(.bottom), contentAbove: false, contentBelow: false
+                )
+            )
+            .clipShape(FCLChatBubbleShape(side: .left, tailStyle: .edged(.bottom)))
+        }
+        .previewDisplayName("Multi-Image Grid — Both Sides (4 images)")
         .previewLayout(.sizeThatFits)
         .padding()
     }
