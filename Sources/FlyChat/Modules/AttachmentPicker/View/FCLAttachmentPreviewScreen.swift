@@ -317,12 +317,11 @@ struct FCLAttachmentPreviewScreen: View {
             if showsAddMore && !captionFocused {
                 HStack {
                     Spacer()
-                    Button(action: onAddMore) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 26, weight: .medium))
-                            .foregroundStyle(.white)
-                            .shadow(radius: 2)
-                    }
+                    FCLGlassIconButton(
+                        systemImage: "plus",
+                        size: 44,
+                        action: onAddMore
+                    )
                     .accessibilityLabel("Add more")
                 }
                 .padding(.horizontal, 16)
@@ -386,35 +385,31 @@ struct FCLAttachmentPreviewScreen: View {
     }
 
     private var sendButton: some View {
-        Button(action: performSend) {
-            Image(systemName: "paperplane.fill")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 38, height: 38)
-                .background(Color.accentColor)
-                .clipShape(Circle())
-        }
+        FCLGlassIconButton(
+            systemImage: "paperplane.fill",
+            size: 44,
+            tint: FCLAppearanceDefaults.senderBubbleColor,
+            action: performSend
+        )
         .accessibilityLabel("Send")
     }
 
     // MARK: - Edit Toolbar
 
     private var editToolbar: some View {
-        HStack(spacing: 24) {
-            Button(action: { beginEditing(tool: .rotateCrop) }) {
-                Image(systemName: "crop.rotate")
-                    .font(.system(size: 20, weight: .regular))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-            }
+        FCLGlassToolbar(placement: .bottom) {
+            FCLGlassIconButton(
+                systemImage: "crop.rotate",
+                size: 44,
+                action: { beginEditing(tool: .rotateCrop) }
+            )
             .accessibilityLabel("Rotate and crop")
 
-            Button(action: { beginEditing(tool: .markup) }) {
-                Image(systemName: "scribble")
-                    .font(.system(size: 20, weight: .regular))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-            }
+            FCLGlassIconButton(
+                systemImage: "scribble",
+                size: 44,
+                action: { beginEditing(tool: .markup) }
+            )
             .accessibilityLabel("Markup")
 
             Spacer()
@@ -509,19 +504,16 @@ struct FCLAttachmentPreviewScreen: View {
     // MARK: - Top Bar
 
     private var topBar: some View {
-        HStack {
-            Button(action: handleFullExit) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundStyle(.white)
-                    .shadow(radius: 2)
-            }
+        FCLGlassToolbar(placement: .top) {
+            FCLGlassIconButton(
+                systemImage: "xmark",
+                size: 44,
+                action: handleFullExit
+            )
             .accessibilityLabel("Cancel")
 
             Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
         .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 }

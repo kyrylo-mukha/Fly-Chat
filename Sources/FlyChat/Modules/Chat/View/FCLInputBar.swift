@@ -49,6 +49,10 @@ struct FCLInputBar: View {
     @State private var textViewHeight: CGFloat = 40
     /// Whether the attachment picker sheet is presented.
     @State private var showAttachmentPicker = false
+    /// Shared source relay: publishes the attach button's window-space frame to
+    /// the picker morph animator and carries the dismiss hook every close path
+    /// routes through (tap-outside, swipe-down, close button, accessibility).
+    @State private var pickerSourceRelay = FCLPickerSourceRelay()
     /// Optional delegate providing tab configuration and compression settings for the attachment picker.
     private let delegate: (any FCLChatDelegate)?
     /// The chat presenter used to route attachment sends.
@@ -143,21 +147,24 @@ struct FCLInputBar: View {
     /// Builds the full input bar content with the input row and attachment picker sheet.
     @ViewBuilder
     private func inputBarContent(maxTextHeight: CGFloat, uiFont: UIFont) -> some View {
-        VStack(spacing: 0) {
-            inputRow(maxTextHeight: maxTextHeight, uiFont: uiFont)
-                .padding(contentInsets.edgeInsets)
+        FCLGlassContainer(cornerRadius: 0, tint: backgroundColor) {
+            VStack(spacing: 0) {
+                inputRow(maxTextHeight: maxTextHeight, uiFont: uiFont)
+                    .padding(contentInsets.edgeInsets)
+            }
         }
-        .background(
-            FCLInputBarBackground(
-                liquidGlass: liquidGlass,
-                backgroundColor: backgroundColor
-            )
-        )
-        .sheet(isPresented: $showAttachmentPicker) {
+        // Route the deprecated liquidGlass flag into the visual-style system so
+        // existing hosts that set it explicitly continue to get glass rendering.
+        .fclVisualStyle(liquidGlass ? .liquidGlass : .default)
+        .fclPickerPresentation(
+            isPresented: $showAttachmentPicker,
+            sourceRelay: pickerSourceRelay
+        ) {
             FCLAttachmentPickerHost(
                 chatPresenter: presenter,
                 delegate: delegate?.attachment,
-                onDismiss: { showAttachmentPicker = false }
+                sourceRelay: pickerSourceRelay,
+                onDismiss: { pickerSourceRelay.requestDismiss() }
             )
         }
     }
@@ -214,13 +221,23 @@ struct FCLInputBar: View {
     @ViewBuilder
     private var attachButtonIfNeeded: some View {
         if showAttachButton {
-            Button(action: { showAttachmentPicker = true }) {
-                Image(systemName: "paperclip")
-                    .font(.system(size: 20))
-                    .foregroundColor(.secondary)
-                    .frame(width: 32, height: 32)
-            }
+            FCLGlassIconButton(
+                systemImage: "paperclip",
+                size: 36,
+                action: { showAttachmentPicker = true }
+            )
             .accessibilityLabel("Attach file")
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear {
+                            pickerSourceRelay.sourceFrame = proxy.frame(in: .global)
+                        }
+                        .onChange(of: proxy.frame(in: .global)) { _, newFrame in
+                            pickerSourceRelay.sourceFrame = newFrame
+                        }
+                }
+            )
         }
     }
 
@@ -242,13 +259,12 @@ struct FCLInputBar: View {
             minimumLength: minimumTextLength,
             hasAttachments: false
         )
-        return Button(action: onSend) {
-            Image(systemName: "paperplane.fill")
-                .foregroundColor(.white)
-                .padding(8)
-                .background(Color.blue)
-                .clipShape(Circle())
-        }
+        return FCLGlassIconButton(
+            systemImage: "paperplane.fill",
+            size: 36,
+            tint: FCLAppearanceDefaults.senderBubbleColor,
+            action: onSend
+        )
         .opacity(enabled ? 1.0 : 0.4)
         .allowsHitTesting(enabled)
         .animation(.easeInOut(duration: 0.2), value: enabled)
@@ -274,11 +290,13 @@ private struct FCLAttachmentPickerHost: View {
     @StateObject private var presenter: FCLAttachmentPickerPresenter
     @StateObject private var galleryDataSource: FCLGalleryDataSource
     private let delegate: (any FCLAttachmentDelegate)?
+    private let sourceRelay: FCLPickerSourceRelay
     private let onDismiss: () -> Void
 
     init(
         chatPresenter: FCLChatPresenter,
         delegate: (any FCLAttachmentDelegate)?,
+        sourceRelay: FCLPickerSourceRelay,
         onDismiss: @escaping () -> Void
     ) {
         _presenter = StateObject(wrappedValue: FCLAttachmentPickerPresenter(
@@ -303,16 +321,30 @@ private struct FCLAttachmentPickerHost: View {
             isVideoEnabled: delegate?.isVideoEnabled ?? true
         ))
         self.delegate = delegate
+        self.sourceRelay = sourceRelay
         self.onDismiss = onDismiss
     }
 
     var body: some View {
-        FCLAttachmentPickerSheet(
-            presenter: presenter,
-            galleryDataSource: galleryDataSource,
-            delegate: delegate,
-            onDismiss: onDismiss
-        )
+        VStack(spacing: 0) {
+            // Transparent tap-catcher fills the space above the sheet so a tap
+            // in the dimmed region above the picker collapses it through the same
+            // morph animator as every other dismiss path (close button, swipe-down,
+            // accessibility escape). `.allowsHitTesting` is always true here; the
+            // underlying transparent area has no interactive content.
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { sourceRelay.requestDismiss() }
+
+            FCLAttachmentPickerSheet(
+                presenter: presenter,
+                galleryDataSource: galleryDataSource,
+                delegate: delegate,
+                sourceRelay: sourceRelay,
+                onDismiss: onDismiss
+            )
+        }
+        .ignoresSafeArea(edges: .bottom)
     }
 }
 

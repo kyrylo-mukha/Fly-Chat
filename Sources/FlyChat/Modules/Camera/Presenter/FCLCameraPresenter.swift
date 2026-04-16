@@ -65,11 +65,26 @@ public final class FCLCameraPresenter: ObservableObject {
     @Published public private(set) var flashMode: FCLCameraFlashMode
     @Published public private(set) var position: FCLCameraPosition = .back
     @Published public private(set) var zoomFactor: CGFloat = 1
+    /// Device-derived preset factors (user-visible, e.g. `[0.5, 1, 2, 3]`).
+    /// Updated when the bound device changes (initial configure or flip).
+    @Published public private(set) var zoomPresets: [CGFloat] = [1.0]
+    /// Legal user-visible zoom range for the current device.
+    @Published public private(set) var zoomRange: ClosedRange<CGFloat> = 1.0...1.0
     @Published public private(set) var isRecording: Bool = false
     @Published public private(set) var recordingDuration: TimeInterval = 0
     @Published public private(set) var capturedResults: [FCLCameraCaptureResult] = []
     @Published public private(set) var isSessionRunning: Bool = false
     @Published public private(set) var authorizationState: FCLCameraAuthorizationState = .notDetermined
+
+    // MARK: Scope 05 — capture count and thumbnail
+
+    /// Number of assets captured in the current session. MainActor-safe.
+    @Published public private(set) var capturedCount: Int = 0
+
+    /// Thumbnail of the most recently captured asset. Kept in sync by
+    /// `FCLCameraView.refreshLatestThumbnail()` via the shared
+    /// `FCLCaptureSessionRelay` so the Done-chip always shows the latest capture.
+    @Published public var lastCapturedThumbnail: UIImage?
 
     // MARK: Session plumbing
 
@@ -85,6 +100,12 @@ public final class FCLCameraPresenter: ObservableObject {
     nonisolated(unsafe) private var audioDeviceInput: AVCaptureDeviceInput?
     nonisolated(unsafe) private let photoOutput = AVCapturePhotoOutput()
     nonisolated(unsafe) private var movieOutput: AVCaptureMovieFileOutput?
+
+    /// Zoom state owner. Actor-isolated; all AVCaptureDevice lock/ramp calls
+    /// for zoom happen inside it. The presenter subscribes to the actor's
+    /// display-value stream and republishes on the main actor.
+    private let zoomController = FCLCameraZoomController()
+    private var zoomStreamTask: Task<Void, Never>?
 
     // Active delegates held strong for the life of a capture.
     nonisolated(unsafe) private var activePhotoDelegate: PhotoCaptureDelegate?
@@ -102,10 +123,12 @@ public final class FCLCameraPresenter: ObservableObject {
         self.configuration = configuration
         self.mode = configuration.defaultMode
         self.flashMode = configuration.defaultFlash
+        startZoomStreamTask()
     }
 
     deinit {
         recordingTimer?.invalidate()
+        zoomStreamTask?.cancel()
         // Defensive teardown: ensure the capture session is stopped even when
         // higher-level lifecycle paths (router dismantle, hosting controller
         // disappearance) are bypassed. The session and queue are
@@ -241,6 +264,7 @@ public final class FCLCameraPresenter: ObservableObject {
         }
 
         session.commitConfiguration()
+        refreshZoomDeviceBinding()
     }
 
     private nonisolated static func preferredDevice(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {
@@ -317,10 +341,7 @@ public final class FCLCameraPresenter: ObservableObject {
                 self.session.addInput(existing)
             }
             self.session.commitConfiguration()
-
-            Task { @MainActor [weak self] in
-                self?.zoomFactor = 1
-            }
+            self.refreshZoomDeviceBinding()
         }
     }
 
@@ -330,19 +351,70 @@ public final class FCLCameraPresenter: ObservableObject {
 
     // MARK: Zoom / focus
 
-    public func setZoom(_ factor: CGFloat) {
-        sessionQueue.async { [weak self] in
-            guard let self, let device = self.videoDeviceInput?.device else { return }
-            let clamped = min(max(factor, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
-            do {
-                try device.lockForConfiguration()
-                device.videoZoomFactor = clamped
-                device.unlockForConfiguration()
-                Task { @MainActor [weak self] in
-                    self?.zoomFactor = clamped
+    /// Sets an absolute zoom factor in user-visible units (e.g., 0.5, 1.0, 2.0).
+    /// `animated` chooses between `ramp(toVideoZoomFactor:withRate:)` and a
+    /// direct assignment. When recording, callers should pass `animated: false`
+    /// to avoid visible frame-rate glitches during ramp.
+    public func setZoom(_ factor: CGFloat, animated: Bool = false) {
+        let isRecordingNow = isRecording
+        Task {
+            await zoomController.setZoom(
+                factor,
+                animated: animated && !isRecordingNow
+            )
+        }
+    }
+
+    /// Applies a pinch gesture update. See `FCLCameraZoomController.applyPinch`.
+    public func applyPinchZoom(
+        base: CGFloat,
+        scale: CGFloat,
+        velocity: CGFloat,
+        exponential: Bool
+    ) {
+        Task {
+            await zoomController.applyPinch(
+                base: base,
+                scale: scale,
+                velocity: velocity,
+                exponential: exponential
+            )
+        }
+    }
+
+    /// Starts the MainActor task that drains the zoom controller's display
+    /// stream and republishes values as the `zoomFactor` property.
+    private func startZoomStreamTask() {
+        zoomStreamTask?.cancel()
+        zoomStreamTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let stream = await self.zoomController.displayValues()
+            for await value in stream {
+                self.zoomFactor = value
+            }
+        }
+    }
+
+    /// Rebinds the zoom controller to the currently bound video device,
+    /// refreshing preset factors and legal range. Called on session
+    /// configuration and after camera flip.
+    private nonisolated func refreshZoomDeviceBinding() {
+        // Invoked from `sessionQueue`; captures the current device pointer
+        // there and hops to the actor for the bind.
+        let currentDevice = videoDeviceInput?.device
+        Task { [weak self] in
+            guard let self else { return }
+            await self.zoomController.bind(device: currentDevice)
+            if let snap = await self.zoomController.currentSnapshot() {
+                await MainActor.run { [weak self] in
+                    self?.zoomPresets = snap.presetFactors
+                    self?.zoomRange = snap.minFactor...snap.maxFactor
                 }
-            } catch {
-                // Silently ignore zoom failures; state remains at previous value.
+            } else {
+                await MainActor.run { [weak self] in
+                    self?.zoomPresets = [1.0]
+                    self?.zoomRange = 1.0...1.0
+                }
             }
         }
     }
@@ -517,15 +589,49 @@ public final class FCLCameraPresenter: ObservableObject {
             capturedResults.removeFirst(capturedResults.count - configuration.maxAssets + 1)
         }
         capturedResults.append(result)
+        capturedCount = capturedResults.count
     }
 
     public func removeLastResult() {
         guard !capturedResults.isEmpty else { return }
         capturedResults.removeLast()
+        capturedCount = capturedResults.count
     }
 
     public func clearResults() {
         capturedResults.removeAll()
+        capturedCount = 0
+        lastCapturedThumbnail = nil
+    }
+
+    // MARK: Scope 05 — close / done intent signals
+
+    /// Called when the user taps the close button. The view handles the
+    /// confirmation dialog; this method performs the actual teardown.
+    /// Stops any in-progress recording before clearing captured state.
+    public func closeTapped(stopRecordingIfNeeded: Bool = false) {
+        if stopRecordingIfNeeded, isRecording {
+            // Fire-and-forget; the delegate finalizes state asynchronously.
+            sessionQueue.async { [weak self] in
+                guard let self, let movieOutput = self.movieOutput,
+                      movieOutput.isRecording else { return }
+                movieOutput.stopRecording()
+            }
+        }
+        clearResults()
+    }
+
+    /// Called when the user taps the Done chip. The view routes back to the
+    /// previewer; the presenter clears staged results so a later re-entry
+    /// cannot observe stale captures.
+    public func doneTapped() {
+        clearResults()
+    }
+
+    /// Updates `lastCapturedThumbnail`. Called by `FCLCameraView` after each
+    /// successful relay append so the Done-chip reflects the most recent capture.
+    public func updateLastCapturedThumbnail(_ image: UIImage?) {
+        lastCapturedThumbnail = image
     }
 }
 

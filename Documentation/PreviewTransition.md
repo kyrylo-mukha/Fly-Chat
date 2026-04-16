@@ -1,52 +1,90 @@
 # Preview Transition
 
-In-chat media preview uses an iOS-Photos-style zoom transition: tapping a thumbnail in a bubble expands it to a fullscreen fit, and dismissing zooms back to the originating cell when it is visible on screen.
+Full-screen media preview from the chat timeline is implemented as a dedicated MVP module, `Modules/ChatMediaPreviewer/`. It replaces the in-chat preview pattern that previously lived inside the Chat module and cleanly separates preview concerns (transition, aspect-fit, dismiss, parallax strip) from bubble rendering.
 
-## Aspect-Correct Fullscreen Fit
+## Module Split
 
-The fullscreen viewer fits each asset by its aspect ratio:
+The preview module follows the standard FlyChat MVP layout:
 
-- **9:16 (portrait)** — fills the screen height.
-- **16:9 (landscape)** — fills the screen width.
-- **Square** — fills the shorter dimension.
+| Layer | Types |
+|---|---|
+| **Model** | `FCLChatMediaPreviewItem` (the asset descriptor the previewer consumes), `FCLChatMediaPreviewDataSource` (protocol that supplies items and source frames). |
+| **Presenter** | `FCLChatMediaPreviewPresenter` — owns the current index, zoom state, and dismiss coordination. |
+| **View** | `FCLChatMediaPreviewScreen` (root SwiftUI screen), `FCLTransparentFullScreenCover` (presentation host), `FCLMediaPreviewTransition` (protocol wired to the presenting animator), and `FCLChatPreviewerCarouselStrip` (the parallax thumbnail strip). |
+| **Router** | `FCLChatMediaPreviewRouter.present(item:)` — the public entry point the Chat module calls when a bubble tap requests a preview. |
 
-## Source-Aware Zoom-Back
+The Chat module keeps `FCLChatMediaPreviewRelay` as a small bridge between the chat timeline (which knows which cell currently hosts an asset) and the previewer (which needs that cell's window frame at open and dismiss time). Captured assets (from camera, markup, or in-place edit) are modeled by `FCLCapturedAsset` and carried through `FCLCaptureSessionRelay` under `Sources/FlyChat/Core/Media/`.
 
-To make the dismiss animation feel like the system Photos app, the preview needs to know where each asset is currently rendered on the chat timeline:
+### Why a Separate Module
 
-- `FCLMediaPreviewSource` — a public protocol any view that displays media can conform to in order to report the window-space frame of its visible cell for a given attachment identifier.
-- `FCLChatMediaPreviewRelay` — an internal relay that the chat timeline uses to report visible cell window-frames back to the preview layer.
+The module split has two benefits:
 
-On dismiss:
+1. **Clear presentation boundary.** The previewer is a full-screen modal owned by the SwiftUI app router, not a sibling of the chat list. Keeping it in its own module removes coupling with the Chat module's row and bubble types.
+2. **Shared presenter for chat and pre-send.** The chat-side previewer and the pre-send attachment previewer now share layout primitives (aspect-fit math, zoomable pager, parallax strip) while keeping independent routers and dismiss semantics.
 
-- If the source cell is **visible**, the preview zooms back to that cell's reported frame.
-- If the source cell is **offscreen**, the preview shrinks to `0×0` in place.
+## Public Entry Point
 
-## Interaction Details
+```swift
+@MainActor
+public final class FCLChatMediaPreviewRouter {
+    public static let shared: FCLChatMediaPreviewRouter
 
-- A **drag-down strip** in the top 80 points of the preview engages dismissal with a horizontal-direction gate so horizontal paging keeps working.
-- The **thumbnail carousel** under the media pager centers the focused asset with Photos-like parallax. Programmatic `scrollTo` only runs on explicit user taps, never on pager swipes.
+    public func present(item: FCLChatMediaPreviewItem)
+}
+```
 
-## Pinch-to-Zoom and Double-Tap Zoom
+The router is the only public API host apps need to invoke the previewer manually. The chat screen wires it up automatically on bubble taps.
 
-Each asset in the fullscreen pager is wrapped in a per-asset `UIScrollView` that owns the zoom interaction:
+## Aspect-Fit Math
 
-- **Minimum zoom:** `1.0` (aspect-fit baseline).
-- **Maximum zoom:** `3.0`.
-- **Pinch:** scales smoothly via the host scroll view's standard zoom gesture.
-- **Double-tap:** toggles between `1.0` and a mid-zoom factor centered on the tap location.
+Each asset's fullscreen frame is derived by aspect-fitting to the screen bounds minus the active safe area:
 
-Paging is naturally suppressed while the asset is zoomed: the inner scroll view's pan gesture outranks the outer `TabView` paging gesture, so horizontal swipes pan the zoomed asset rather than flipping pages. Releasing back to `1.0` restores normal paging behavior. The vertical drag-to-dismiss strip remains active only at the top 80 points and only when the asset is at its baseline zoom.
+```
+let usableWidth  = screenWidth
+let usableHeight = screenHeight - topSafeInset - bottomSafeInset
+let scale        = min(usableWidth / assetWidth, usableHeight / assetHeight)
+let fittedSize   = CGSize(width: assetWidth * scale, height: assetHeight * scale)
+```
 
-## Image Bubble Containers
+The fitted rect is centered inside the usable area. Portrait assets fill the available height; landscape assets fill the available width; square assets fill the shorter side. This math is shared between the open morph, the zoomable pager, and the dismiss animator so the asset never shifts layout between phases.
 
-Image bubbles clip their media with a shared `UnevenRoundedRectangle`. Per-corner radii are supplied via two public helpers:
+## Three-Phase Animator
 
-- `FCLBubbleCorners` — a struct describing corner radii for each of the four corners.
-- `FCLChatBubbleShape.imageContainerCorners(side:tailStyle:contentAbove:contentBelow:)` — derives the correct corner radii for a given bubble side, tail style, and whether text flows above or below the media. Bubble-edge corners match bubble radii; opposite corners go square when the media continues into text content.
+`FCLMediaPreviewTransition` orchestrates three phases, each a UIKit animator driven by the presenter:
+
+1. **Present morph.** The source bubble cell's window frame is read at `present(item:)` time and animates to the fitted fullscreen rect.
+2. **Interactive drag scaffold.** A pinch-gesture path is wired at runtime; a vertical drag-to-dismiss scaffold exists but is disabled on the chat previewer (see below).
+3. **Dismiss morph.** The source cell's window frame is **read again at dismiss time**, not cached at open time, so scrolling the chat mid-preview still lands the dismiss on the correct rect.
+
+### Manual Snapshot Overlay
+
+The previewer uses a manual SwiftUI snapshot overlay for the morph rather than `matchedGeometryEffect`. Matched geometry breaks across the UIKit modal boundary introduced by `FCLTransparentFullScreenCover`, so the module drives the morph with a hand-rolled animator that operates on image snapshots and avoids the cross-process boundary issue.
+
+### Nil-Frame Collapse
+
+If the chat scrolled past the originating cell and no window frame is available at dismiss time, the previewer runs a `0×0` center-collapse with `.easeIn` duration `0.28s`. This is visually distinct from the morph-to-cell dismiss and signals to the user that the source is off-screen.
+
+## Dismiss Gestures
+
+- **Pinch-to-dismiss** — active on the chat previewer.
+- **Tap on the close control** — active on the chat previewer.
+- **Swipe-down-to-dismiss** — removed from the chat previewer. The previous gesture collided with the chat timeline scroll (the chat list is vertical and drag-to-dismiss caused ambiguous gesture ownership) and is no longer wired. Horizontal paging remains unaffected.
+- **Swipe-down-to-dismiss** — **still active on the pre-send attachment previewer** inside the attachment picker. The pre-send context has no conflicting vertical scroll, so the gesture remains.
+
+## Parallax Thumbnail Strip
+
+`FCLChatPreviewerCarouselStrip` sits `88pt` above the bottom safe area on an `FCLGlassContainer`. It is built with native SwiftUI scroll primitives:
+
+- **Structure.** `ScrollView(.horizontal)` + `scrollTargetBehavior(.viewAligned)` + `scrollPosition` so the strip snaps to the focused thumbnail without programmatic `scrollTo` thrash.
+- **Per-thumbnail scale.** Each thumbnail scales from `1.0` at the center to `0.65` at the edges, using `centerOffset / (stripWidth / 2)` as the normalized falloff.
+- **Parallax.** Non-centered thumbnails receive a horizontal parallax offset of `0.15 × centerOffset`. The offset is disabled when `accessibilityReduceMotion` is on.
+- **Tap scrolls the pager.** Tapping a thumbnail animates the main pager for `0.3s` using `easeInOut`.
+- **Single-asset hide.** The strip is hidden entirely for messages that contain only one asset, so single-image bubbles get a clean, uncluttered preview.
 
 ## Related Documents
 
 - [Attachment Flow](AttachmentFlow.md) — upstream flow that produces the media.
-- [Editor Tools](EditorTools.md) — in-place editing in the preview.
+- [Camera Module](CameraModule.md) — camera module feeds into the same capture session and previewer.
+- [Editor Tools](EditorTools.md) — in-place editing in the pre-send preview.
+- [Visual Style](VisualStyle.md) — `FCLGlassContainer` used by the parallax strip.
 - [Advanced Usage](AdvancedUsage.md) — host-app integration points.

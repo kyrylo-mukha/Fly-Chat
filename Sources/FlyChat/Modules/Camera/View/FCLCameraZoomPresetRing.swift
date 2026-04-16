@@ -1,108 +1,202 @@
 #if canImport(UIKit)
 import SwiftUI
 
-/// Compact zoom preset segmented ring shown above the shutter while not
-/// recording — mirrors the iOS Camera 0.5× / 1× / 2× chip cluster.
+/// Zoom preset ring shown above the shutter — mirrors the iOS Camera
+/// 0.5× / 1× / 2× / 3× chip cluster with a long-press-to-slider affordance.
 ///
-/// The ring is visual only: the active preset is highlighted by the smallest
-/// difference between `currentZoom` and each preset's factor. Tapping a chip
-/// invokes `onSelect` with the preset's raw factor; the consumer drives the
-/// underlying `AVCaptureDevice.videoZoomFactor` change. Pinch-to-zoom on the
-/// preview continues to work as a fine-grain override.
-///
-/// Note: this view does not attempt to detect available device zoom ranges.
-/// Single-lens devices (e.g. front camera) will simply clamp the requested
-/// factor inside the presenter's `setZoom` path.
+/// Presets are supplied by the caller (derived by the presenter from the
+/// active `AVCaptureDevice` constituent lenses). Tapping a chip invokes
+/// `onSelectPreset`, which the consumer wires to an animated ramp. Long
+/// pressing a chip reveals an inline horizontal slider that drags exact zoom
+/// in user-visible units (0.5×…max); drag deltas are reported via
+/// `onSliderDrag`. Ending the long press hides the slider.
 struct FCLCameraZoomPresetRing: View {
     let currentZoom: CGFloat
-    let onSelect: (CGFloat) -> Void
+    let presets: [CGFloat]
+    let zoomRange: ClosedRange<CGFloat>
+    let onSelectPreset: (CGFloat) -> Void
+    let onSliderDrag: (CGFloat) -> Void
 
-    /// Presets aligned with system iOS Camera. Labels are static text — there
-    /// is no SF Symbol for fractional/integer zoom indicators.
-    private static let presets: [Preset] = [
-        Preset(factor: 0.5, label: "0.5"),
-        Preset(factor: 1.0, label: "1"),
-        Preset(factor: 2.0, label: "2")
-    ]
-
-    private struct Preset: Hashable {
-        let factor: CGFloat
-        let label: String
-    }
+    @State private var sliderExpanded: Bool = false
+    @State private var sliderBaseZoom: CGFloat = 1.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 10) {
-            ForEach(Self.presets, id: \.self) { preset in
-                chip(for: preset)
+        Group {
+            if sliderExpanded {
+                sliderRow
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            } else {
+                presetRow
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            Capsule().fill(Color.black.opacity(0.45))
+        .animation(
+            reduceMotion ? .linear(duration: 0.15) : .spring(response: 0.32, dampingFraction: 0.82),
+            value: sliderExpanded
         )
     }
 
-    private func chip(for preset: Preset) -> some View {
-        let active = isActive(preset)
-        return Button {
-            onSelect(preset.factor)
-        } label: {
-            Text(label(for: preset, active: active))
-                .font(.system(size: active ? 13 : 12, weight: .semibold))
-                .foregroundStyle(active ? Color.yellow : Color.white)
-                .frame(width: 32, height: 32)
-                .background(
-                    Circle().fill(active ? Color.white.opacity(0.18) : Color.clear)
+    // MARK: - Preset row
+
+    private var presetRow: some View {
+        FCLGlassToolbar(placement: .top) {
+            ForEach(presets, id: \.self) { factor in
+                FCLGlassChip(
+                    title: chipLabel(for: factor),
+                    tint: isActive(factor)
+                        ? FCLChatColorToken(red: 1.0, green: 0.84, blue: 0.0)
+                        : nil,
+                    action: { onSelectPreset(factor) }
                 )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text("Zoom \(preset.label) times"))
-        .accessibilityAddTraits(active ? .isSelected : [])
-    }
-
-    private func label(for preset: Preset, active: Bool) -> String {
-        if active {
-            // Active preset shows the live zoom factor (e.g. "1.4×") to match
-            // iOS Camera, falling back to the preset label when zoom is at the
-            // exact preset value.
-            let rounded = (currentZoom * 10).rounded() / 10
-            if abs(rounded - preset.factor) < 0.05 {
-                return "\(preset.label)×"
+                .accessibilityLabel(Text(String(format: "Zoom %.1f times", Double(factor))))
+                .accessibilityAddTraits(isActive(factor) ? .isSelected : [])
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.35).onEnded { _ in
+                        sliderBaseZoom = currentZoom
+                        sliderExpanded = true
+                    }
+                )
             }
-            return String(format: "%.1f×", currentZoom)
         }
-        return "\(preset.label)×"
     }
 
-    private func isActive(_ preset: Preset) -> Bool {
-        // Pick the preset whose factor is closest to currentZoom.
-        let nearest = Self.presets.min(by: { lhs, rhs in
-            abs(lhs.factor - currentZoom) < abs(rhs.factor - currentZoom)
-        })
+    private func chipLabel(for factor: CGFloat) -> String {
+        if isActive(factor) {
+            let rounded = (currentZoom * 10).rounded() / 10
+            if abs(rounded - factor) < 0.05 {
+                return "\(Self.presetLabel(factor))×"
+            }
+            return String(format: "%.1f×", Double(currentZoom))
+        }
+        return "\(Self.presetLabel(factor))×"
+    }
+
+    private static func presetLabel(_ factor: CGFloat) -> String {
+        if abs(factor - factor.rounded()) < 0.01 {
+            return String(Int(factor.rounded()))
+        }
+        return String(format: "%.1f", Double(factor))
+    }
+
+    private func isActive(_ preset: CGFloat) -> Bool {
+        guard let nearest = presets.min(by: { lhs, rhs in
+            abs(lhs - currentZoom) < abs(rhs - currentZoom)
+        }) else {
+            return false
+        }
         return nearest == preset
+    }
+
+    // MARK: - Slider row
+
+    private var sliderRow: some View {
+        // Horizontal drag maps linearly within the legal zoom range. The
+        // base zoom is snapshot at long-press begin; dragging shifts from
+        // there proportional to finger travel across a nominal 240pt band.
+        let band: CGFloat = 240
+        let span = max(zoomRange.upperBound - zoomRange.lowerBound, 0.01)
+
+        return HStack(spacing: 10) {
+            Text(String(format: "%.1f×", Double(zoomRange.lowerBound)))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.7))
+            ZStack(alignment: .center) {
+                Capsule()
+                    .fill(Color.white.opacity(0.12))
+                    .frame(height: 6)
+                Capsule()
+                    .fill(Color.white)
+                    .frame(width: 6, height: 18)
+                    .offset(x: thumbOffset(in: band))
+                Text(String(format: "%.1f×", Double(currentZoom)))
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.yellow)
+                    .offset(y: -18)
+            }
+            .frame(width: band, height: 28)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let delta = value.translation.width / band * span
+                        let target = sliderBaseZoom + delta
+                        onSliderDrag(target)
+                    }
+                    .onEnded { _ in
+                        sliderExpanded = false
+                    }
+            )
+            Text(String(format: "%.1f×", Double(zoomRange.upperBound)))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.7))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            Capsule()
+                .fill(Color.black.opacity(0.55))
+        )
+        .accessibilityLabel(Text("Zoom slider"))
+    }
+
+    private func thumbOffset(in band: CGFloat) -> CGFloat {
+        let span = max(zoomRange.upperBound - zoomRange.lowerBound, 0.01)
+        let normalized = (currentZoom - zoomRange.lowerBound) / span
+        return (normalized - 0.5) * band
     }
 }
 
 #if DEBUG
-#Preview("Zoom ring — 1×") {
+#Preview("Zoom ring — back dual (0.5/1/2)") {
     ZStack {
         Color.black
-        FCLCameraZoomPresetRing(currentZoom: 1.0, onSelect: { _ in })
+        FCLCameraZoomPresetRing(
+            currentZoom: 1.0,
+            presets: [0.5, 1.0, 2.0],
+            zoomRange: 0.5...10.0,
+            onSelectPreset: { _ in },
+            onSliderDrag: { _ in }
+        )
     }
 }
 
-#Preview("Zoom ring — 0.5×") {
+#Preview("Zoom ring — triple (0.5/1/2/3)") {
     ZStack {
         Color.black
-        FCLCameraZoomPresetRing(currentZoom: 0.5, onSelect: { _ in })
+        FCLCameraZoomPresetRing(
+            currentZoom: 0.5,
+            presets: [0.5, 1.0, 2.0, 3.0],
+            zoomRange: 0.5...15.0,
+            onSelectPreset: { _ in },
+            onSliderDrag: { _ in }
+        )
     }
 }
 
-#Preview("Zoom ring — 1.4× (active 1×)") {
+#Preview("Zoom ring — front (1x only)") {
     ZStack {
         Color.black
-        FCLCameraZoomPresetRing(currentZoom: 1.4, onSelect: { _ in })
+        FCLCameraZoomPresetRing(
+            currentZoom: 1.0,
+            presets: [1.0],
+            zoomRange: 1.0...1.0,
+            onSelectPreset: { _ in },
+            onSliderDrag: { _ in }
+        )
+    }
+}
+
+#Preview("Zoom ring — active 1.4× (mid-preset)") {
+    ZStack {
+        Color.black
+        FCLCameraZoomPresetRing(
+            currentZoom: 1.4,
+            presets: [0.5, 1.0, 2.0],
+            zoomRange: 0.5...10.0,
+            onSelectPreset: { _ in },
+            onSliderDrag: { _ in }
+        )
     }
 }
 #endif

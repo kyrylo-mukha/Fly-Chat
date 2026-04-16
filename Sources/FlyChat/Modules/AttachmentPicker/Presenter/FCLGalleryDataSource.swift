@@ -11,6 +11,19 @@ final class FCLGalleryDataSource: NSObject, ObservableObject {
     private let imageManager = PHCachingImageManager()
     private let isVideoEnabled: Bool
 
+    /// The collection to display. `nil` fetches all photos (flat camera-roll view
+    /// used in `.limited` mode and as the "Recents" fallback when no smart album
+    /// is available). Setting this property re-fetches assets immediately if the
+    /// data source is already in an authorized state.
+    var collectionID: String? {
+        didSet {
+            guard collectionID != oldValue,
+                  authorizationStatus == .authorized || authorizationStatus == .limited
+            else { return }
+            fetchAssets()
+        }
+    }
+
     /// Whether the code is running inside an Xcode preview. Privacy-sensitive APIs
     /// (Photos, Camera) must not be called in this context because the preview agent
     /// lacks the required Info.plist usage descriptions and will crash with a TCC violation.
@@ -18,8 +31,9 @@ final class FCLGalleryDataSource: NSObject, ObservableObject {
         ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }
 
-    init(isVideoEnabled: Bool) {
+    init(isVideoEnabled: Bool, collectionID: String? = nil) {
         self.isVideoEnabled = isVideoEnabled
+        self.collectionID = collectionID
         super.init()
         guard !Self.isRunningInPreview else { return }
         authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -83,7 +97,24 @@ final class FCLGalleryDataSource: NSObject, ObservableObject {
             options.predicate = NSPredicate(format: "mediaType == %d",
                                             PHAssetMediaType.image.rawValue)
         }
-        assets = PHAsset.fetchAssets(with: options)
+
+        // When a collectionID is set, scope the fetch to that collection.
+        // Fall back to a flat all-photos fetch when nil (limited mode or Recents fallback).
+        if let collectionID,
+           let collection = phCollection(for: collectionID) {
+            assets = PHAsset.fetchAssets(in: collection, options: options)
+        } else {
+            assets = PHAsset.fetchAssets(with: options)
+        }
+    }
+
+    // MARK: - Collection Lookup
+
+    private func phCollection(for id: String) -> PHAssetCollection? {
+        PHAssetCollection.fetchAssetCollections(
+            withLocalIdentifiers: [id],
+            options: nil
+        ).firstObject
     }
 
     private func registerObserver() {

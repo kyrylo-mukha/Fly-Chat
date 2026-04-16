@@ -33,13 +33,17 @@ struct FCLCameraPreviewLayerView: UIViewRepresentable {
     /// point (0...1 in each axis, `AVCaptureDevice`-coordinate space) and
     /// the tap location in the SwiftUI view's coordinate space.
     let onTapToFocus: (_ devicePoint: CGPoint, _ viewPoint: CGPoint) -> Void
-    /// Called during a pinch gesture. Argument is the cumulative scale
-    /// factor relative to the start of the pinch (starts at the current
-    /// presenter zoom factor).
-    let onPinchZoom: (_ factor: CGFloat) -> Void
-    /// Supplies the zoom factor that was active at pinch start so the
-    /// gesture can apply incremental deltas relative to it.
-    let zoomFactorProvider: () -> CGFloat
+    /// Phases of a pinch gesture reported by the preview layer.
+    enum PinchPhase {
+        case began
+        case changed(scale: CGFloat, velocity: CGFloat)
+        case ended
+    }
+
+    /// Called for each phase of a pinch gesture. The caller is responsible
+    /// for snapshotting the pre-gesture zoom at `.began` and applying scale
+    /// deltas via the presenter's pinch entry point.
+    let onPinch: (PinchPhase) -> Void
     /// Enables/disables tap-to-focus and pinch-to-zoom on the preview. Used
     /// to suppress gesture deltas during a camera flip animation so pre-flip
     /// coordinates and in-flight pinch scales do not leak into post-flip
@@ -47,9 +51,7 @@ struct FCLCameraPreviewLayerView: UIViewRepresentable {
     var gesturesEnabled: Bool = true
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTapToFocus: onTapToFocus,
-                    onPinchZoom: onPinchZoom,
-                    zoomFactorProvider: zoomFactorProvider)
+        Coordinator(onTapToFocus: onTapToFocus, onPinch: onPinch)
     }
 
     func makeUIView(context: Context) -> FCLCameraPreviewUIView {
@@ -87,17 +89,12 @@ struct FCLCameraPreviewLayerView: UIViewRepresentable {
         weak var tapRecognizer: UITapGestureRecognizer?
         weak var pinchRecognizer: UIPinchGestureRecognizer?
         let onTapToFocus: (CGPoint, CGPoint) -> Void
-        let onPinchZoom: (CGFloat) -> Void
-        let zoomFactorProvider: () -> CGFloat
-
-        private var pinchStartZoom: CGFloat = 1
+        let onPinch: (PinchPhase) -> Void
 
         init(onTapToFocus: @escaping (CGPoint, CGPoint) -> Void,
-             onPinchZoom: @escaping (CGFloat) -> Void,
-             zoomFactorProvider: @escaping () -> CGFloat) {
+             onPinch: @escaping (PinchPhase) -> Void) {
             self.onTapToFocus = onTapToFocus
-            self.onPinchZoom = onPinchZoom
-            self.zoomFactorProvider = zoomFactorProvider
+            self.onPinch = onPinch
         }
 
         func applyGesturesEnabled(_ enabled: Bool) {
@@ -119,10 +116,11 @@ struct FCLCameraPreviewLayerView: UIViewRepresentable {
         @objc func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
             switch recognizer.state {
             case .began:
-                pinchStartZoom = zoomFactorProvider()
+                onPinch(.began)
             case .changed:
-                let factor = pinchStartZoom * recognizer.scale
-                onPinchZoom(factor)
+                onPinch(.changed(scale: recognizer.scale, velocity: recognizer.velocity))
+            case .ended, .cancelled, .failed:
+                onPinch(.ended)
             default:
                 break
             }

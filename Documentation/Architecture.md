@@ -63,9 +63,21 @@ Fly-Chat/
 |       |   |   +-- FCLDelegateDefaults.swift
 |       |   |   +-- FCLInputDelegate.swift
 |       |   |   +-- FCLLayoutDelegate.swift
+|       |   |   +-- FCLVisualStyleDelegate.swift
+|       |   +-- Media/
+|       |   |   +-- FCLCaptureSessionRelay.swift
 |       |   +-- Types/
-|       |       +-- FCLEdgeInsets.swift
-|       |       +-- FCLInputBarContainerMode.swift
+|       |   |   +-- FCLEdgeInsets.swift
+|       |   |   +-- FCLInputBarContainerMode.swift
+|       |   +-- Visual/
+|       |       +-- FCLVisualStyle.swift
+|       |       +-- Primitives/
+|       |           +-- FCLGlassButton.swift
+|       |           +-- FCLGlassChip.swift
+|       |           +-- FCLGlassContainer.swift
+|       |           +-- FCLGlassIconButton.swift
+|       |           +-- FCLGlassTextField.swift
+|       |           +-- FCLGlassToolbar.swift
 |       |
 |       +-- Integrations/
 |       |   +-- UIKit/
@@ -121,20 +133,31 @@ Fly-Chat/
 |           |   |   +-- FCLExpandingTextView.swift
 |           |   |   +-- FCLFileRowView.swift
 |           |   |   +-- FCLInputBar.swift
-|           |   |   +-- FCLInputBarBackground.swift
 |           |   |   +-- FCLMediaPreviewView.swift
 |           |   +-- Router/
 |           |       +-- FCLChatRouter.swift
 |           |
 |           +-- ChatList/
+|           |   +-- Model/
+|           |   |   +-- FCLChatSummary.swift
+|           |   +-- Presenter/
+|           |   |   +-- FCLChatListPresenter.swift
+|           |   +-- View/
+|           |   |   +-- FCLChatListScreen.swift
+|           |   +-- Router/
+|           |       +-- FCLChatListRouter.swift
+|           |
+|           +-- ChatMediaPreviewer/
 |               +-- Model/
-|               |   +-- FCLChatSummary.swift
+|               |   +-- FCLChatMediaPreviewItem.swift
 |               +-- Presenter/
-|               |   +-- FCLChatListPresenter.swift
+|               |   +-- FCLChatMediaPreviewPresenter.swift
 |               +-- View/
-|               |   +-- FCLChatListScreen.swift
+|               |   +-- FCLChatMediaPreviewScreen.swift
+|               |   +-- FCLChatPreviewerCarouselStrip.swift
+|               |   +-- FCLMediaPreviewTransition.swift
 |               +-- Router/
-|                   +-- FCLChatListRouter.swift
+|                   +-- FCLChatMediaPreviewRouter.swift
 |
 +-- Tests/
     +-- FlyChatTests/
@@ -182,6 +205,38 @@ All four sub-delegate protocols are `@MainActor` and `AnyObject`-constrained (cl
 |---|---|---|
 | `FCLEdgeInsets.swift` | `FCLEdgeInsets` | `Sendable`, `Hashable` struct with `top`, `leading`, `bottom`, `trailing` fields. Provides a `.edgeInsets` computed property that converts to SwiftUI `EdgeInsets`. Used for input bar content insets. |
 | `FCLInputBarContainerMode.swift` | `FCLInputBarContainerMode` | `Sendable`, `Hashable` enum with three cases: `.allInRounded(insets:)` (full-width rounded container), `.fieldOnlyRounded` (only the text field is rounded), `.custom` (host app controls the container). |
+
+### Visual/
+
+The `Visual` namespace holds the visual-style system that drives every chrome surface across the package.
+
+| File | Type | Purpose |
+|---|---|---|
+| `FCLVisualStyle.swift` | `FCLVisualStyle` (enum), `FCLVisualStyleResolver` (value type), environment / view modifier | Public style enum (`.liquidGlass`, `.default`, `.system`), plus the resolver that applies the explicit > delegate > default precedence. Exposes the `.fclVisualStyle(_:)` view modifier for per-view overrides. |
+| `Primitives/FCLGlassContainer.swift` | `FCLGlassContainer` | Base rounded glass container used as a background for toolbars and bars. |
+| `Primitives/FCLGlassButton.swift` | `FCLGlassButton` | Text / label button with glass silhouette. |
+| `Primitives/FCLGlassIconButton.swift` | `FCLGlassIconButton` | 44pt square icon button for close, overflow, and toolbar actions. |
+| `Primitives/FCLGlassToolbar.swift` | `FCLGlassToolbar` | Horizontal toolbar container; merges primitives into a single glass surface on iOS 26. |
+| `Primitives/FCLGlassTextField.swift` | `FCLGlassTextField` | Glass-wrapped text field used by picker caption and search rows. |
+| `Primitives/FCLGlassChip.swift` | `FCLGlassChip` | Small rounded chip for segmented controls, camera zoom presets, and filter tokens. |
+
+Every primitive reads the resolved style from the environment and branches internally between the iOS 26 native `.glassEffect` path and the iOS 17 / 18 material fallback. See [VisualStyle.md](VisualStyle.md).
+
+### Media/
+
+The `Media` namespace holds shared capture models that live outside any single module because the camera, preview, and chat screens all read from them.
+
+| File | Type | Purpose |
+|---|---|---|
+| `FCLCaptureSessionRelay.swift` | `FCLCaptureSessionRelay` (class), `FCLCapturedAsset` (struct) | `@MainActor` relay that holds the current capture session and the list of `FCLCapturedAsset` values. The camera feeds captures into it; the attachment picker and the chat media previewer read from it. Provides `capturedCount`, `clear()`, and publishes changes to bind UI. |
+
+### Removed Types
+
+The following chrome types were replaced by the shared Visual primitives and no longer exist:
+
+- `FCLInputBarBackground` — input bar now composes `FCLGlassContainer` directly.
+- `FCLCameraBottomBar` — replaced by `FCLCameraShutterRow` and `FCLCameraModeSwitcherRow`.
+- `FCLCameraStackCounter` — the capture count is now surfaced through the Done chip on the shutter row; the standalone counter view is gone.
 
 ---
 
@@ -255,7 +310,6 @@ The main conversation screen. Located at `Sources/FlyChat/Modules/Chat/`.
 | `FCLChatStyleConfiguration.swift` | (multiple types) | Defines `FCLChatColorToken` (RGBA color wrapper with clamped values and `.color` conversion), `FCLChatFontWeight` (enum mapping to `Font.Weight`), and `FCLChatMessageFontConfiguration` (font family, size, weight with `.font` computed property). |
 | `FCLInputBar.swift` | `FCLInputBar` | UIKit-only. The message compose bar with text field, send button, optional attach button, and attachment preview strip. Accepts all input delegate values as parameters. |
 | `FCLExpandingTextView.swift` | `FCLExpandingTextView` | UIKit-only. Auto-expanding `UITextView` wrapper that grows with content up to a configurable max row count. |
-| `FCLInputBarBackground.swift` | `FCLInputBarBackground` | Background shape/style for the input bar, supporting the three container modes. |
 | `FCLAvatarView.swift` | `FCLAvatarView` | UIKit-only. Circular avatar that loads images asynchronously via `FCLAvatarDelegate.avatarURL(for:)`, caches them through `FCLAvatarCacheDelegate`, and falls back to an initial-letter placeholder or a default image source. |
 | `FCLAttachmentGridView.swift` | `FCLAttachmentGridView` + `FCLAttachmentGridLayout` | UIKit-only (grid view); layout utility is platform-independent. Renders a grid of image/video attachment thumbnails within a message bubble. Uses `FCLAttachmentGridLayout` for aspect-ratio-aware row height calculation and `FCLAsyncThumbnailLoader` for off-main-actor thumbnail loading. The grid is clipped to the bubble shape so rounded corners align. For media-only messages (no text), the timestamp renders as a translucent pill overlay in the bottom-trailing corner. |
 | `FCLAsyncThumbnailLoader.swift` | `FCLAsyncThumbnailLoader` (actor) | UIKit-only. `actor`-isolated, process-wide singleton that loads and downscales attachment thumbnails from `attachment.url` off the main actor. Results are cached by attachment ID and target size in an `NSCache`. Used by `FCLAttachmentGridView` to display real asset previews. |
@@ -289,6 +343,34 @@ A conversation list screen. Located at `Sources/FlyChat/Modules/ChatList/`.
 ### Router
 
 - **`FCLChatListRouting`** (protocol) + **`FCLChatListActionRouter`** (class) -- Single method `openChat(_:)`. The concrete router forwards to a closure.
+
+---
+
+## ChatMediaPreviewer Module
+
+A dedicated preview module at `Sources/FlyChat/Modules/ChatMediaPreviewer/` owns the chat-side full-screen media preview (aspect-fit pager, zoom, parallax thumbnail strip, open/close morph). It is split out of the Chat module so presentation concerns stay cleanly separated from bubble rendering, and so the chat previewer and the pre-send attachment previewer can share layout primitives while keeping independent routers.
+
+### Model
+
+- **`FCLChatMediaPreviewItem`** — `Sendable` struct describing a previewable asset (id, url, dimensions, caption, source identifier).
+- **`FCLChatMediaPreviewDataSource`** — `@MainActor` protocol that supplies items and reports the current window-space frame for a given asset id (`currentFrame(for:)`). The Chat module's implementation bridges through `FCLChatMediaPreviewRelay`, which is read by the Chat presenter at dismiss time.
+
+### Presenter
+
+- **`FCLChatMediaPreviewPresenter`** — `@MainActor`, `ObservableObject`. Owns the current index, zoom state, and dismiss coordination. Drives the three-phase animator through `FCLMediaPreviewTransition`.
+
+### View
+
+- **`FCLChatMediaPreviewScreen`** — SwiftUI root screen. Hosts the media pager, parallax strip, and dismiss controls.
+- **`FCLTransparentFullScreenCover`** — presentation host that keeps the underlying chat visible during the open / dismiss morph.
+- **`FCLMediaPreviewTransition`** — protocol wired to the UIKit-side animator so SwiftUI callers never touch the animator types directly.
+- **`FCLChatPreviewerCarouselStrip`** — the parallax thumbnail strip on `FCLGlassContainer`, anchored 88pt above the bottom safe area.
+
+### Router
+
+- **`FCLChatMediaPreviewRouter`** — `@MainActor public final class`. Public entry point via `present(item:)`.
+
+See [PreviewTransition.md](PreviewTransition.md) for full preview / dismiss behavior.
 
 ---
 
@@ -426,6 +508,8 @@ See [EditorTools.md](EditorTools.md) for the tool set and dirty-exit rules, and 
 - **[Usage.md](Usage.md)** -- Integration guide with SwiftUI and UIKit code examples, delegate configuration, and customization recipes.
 - **[DelegateSystem/Overview.md](DelegateSystem/Overview.md)** -- Deep dive into the composite delegate architecture, all delegate protocols and their defaults, and host-app customization patterns.
 - **[AttachmentFlow.md](AttachmentFlow.md)** -- End-to-end attachment flow from picker to send.
-- **[CameraModule.md](CameraModule.md)** -- Camera module configuration and public API.
+- **[CameraModule.md](CameraModule.md)** -- Camera module configuration, zoom, transitions, and discard behavior.
 - **[EditorTools.md](EditorTools.md)** -- Rotate/crop and markup tools.
-- **[PreviewTransition.md](PreviewTransition.md)** -- Source-aware preview transition.
+- **[PreviewTransition.md](PreviewTransition.md)** -- Chat media previewer module, aspect-fit, and parallax strip.
+- **[VisualStyle.md](VisualStyle.md)** -- Visual-style system, resolver precedence, primitives.
+- **[MessageStatus.md](MessageStatus.md)** -- Status indicators, delegate overrides, RTL and accessibility behavior.

@@ -55,23 +55,31 @@ The microphone key is only required when `isCameraVideoEnabled` is `true` (the d
 
 - [x] Bottom-Anchored Chat Timeline with Dynamic Bubble Sizing and Grouped Spacing
 - [x] Configurable Bubble Tail Styles, Colors, Fonts, and Max Width Ratio
+- [x] Message Status Indicators (Created / Sent / Read) with Custom Icons and Color Tokens
 - [x] Circle Avatars with Acronym Fallback and Deterministic HSL Colors
 - [x] Async Avatar Image Loading with Pluggable Cache
 - [x] Aspect-Aware Image / Video Grid with Telegram-Inspired Layout Planner and Async Thumbnail Loading
 - [x] Timestamp Overlay on Media-Only Bubbles with Full Bubble Clipping
-- [x] iOS-Photos-Style Full-Screen Media Preview with Source-Aware Zoom-Back Transition, Aspect-Correct Fit, Vertical-Only Drag-to-Dismiss, and Parallax Thumbnail Carousel
+- [x] Shape-Aware Attachment Container Mask: Bubble-Matched Corners When Caption Is Empty, Top-Rounded / Bottom-Flat When Caption Flows Under Media
+- [x] Chat Media Previewer Module with Aspect-Fit Sizing, Visibility-Aware Dismiss, and Parallax Thumbnail Strip
 - [x] Aspect-Correct Image Bubble Containers with Per-Corner Radii that Square Opposite Corners when Text Flows Above or Below
 - [x] Telegram-Style Attachment Preview: Media Pager, Thumbnail Carousel, Caption Row with Keyboard-Synced Send Button Glide, and Add-More Camera Button
+- [x] Custom Picker Expand / Collapse Transition from the Attach Button with Interactive Swipe-Down Gesture
 - [x] In-Place Attachment Editor with Per-Asset Undo/Redo History: Rotate/Crop (Flip H/V, Free/1:1/4:3/16:9, ±45° Slider, L-Shape Handles, Rule-of-Thirds Grid) and PencilKit Markup
-- [x] Custom Camera Module (AVCaptureSession) with Photo + Video Modes, Multi-Capture Stack, Pinch-to-Zoom, Tap-to-Focus Reticle, Flash (Auto/On/Off), Flip with 3D Rotation + Mid-Flip Blur, Record Timer Pill, and Shutter Flash
+- [x] Custom Camera Module (AVCaptureSession) with Photo + Video Modes, Multi-Capture Stack, Tap-to-Focus Reticle, Flash (Auto/On/Off), Flip with 3D Rotation + Mid-Flip Blur, Record Timer Pill, and Shutter Flash
+- [x] Camera Zoom with System-Parity Exponential Mapping, Device-Adaptive Presets, Long-Press Inline Slider, and Auto-Fading Zoom HUD
+- [x] Camera Custom Transitions: Source-Cell Morph on Open, Cross-Fade to Previewer, Return-to-Cell with Pulse, Off-Screen Center-Collapse Fallback
+- [x] Discard-on-Close Confirmation for Multi-Capture Camera Sessions
 - [x] Tabbed Attachment Picker Sheet with Gallery Multi-Select and Files Tab
+- [x] Gallery Album / Collection Picker with Smart Albums, User Albums, Limited-Library Bridge, and Session Persistence
+- [x] Full PhotoKit Permission Flow with Settings and Limited-Library Routing
 - [x] Built-In Recent Files Tracking (Last 20 Sent Files, UserDefaults-Persisted, Fallback When Delegate Does Not Supply a List)
 - [x] Media Compression Configuration (Max Dimension, JPEG Quality, Video Preset)
 - [x] Custom Attachment Tabs via Delegate for Host-App-Provided Picker Screens
 - [x] Auto-Expanding Input Bar with Configurable Container Modes
-- [x] Liquid Glass / Material Input Bar Background (iOS 26+ / 15+)
+- [x] Liquid Glass Visual-Style System with Per-Instance Override, iOS 26 Native + iOS 17 / 18 Fallback, and Six Reusable Primitives
 - [x] Delegate-Driven Context Menu Actions per Message
-- [x] Zero-Config Delegate Architecture with Four Composable Protocols
+- [x] Zero-Config Delegate Architecture with Composable Protocols
 - [x] Chat List Screen with Avatar, Unread Badge, and Routing
 - [x] UIKit Bridge with Factory Methods and Embedding Helpers
 - [x] Comprehensive SwiftUI Previews for All UI Components
@@ -93,10 +101,14 @@ The microphone key is only required when `isCameraVideoEnabled` is `true` (the d
 - [Avatar System](Documentation/AvatarSystem/Overview.md)
   - **Deep Dive —** [Resolution Chain](Documentation/AvatarSystem/Overview.md#resolution-chain), [HSL Colors](Documentation/AvatarSystem/Overview.md#hsl-color-generation), [Caching](Documentation/AvatarSystem/Overview.md#built-in-cache)
   - **Advanced —** [Custom Cache](Documentation/AvatarSystem/AdvancedUsage.md), [External Loading](Documentation/AvatarSystem/AdvancedUsage.md)
+- [Visual Style](Documentation/VisualStyle.md)
+  - **Liquid Glass —** [Visual Style Enum](Documentation/VisualStyle.md#fclvisualstyle), [Delegate & Resolver](Documentation/VisualStyle.md#delegate-and-resolver), [Primitives](Documentation/VisualStyle.md#primitives), [Accessibility](Documentation/VisualStyle.md#accessibility), [Per-View Override](Documentation/VisualStyle.md#per-view-override)
+- [Message Status](Documentation/MessageStatus.md)
+  - **Status Indicators —** [Status Enum](Documentation/MessageStatus.md#fclchatmessagestatus), [Delegate Overrides](Documentation/MessageStatus.md#delegate-overrides), [Layout Toggle](Documentation/MessageStatus.md#layout-toggle), [Accessibility & RTL](Documentation/MessageStatus.md#accessibility-and-rtl)
 - [Attachment Flow](Documentation/AttachmentFlow.md) — end-to-end flow from picker to send
-- [Camera Module](Documentation/CameraModule.md) — configuration, public API, authorization
+- [Camera Module](Documentation/CameraModule.md) — configuration, public API, authorization, zoom, transitions
 - [Editor Tools](Documentation/EditorTools.md) — rotate/crop and markup, history, dirty-exit confirm
-- [Preview Transition](Documentation/PreviewTransition.md) — `FCLMediaPreviewSource` conformance and aspect-fit rules
+- [Preview Transition](Documentation/PreviewTransition.md) — chat media previewer module, aspect-fit, and parallax strip
 - [Architecture](Documentation/Architecture.md)
 
 ## Quick Start

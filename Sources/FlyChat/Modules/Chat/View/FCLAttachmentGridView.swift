@@ -384,18 +384,23 @@ private struct FCLAttachmentCellFramesKey: PreferenceKey {
 /// Each cell loads its thumbnail asynchronously via ``FCLAsyncThumbnailLoader``.
 /// Video attachments display a centred play-button overlay.
 ///
-/// Supply ``containerCorners`` to clip the grid container with an `UnevenRoundedRectangle`
-/// whose corners match the enclosing bubble. Corners that touch an adjacent content element
-/// (text row above or below) should be `0`; corners flush with the bubble edge inherit the
-/// bubble's corner radius. Use ``FCLChatBubbleShape/imageContainerCorners(side:tailStyle:contentAbove:contentBelow:)``
-/// to compute the right values.
+/// Supply ``maskShape`` to clip the grid container. Use ``FCLAttachmentMaskMode/bubble(topRadius:bottomRadius:side:tailStyle:)``
+/// for media-only messages and ``FCLAttachmentMaskMode/topRoundedBottomFlat(topRadius:)``
+/// when text follows below the grid. When `nil` (default) no additional clipping is applied.
 struct FCLAttachmentGridView: View {
     /// The media attachments to display (filtered to `.image` and `.video` types only).
     let attachments: [FCLAttachment]
     /// The maximum width of the grid, matching the bubble's max width.
     let maxWidth: CGFloat
     /// Outer edge insets applied around the grid content area.
-    var insets: FCLEdgeInsets = FCLEdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1)
+    ///
+    /// Default: 1pt on all sides, matching ``FCLChatLayout/attachmentInset``.
+    var insets: FCLEdgeInsets = FCLEdgeInsets(
+        top: FCLChatLayout.attachmentInset,
+        leading: FCLChatLayout.attachmentInset,
+        bottom: FCLChatLayout.attachmentInset,
+        trailing: FCLChatLayout.attachmentInset
+    )
     /// Spacing between adjacent cells.
     var itemSpacing: CGFloat = 1
     /// Optional hero namespace for matched geometry transitions.
@@ -416,14 +421,13 @@ struct FCLAttachmentGridView: View {
     /// the media preview's dismiss animation never targets a frame for a
     /// cell that is no longer on screen.
     var onCellFramesInvalidate: ((Set<String>) -> Void)?
-    /// Per-corner radii used to clip the image container with an `UnevenRoundedRectangle`.
+    /// Shape-aware mask applied to the grid container via `.clipShape`.
     ///
     /// When `nil` (default) no additional clipping is applied — the parent bubble shape
     /// is relied upon to clip the grid (suitable for media-only bubbles where the bubble
-    /// shape itself provides the mask). When non-nil, the grid is clipped to the given
-    /// corner radii. Compute the correct values with
-    /// ``FCLChatBubbleShape/imageContainerCorners(side:tailStyle:contentAbove:contentBelow:)``.
-    var containerCorners: FCLBubbleCorners?
+    /// shape itself provides the mask). When non-nil, the specified ``FCLAttachmentMaskShape``
+    /// is used to clip the container, supporting both full-bubble and top-rounded/bottom-flat modes.
+    var maskShape: FCLAttachmentMaskShape?
 
     /// Loaded thumbnail images keyed by attachment ID.
     @State private var thumbnailsByID: [UUID: UIImage] = [:]
@@ -476,18 +480,9 @@ struct FCLAttachmentGridView: View {
             onCellFramesInvalidate?(keys)
         }
 
-        if let corners = containerCorners {
+        if let mask = maskShape {
             gridContent
-                .clipShape(
-                    UnevenRoundedRectangle(
-                        cornerRadii: RectangleCornerRadii(
-                            topLeading: corners.topLeft,
-                            bottomLeading: corners.bottomLeft,
-                            bottomTrailing: corners.bottomRight,
-                            topTrailing: corners.topRight
-                        )
-                    )
-                )
+                .clipShape(mask)
         } else {
             gridContent
         }
@@ -608,160 +603,348 @@ private func mockImageAttachment(
 
 struct FCLAttachmentGridView_Previews: PreviewProvider {
     static var previews: some View {
-        imageOnlyOutgoingPreview
-        imageOnlyIncomingPreview
-        imagePlusTextBelowPreview
-        textAboveImagePreview
-        multiImageGridPreview
+        bubbleMask1AttachmentOutgoing
+        bubbleMask1AttachmentIncoming
+        bubbleMask2AttachmentsOutgoing
+        bubbleMask2AttachmentsIncoming
+        bubbleMask3AttachmentsOutgoing
+        bubbleMask3AttachmentsIncoming
+        bubbleMask4AttachmentsOutgoing
+        bubbleMask4AttachmentsIncoming
+        topRoundedBottomFlat1AttachmentOutgoing
+        topRoundedBottomFlat1AttachmentIncoming
+        topRoundedBottomFlat2AttachmentsOutgoing
+        topRoundedBottomFlat2AttachmentsIncoming
+        topRoundedBottomFlat3AttachmentsOutgoing
+        topRoundedBottomFlat3AttachmentsIncoming
+        topRoundedBottomFlat4AttachmentsOutgoing
+        topRoundedBottomFlat4AttachmentsIncoming
     }
 
-    // MARK: - Image-only bubble (outgoing, right side, edged bottom tail)
-    // All four corners should match the bubble corners; bottom-right is reduced (tail).
+    // MARK: - Bubble mask mode (no text) × 1 attachment
 
-    private static var imageOnlyOutgoingPreview: some View {
-        let corners = FCLChatBubbleShape.imageContainerCorners(
-            side: .right,
-            tailStyle: .edged(.bottom),
-            contentAbove: false,
-            contentBelow: false
+    private static var bubbleMask1AttachmentOutgoing: some View {
+        FCLAttachmentGridView(
+            attachments: [mockImageAttachment(color: .systemBlue, aspectWidth: 4, aspectHeight: 3, fileName: "b1o.jpg")],
+            maxWidth: 280,
+            maskShape: FCLAttachmentMaskShape(.bubble(topRadius: 17, bottomRadius: 17, side: .right, tailStyle: .edged(.bottom)))
         )
-        return ZStack {
-            FCLChatBubbleShape(side: .right, tailStyle: .edged(.bottom))
-                .fill(Color.blue)
-                .frame(width: 280, height: 200)
-            FCLAttachmentGridView(
-                attachments: [
-                    mockImageAttachment(color: .systemBlue, aspectWidth: 16, aspectHeight: 9, fileName: "out1.jpg")
-                ],
-                maxWidth: 280,
-                containerCorners: corners
-            )
-        }
-        .previewDisplayName("Image-Only — Outgoing (right, edged bottom)")
+        .background(Color.blue.opacity(0.2))
+        .previewDisplayName("Bubble Mask — 1 Attachment — Outgoing")
         .previewLayout(.sizeThatFits)
         .padding()
     }
 
-    // MARK: - Image-only bubble (incoming, left side, edged bottom tail)
-    // All four corners match bubble; bottom-left is reduced.
-
-    private static var imageOnlyIncomingPreview: some View {
-        let corners = FCLChatBubbleShape.imageContainerCorners(
-            side: .left,
-            tailStyle: .edged(.bottom),
-            contentAbove: false,
-            contentBelow: false
+    private static var bubbleMask1AttachmentIncoming: some View {
+        FCLAttachmentGridView(
+            attachments: [mockImageAttachment(color: .systemGreen, aspectWidth: 4, aspectHeight: 3, fileName: "b1i.jpg")],
+            maxWidth: 280,
+            maskShape: FCLAttachmentMaskShape(.bubble(topRadius: 17, bottomRadius: 17, side: .left, tailStyle: .edged(.bottom)))
         )
-        return ZStack {
-            FCLChatBubbleShape(side: .left, tailStyle: .edged(.bottom))
-                .fill(Color(red: 0.93, green: 0.93, blue: 0.95))
-                .frame(width: 280, height: 200)
-            FCLAttachmentGridView(
-                attachments: [
-                    mockImageAttachment(color: .systemGreen, aspectWidth: 4, aspectHeight: 3, fileName: "in1.jpg")
-                ],
-                maxWidth: 280,
-                containerCorners: corners
-            )
-        }
-        .previewDisplayName("Image-Only — Incoming (left, edged bottom)")
+        .background(Color.gray.opacity(0.2))
+        .previewDisplayName("Bubble Mask — 1 Attachment — Incoming")
         .previewLayout(.sizeThatFits)
         .padding()
     }
 
-    // MARK: - Image + text below (outgoing): top corners rounded, bottom corners square.
+    // MARK: - Bubble mask mode (no text) × 2 attachments
 
-    private static var imagePlusTextBelowPreview: some View {
-        let corners = FCLChatBubbleShape.imageContainerCorners(
-            side: .right,
-            tailStyle: .edged(.bottom),
-            contentAbove: false,
-            contentBelow: true
+    private static var bubbleMask2AttachmentsOutgoing: some View {
+        FCLAttachmentGridView(
+            attachments: [
+                mockImageAttachment(color: .systemBlue, aspectWidth: 4, aspectHeight: 3, fileName: "b2o_1.jpg"),
+                mockImageAttachment(color: .systemIndigo, aspectWidth: 3, aspectHeight: 4, fileName: "b2o_2.jpg")
+            ],
+            maxWidth: 280,
+            maskShape: FCLAttachmentMaskShape(.bubble(topRadius: 17, bottomRadius: 17, side: .right, tailStyle: .edged(.bottom)))
         )
-        return VStack(spacing: 0) {
+        .background(Color.blue.opacity(0.2))
+        .previewDisplayName("Bubble Mask — 2 Attachments — Outgoing")
+        .previewLayout(.sizeThatFits)
+        .padding()
+    }
+
+    private static var bubbleMask2AttachmentsIncoming: some View {
+        FCLAttachmentGridView(
+            attachments: [
+                mockImageAttachment(color: .systemGreen, aspectWidth: 4, aspectHeight: 3, fileName: "b2i_1.jpg"),
+                mockImageAttachment(color: .systemTeal, aspectWidth: 16, aspectHeight: 9, fileName: "b2i_2.jpg")
+            ],
+            maxWidth: 280,
+            maskShape: FCLAttachmentMaskShape(.bubble(topRadius: 17, bottomRadius: 17, side: .left, tailStyle: .edged(.bottom)))
+        )
+        .background(Color.gray.opacity(0.2))
+        .previewDisplayName("Bubble Mask — 2 Attachments — Incoming")
+        .previewLayout(.sizeThatFits)
+        .padding()
+    }
+
+    // MARK: - Bubble mask mode (no text) × 3 attachments
+
+    private static var bubbleMask3AttachmentsOutgoing: some View {
+        FCLAttachmentGridView(
+            attachments: [
+                mockImageAttachment(color: .systemBlue, aspectWidth: 4, aspectHeight: 3, fileName: "b3o_1.jpg"),
+                mockImageAttachment(color: .systemIndigo, aspectWidth: 16, aspectHeight: 9, fileName: "b3o_2.jpg"),
+                mockImageAttachment(color: .systemPurple, aspectWidth: 16, aspectHeight: 9, fileName: "b3o_3.jpg")
+            ],
+            maxWidth: 280,
+            maskShape: FCLAttachmentMaskShape(.bubble(topRadius: 17, bottomRadius: 17, side: .right, tailStyle: .edged(.bottom)))
+        )
+        .background(Color.blue.opacity(0.2))
+        .previewDisplayName("Bubble Mask — 3 Attachments — Outgoing")
+        .previewLayout(.sizeThatFits)
+        .padding()
+    }
+
+    private static var bubbleMask3AttachmentsIncoming: some View {
+        FCLAttachmentGridView(
+            attachments: [
+                mockImageAttachment(color: .systemGreen, aspectWidth: 4, aspectHeight: 3, fileName: "b3i_1.jpg"),
+                mockImageAttachment(color: .systemTeal, aspectWidth: 1, aspectHeight: 1, fileName: "b3i_2.jpg"),
+                mockImageAttachment(color: .systemMint, aspectWidth: 1, aspectHeight: 1, fileName: "b3i_3.jpg")
+            ],
+            maxWidth: 280,
+            maskShape: FCLAttachmentMaskShape(.bubble(topRadius: 17, bottomRadius: 17, side: .left, tailStyle: .edged(.bottom)))
+        )
+        .background(Color.gray.opacity(0.2))
+        .previewDisplayName("Bubble Mask — 3 Attachments — Incoming")
+        .previewLayout(.sizeThatFits)
+        .padding()
+    }
+
+    // MARK: - Bubble mask mode (no text) × 4 attachments
+
+    private static var bubbleMask4AttachmentsOutgoing: some View {
+        FCLAttachmentGridView(
+            attachments: [
+                mockImageAttachment(color: .systemRed, aspectWidth: 4, aspectHeight: 3, fileName: "b4o_1.jpg"),
+                mockImageAttachment(color: .systemOrange, aspectWidth: 4, aspectHeight: 3, fileName: "b4o_2.jpg"),
+                mockImageAttachment(color: .systemYellow, aspectWidth: 4, aspectHeight: 3, fileName: "b4o_3.jpg"),
+                mockImageAttachment(color: .systemBlue, aspectWidth: 4, aspectHeight: 3, fileName: "b4o_4.jpg")
+            ],
+            maxWidth: 280,
+            maskShape: FCLAttachmentMaskShape(.bubble(topRadius: 17, bottomRadius: 17, side: .right, tailStyle: .edged(.bottom)))
+        )
+        .background(Color.blue.opacity(0.2))
+        .previewDisplayName("Bubble Mask — 4 Attachments — Outgoing")
+        .previewLayout(.sizeThatFits)
+        .padding()
+    }
+
+    private static var bubbleMask4AttachmentsIncoming: some View {
+        FCLAttachmentGridView(
+            attachments: [
+                mockImageAttachment(color: .systemGreen, aspectWidth: 4, aspectHeight: 3, fileName: "b4i_1.jpg"),
+                mockImageAttachment(color: .systemTeal, aspectWidth: 4, aspectHeight: 3, fileName: "b4i_2.jpg"),
+                mockImageAttachment(color: .systemMint, aspectWidth: 4, aspectHeight: 3, fileName: "b4i_3.jpg"),
+                mockImageAttachment(color: .systemCyan, aspectWidth: 4, aspectHeight: 3, fileName: "b4i_4.jpg")
+            ],
+            maxWidth: 280,
+            maskShape: FCLAttachmentMaskShape(.bubble(topRadius: 17, bottomRadius: 17, side: .left, tailStyle: .edged(.bottom)))
+        )
+        .background(Color.gray.opacity(0.2))
+        .previewDisplayName("Bubble Mask — 4 Attachments — Incoming")
+        .previewLayout(.sizeThatFits)
+        .padding()
+    }
+
+    // MARK: - Top-rounded bottom-flat mask (text below) × 1 attachment
+
+    private static var topRoundedBottomFlat1AttachmentOutgoing: some View {
+        VStack(spacing: 0) {
             FCLAttachmentGridView(
-                attachments: [
-                    mockImageAttachment(color: .systemOrange, aspectWidth: 4, aspectHeight: 3, fileName: "img_above.jpg"),
-                    mockImageAttachment(color: .systemYellow, aspectWidth: 3, aspectHeight: 4, fileName: "img_above2.jpg")
-                ],
+                attachments: [mockImageAttachment(color: .systemBlue, aspectWidth: 4, aspectHeight: 3, fileName: "tf1o.jpg")],
                 maxWidth: 280,
-                containerCorners: corners
+                maskShape: FCLAttachmentMaskShape(.topRoundedBottomFlat(topRadius: 17))
             )
-            Text("Caption below the images")
+            Text("Caption below")
                 .font(.body)
                 .foregroundColor(.white)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .background(Color.blue)
         .clipShape(FCLChatBubbleShape(side: .right, tailStyle: .edged(.bottom)))
-        .previewDisplayName("Image + Text Below — Outgoing (bottom corners square)")
+        .previewDisplayName("Top-Rounded Bottom-Flat — 1 Attachment — Outgoing")
         .previewLayout(.sizeThatFits)
         .padding()
     }
 
-    // MARK: - Text above + image below (incoming): top corners square, bottom corners rounded.
-
-    private static var textAboveImagePreview: some View {
-        let corners = FCLChatBubbleShape.imageContainerCorners(
-            side: .left,
-            tailStyle: .edged(.bottom),
-            contentAbove: true,
-            contentBelow: false
-        )
-        return VStack(spacing: 0) {
-            Text("Caption above the images")
+    private static var topRoundedBottomFlat1AttachmentIncoming: some View {
+        VStack(spacing: 0) {
+            FCLAttachmentGridView(
+                attachments: [mockImageAttachment(color: .systemGreen, aspectWidth: 4, aspectHeight: 3, fileName: "tf1i.jpg")],
+                maxWidth: 280,
+                maskShape: FCLAttachmentMaskShape(.topRoundedBottomFlat(topRadius: 17))
+            )
+            Text("Caption below")
                 .font(.body)
                 .foregroundColor(.primary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            FCLAttachmentGridView(
-                attachments: [
-                    mockImageAttachment(color: .systemPurple, aspectWidth: 3, aspectHeight: 5, fileName: "text_above.jpg"),
-                    mockImageAttachment(color: .systemTeal, aspectWidth: 16, aspectHeight: 9, fileName: "text_above2.jpg")
-                ],
-                maxWidth: 280,
-                containerCorners: corners
-            )
         }
         .background(Color(red: 0.93, green: 0.93, blue: 0.95))
         .clipShape(FCLChatBubbleShape(side: .left, tailStyle: .edged(.bottom)))
-        .previewDisplayName("Text Above + Image — Incoming (top corners square)")
+        .previewDisplayName("Top-Rounded Bottom-Flat — 1 Attachment — Incoming")
         .previewLayout(.sizeThatFits)
         .padding()
     }
 
-    // MARK: - Multi-image grid (4 images, no adjacent content) — both sides.
+    // MARK: - Top-rounded bottom-flat mask (text below) × 2 attachments
 
-    private static var multiImageGridPreview: some View {
-        let attachments: [FCLAttachment] = [
-            mockImageAttachment(color: .systemRed, aspectWidth: 4, aspectHeight: 3, fileName: "r1.jpg"),
-            mockImageAttachment(color: .systemYellow, aspectWidth: 1, aspectHeight: 1, fileName: "r2.jpg"),
-            mockImageAttachment(color: .systemMint, aspectWidth: 3, aspectHeight: 4, fileName: "r3.jpg"),
-            mockImageAttachment(color: .systemCyan, aspectWidth: 16, aspectHeight: 9, fileName: "r4.jpg")
-        ]
-        return VStack(spacing: 20) {
-            // Outgoing
+    private static var topRoundedBottomFlat2AttachmentsOutgoing: some View {
+        VStack(spacing: 0) {
             FCLAttachmentGridView(
-                attachments: attachments,
+                attachments: [
+                    mockImageAttachment(color: .systemBlue, aspectWidth: 4, aspectHeight: 3, fileName: "tf2o_1.jpg"),
+                    mockImageAttachment(color: .systemIndigo, aspectWidth: 4, aspectHeight: 3, fileName: "tf2o_2.jpg")
+                ],
                 maxWidth: 280,
-                containerCorners: FCLChatBubbleShape.imageContainerCorners(
-                    side: .right, tailStyle: .edged(.bottom), contentAbove: false, contentBelow: false
-                )
+                maskShape: FCLAttachmentMaskShape(.topRoundedBottomFlat(topRadius: 17))
             )
-            .clipShape(FCLChatBubbleShape(side: .right, tailStyle: .edged(.bottom)))
-            // Incoming
-            FCLAttachmentGridView(
-                attachments: attachments,
-                maxWidth: 280,
-                containerCorners: FCLChatBubbleShape.imageContainerCorners(
-                    side: .left, tailStyle: .edged(.bottom), contentAbove: false, contentBelow: false
-                )
-            )
-            .clipShape(FCLChatBubbleShape(side: .left, tailStyle: .edged(.bottom)))
+            Text("Caption below two images")
+                .font(.body)
+                .foregroundColor(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .previewDisplayName("Multi-Image Grid — Both Sides (4 images)")
+        .background(Color.blue)
+        .clipShape(FCLChatBubbleShape(side: .right, tailStyle: .edged(.bottom)))
+        .previewDisplayName("Top-Rounded Bottom-Flat — 2 Attachments — Outgoing")
+        .previewLayout(.sizeThatFits)
+        .padding()
+    }
+
+    private static var topRoundedBottomFlat2AttachmentsIncoming: some View {
+        VStack(spacing: 0) {
+            FCLAttachmentGridView(
+                attachments: [
+                    mockImageAttachment(color: .systemGreen, aspectWidth: 4, aspectHeight: 3, fileName: "tf2i_1.jpg"),
+                    mockImageAttachment(color: .systemTeal, aspectWidth: 4, aspectHeight: 3, fileName: "tf2i_2.jpg")
+                ],
+                maxWidth: 280,
+                maskShape: FCLAttachmentMaskShape(.topRoundedBottomFlat(topRadius: 17))
+            )
+            Text("Caption below two images")
+                .font(.body)
+                .foregroundColor(.primary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color(red: 0.93, green: 0.93, blue: 0.95))
+        .clipShape(FCLChatBubbleShape(side: .left, tailStyle: .edged(.bottom)))
+        .previewDisplayName("Top-Rounded Bottom-Flat — 2 Attachments — Incoming")
+        .previewLayout(.sizeThatFits)
+        .padding()
+    }
+
+    // MARK: - Top-rounded bottom-flat mask (text below) × 3 attachments
+
+    private static var topRoundedBottomFlat3AttachmentsOutgoing: some View {
+        VStack(spacing: 0) {
+            FCLAttachmentGridView(
+                attachments: [
+                    mockImageAttachment(color: .systemBlue, aspectWidth: 4, aspectHeight: 3, fileName: "tf3o_1.jpg"),
+                    mockImageAttachment(color: .systemIndigo, aspectWidth: 16, aspectHeight: 9, fileName: "tf3o_2.jpg"),
+                    mockImageAttachment(color: .systemPurple, aspectWidth: 16, aspectHeight: 9, fileName: "tf3o_3.jpg")
+                ],
+                maxWidth: 280,
+                maskShape: FCLAttachmentMaskShape(.topRoundedBottomFlat(topRadius: 17))
+            )
+            Text("Caption below three images")
+                .font(.body)
+                .foregroundColor(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .background(Color.blue)
+        .clipShape(FCLChatBubbleShape(side: .right, tailStyle: .edged(.bottom)))
+        .previewDisplayName("Top-Rounded Bottom-Flat — 3 Attachments — Outgoing")
+        .previewLayout(.sizeThatFits)
+        .padding()
+    }
+
+    private static var topRoundedBottomFlat3AttachmentsIncoming: some View {
+        VStack(spacing: 0) {
+            FCLAttachmentGridView(
+                attachments: [
+                    mockImageAttachment(color: .systemGreen, aspectWidth: 4, aspectHeight: 3, fileName: "tf3i_1.jpg"),
+                    mockImageAttachment(color: .systemTeal, aspectWidth: 1, aspectHeight: 1, fileName: "tf3i_2.jpg"),
+                    mockImageAttachment(color: .systemMint, aspectWidth: 1, aspectHeight: 1, fileName: "tf3i_3.jpg")
+                ],
+                maxWidth: 280,
+                maskShape: FCLAttachmentMaskShape(.topRoundedBottomFlat(topRadius: 17))
+            )
+            Text("Caption below three images")
+                .font(.body)
+                .foregroundColor(.primary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color(red: 0.93, green: 0.93, blue: 0.95))
+        .clipShape(FCLChatBubbleShape(side: .left, tailStyle: .edged(.bottom)))
+        .previewDisplayName("Top-Rounded Bottom-Flat — 3 Attachments — Incoming")
+        .previewLayout(.sizeThatFits)
+        .padding()
+    }
+
+    // MARK: - Top-rounded bottom-flat mask (text below) × 4 attachments
+
+    private static var topRoundedBottomFlat4AttachmentsOutgoing: some View {
+        VStack(spacing: 0) {
+            FCLAttachmentGridView(
+                attachments: [
+                    mockImageAttachment(color: .systemRed, aspectWidth: 4, aspectHeight: 3, fileName: "tf4o_1.jpg"),
+                    mockImageAttachment(color: .systemOrange, aspectWidth: 4, aspectHeight: 3, fileName: "tf4o_2.jpg"),
+                    mockImageAttachment(color: .systemYellow, aspectWidth: 4, aspectHeight: 3, fileName: "tf4o_3.jpg"),
+                    mockImageAttachment(color: .systemBlue, aspectWidth: 4, aspectHeight: 3, fileName: "tf4o_4.jpg")
+                ],
+                maxWidth: 280,
+                maskShape: FCLAttachmentMaskShape(.topRoundedBottomFlat(topRadius: 17))
+            )
+            Text("Caption below four images")
+                .font(.body)
+                .foregroundColor(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .background(Color.blue)
+        .clipShape(FCLChatBubbleShape(side: .right, tailStyle: .edged(.bottom)))
+        .previewDisplayName("Top-Rounded Bottom-Flat — 4 Attachments — Outgoing")
+        .previewLayout(.sizeThatFits)
+        .padding()
+    }
+
+    private static var topRoundedBottomFlat4AttachmentsIncoming: some View {
+        VStack(spacing: 0) {
+            FCLAttachmentGridView(
+                attachments: [
+                    mockImageAttachment(color: .systemGreen, aspectWidth: 4, aspectHeight: 3, fileName: "tf4i_1.jpg"),
+                    mockImageAttachment(color: .systemTeal, aspectWidth: 4, aspectHeight: 3, fileName: "tf4i_2.jpg"),
+                    mockImageAttachment(color: .systemMint, aspectWidth: 4, aspectHeight: 3, fileName: "tf4i_3.jpg"),
+                    mockImageAttachment(color: .systemCyan, aspectWidth: 4, aspectHeight: 3, fileName: "tf4i_4.jpg")
+                ],
+                maxWidth: 280,
+                maskShape: FCLAttachmentMaskShape(.topRoundedBottomFlat(topRadius: 17))
+            )
+            Text("Caption below four images")
+                .font(.body)
+                .foregroundColor(.primary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color(red: 0.93, green: 0.93, blue: 0.95))
+        .clipShape(FCLChatBubbleShape(side: .left, tailStyle: .edged(.bottom)))
+        .previewDisplayName("Top-Rounded Bottom-Flat — 4 Attachments — Incoming")
         .previewLayout(.sizeThatFits)
         .padding()
     }

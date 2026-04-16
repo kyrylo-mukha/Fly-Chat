@@ -6,13 +6,28 @@ import SwiftUI
 
 /// Displays a photo library grid with a camera cell, selection circles, and video duration badges.
 ///
-/// The view handles three authorization states:
-/// - `.authorized` / `.limited`: shows the asset grid (with a permission banner for limited access).
-/// - `.denied` / `.restricted`: shows a prompt to open Settings.
-/// - `.notDetermined`: shows nothing (access is requested on appear).
+/// Authorization is driven by ``FCLPhotoAuthorizationCoordinator``, which handles
+/// the initial access request and live status refresh on scene-active return. The
+/// gallery handles four states:
+/// - `.authorized`: shows the full asset grid.
+/// - `.limited`: shows a "Manage selected photos" banner above the grid (via
+///   ``FCLPickerPermissionBanner``) so the user can adjust access without leaving.
+/// - `.denied` / `.restricted`: shows ``FCLPickerDeniedView`` with an "Open Settings"
+///   button.
+/// - `.notDetermined`: access is requested on appear via the coordinator.
 struct FCLGalleryTabView: View {
     @ObservedObject var presenter: FCLAttachmentPickerPresenter
     @ObservedObject var galleryDataSource: FCLGalleryDataSource
+
+    /// Authorization coordinator that owns the permission state and refresh logic.
+    @StateObject private var authCoordinator = FCLPhotoAuthorizationCoordinator()
+
+    /// Registry that discovers and orders photo collections.
+    /// Only loaded in `.authorized` state per PRD item 5.
+    @StateObject private var collectionRegistry = FCLAssetCollectionRegistry()
+
+    /// Scene phase, observed to refresh authorization when the user returns from Settings.
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Called when the user taps the camera cell.
     let onCameraCapture: () -> Void
@@ -20,92 +35,121 @@ struct FCLGalleryTabView: View {
     /// Called when the user taps on an asset cell body (not the selection circle).
     let onAssetTap: (String) -> Void
 
+    /// Optional scope-08 relay used to publish the camera cell's window-space
+    /// frame and to drive the return pulse-highlight. When `nil` the cell
+    /// renders without frame publishing and without pulse support.
+    var cameraSourceRelay: FCLCameraSourceRelay? = nil
+
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
 
     var body: some View {
         VStack(spacing: 0) {
-            permissionBanner
-            assetContent
+            permissionContent
         }
-        .onAppear {
-            galleryDataSource.requestAccessAndFetch()
+        .task {
+            await authCoordinator.requestAccessIfNeeded()
+            // After the coordinator obtains or confirms access, sync the gallery
+            // data source so it fetches assets using the up-to-date status.
+            syncDataSourceAfterAuth()
+        }
+        // iOS 17+ two-argument onChange: fires when scenePhase transitions to
+        // .active so any permission change made in Settings is picked up immediately.
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active else { return }
+            authCoordinator.refresh()
+            syncDataSourceAfterAuth()
+        }
+        // Propagate the selected collection ID from the registry into the data source.
+        .onChange(of: collectionRegistry.selectedCollectionID) { _, newID in
+            galleryDataSource.collectionID = newID
         }
     }
 
-    // MARK: - Permission Banner
+    // MARK: - Permission Content
 
     @ViewBuilder
-    private var permissionBanner: some View {
-        switch galleryDataSource.authorizationStatus {
-        case .limited:
-            HStack {
-                Text("You gave access to selected photos only.")
-                    .font(.caption)
-                    .foregroundColor(Color(.secondaryLabel))
-                Spacer()
-                Button("Manage") {
-                    guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-                    UIApplication.shared.open(url)
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundColor(.blue)
+    private var permissionContent: some View {
+        switch authCoordinator.status {
+        case .authorized:
+            // In full-access mode show the collection selector pill above the grid.
+            VStack(spacing: 0) {
+                collectionSelectorBar
+                assetContent
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color(.secondarySystemBackground))
+
+        case .limited:
+            VStack(spacing: 0) {
+                FCLPickerPermissionBanner()
+                assetContent
+            }
 
         case .denied, .restricted:
-            VStack(spacing: 12) {
-                Text("Photo access is required to select images.")
-                    .font(.subheadline)
-                    .foregroundColor(Color(.secondaryLabel))
-                    .multilineTextAlignment(.center)
-                Button("Open Settings") {
-                    guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-                    UIApplication.shared.open(url)
-                }
-                .font(.subheadline.weight(.semibold))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            FCLPickerDeniedView()
 
-        default:
-            EmptyView()
+        case .notDetermined:
+            // Blank while the request dialog is in flight; the .task modifier
+            // fires the request so we never stay here long.
+            Color.clear
+
+        @unknown default:
+            Color.clear
         }
+    }
+
+    // MARK: - Collection Selector Bar
+
+    /// The "Recents ▾" pill chip shown only in `.authorized` state.
+    private var collectionSelectorBar: some View {
+        HStack {
+            Spacer()
+            FCLCollectionSelectorView(registry: collectionRegistry)
+            Spacer()
+        }
+        .padding(.vertical, 8)
     }
 
     // MARK: - Asset Content
 
     @ViewBuilder
     private var assetContent: some View {
-        let status = galleryDataSource.authorizationStatus
-        if status == .authorized || status == .limited {
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 2) {
-                    cameraCellView
-                    ForEach(0..<galleryDataSource.assets.count, id: \.self) { index in
-                        let asset = galleryDataSource.assets.object(at: index)
-                        assetCell(for: asset)
-                    }
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 2) {
+                cameraCellView
+                ForEach(0..<galleryDataSource.assets.count, id: \.self) { index in
+                    let asset = galleryDataSource.assets.object(at: index)
+                    assetCell(for: asset)
                 }
             }
+        }
+    }
+
+    // MARK: - Data Source Sync
+
+    /// Bridges the coordinator's resolved status back into ``FCLGalleryDataSource``
+    /// so asset fetching and photo library observation are wired up correctly.
+    /// Also loads the collection registry when full access is confirmed.
+    private func syncDataSourceAfterAuth() {
+        let status = authCoordinator.status
+        if status == .authorized {
+            // Load the registry (no-op if already loaded).
+            collectionRegistry.load()
+            // Set the initial collection ID from the registry's default selection.
+            galleryDataSource.collectionID = collectionRegistry.selectedCollectionID
+            galleryDataSource.requestAccessAndFetch()
+        } else if status == .limited {
+            // In limited mode: flat fetch, no collection selector.
+            galleryDataSource.collectionID = nil
+            galleryDataSource.requestAccessAndFetch()
         }
     }
 
     // MARK: - Camera Cell
 
     private var cameraCellView: some View {
-        Button(action: onCameraCapture) {
-            FCLGalleryCameraPreviewCell()
-                .aspectRatio(1, contentMode: .fit)
-                .overlay(
-                    Image(systemName: "camera.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Take a photo")
+        FCLGalleryCameraCellContainer(
+            onTap: onCameraCapture,
+            relay: cameraSourceRelay
+        )
     }
 
     // MARK: - Asset Cell
@@ -178,6 +222,69 @@ struct FCLGalleryTabView: View {
             .background(Color.black.opacity(0.6))
             .cornerRadius(3)
             .padding(4)
+    }
+}
+
+// MARK: - FCLGalleryCameraCellContainer
+
+/// Gallery camera cell with scope-08 frame publishing and return pulse.
+///
+/// Publishes its window-space frame to the supplied ``FCLCameraSourceRelay``
+/// on appear and on scroll (via the `GeometryReader`-driven `onChange` of the
+/// global frame). Observes the relay's `pulseTick` to play a single 0.35s
+/// ease-in-out pulse-highlight when the camera closes back to it.
+private struct FCLGalleryCameraCellContainer: View {
+    let onTap: () -> Void
+    let relay: FCLCameraSourceRelay?
+
+    @State private var pulseOpacity: Double = 0
+
+    var body: some View {
+        Button(action: onTap) {
+            FCLGalleryCameraPreviewCell()
+                .aspectRatio(1, contentMode: .fit)
+                .overlay(
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+                )
+                .overlay(
+                    // Pulse overlay — a subtle white tint that animates in and
+                    // out in 0.35s total when the relay tick increments.
+                    RoundedRectangle(cornerRadius: 0)
+                        .fill(Color.white.opacity(pulseOpacity))
+                        .allowsHitTesting(false)
+                )
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear {
+                                relay?.sourceFrame = proxy.frame(in: .global)
+                            }
+                            .onChange(of: proxy.frame(in: .global)) { _, newFrame in
+                                relay?.sourceFrame = newFrame
+                            }
+                    }
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Take a photo")
+        .onChange(of: relay?.pulseTick ?? 0) { _, _ in
+            runPulse()
+        }
+    }
+
+    private func runPulse() {
+        let half = FCLCameraTransitionCurves.pulseDuration / 2
+        withAnimation(.easeInOut(duration: half)) {
+            pulseOpacity = 0.35
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + half) {
+            withAnimation(.easeInOut(duration: half)) {
+                pulseOpacity = 0
+            }
+        }
     }
 }
 

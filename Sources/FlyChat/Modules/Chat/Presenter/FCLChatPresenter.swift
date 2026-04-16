@@ -29,6 +29,15 @@ public final class FCLChatPresenter: ObservableObject {
     public private(set) weak var contextMenuDelegate: (any FCLContextMenuDelegate)?
     private let router: (any FCLChatRouting)?
 
+    // MARK: - Frame Provider (UIKit)
+
+    #if canImport(UIKit)
+    /// Backing storage for `frameProvider`. Internal so only the chat screen
+    /// (same module) can assign it; the `frameProvider` computed property in
+    /// the extension exposes a `public` read/write surface for the extension body.
+    var _frameProvider: ((UUID) -> CGRect?)?
+    #endif
+
     // MARK: - Resolved Layout Helpers
 
     /// The resolved bubble side for incoming messages, falling back to the layout default.
@@ -58,6 +67,10 @@ public final class FCLChatPresenter: ObservableObject {
     }
 
     /// The resolved edge insets for the in-bubble attachment image grid.
+    ///
+    /// - Important: Deprecated. The inset is now fixed at ``FCLChatLayout/attachmentInset`` (1pt).
+    ///   This property is retained for source compatibility only; the library ignores its value.
+    @available(*, deprecated, message: "Attachment inset is now fixed at 1pt (FCLChatLayout.attachmentInset). This property is no longer used by the library.")
     public var resolvedAttachmentInsets: FCLEdgeInsets {
         delegate?.appearance?.attachmentInsets ?? FCLAppearanceDefaults.attachmentInsets
     }
@@ -352,3 +365,38 @@ public final class FCLChatPresenter: ObservableObject {
     }
     #endif
 }
+
+#if canImport(UIKit)
+// MARK: - FCLChatMediaPreviewDataSource Conformance
+
+/// Conformance added here (rather than the primary declaration) so the
+/// ChatMediaPreviewer module stays free of any reference back to concrete
+/// chat-module types. The previewer consumes this protocol; the chat
+/// presenter supplies the data.
+extension FCLChatPresenter: FCLChatMediaPreviewDataSource {
+    /// Returns the current window-space frame for the given attachment by
+    /// delegating to `frameProvider`, which the chat screen wires to its
+    /// internal relay on `onAppear`. Returns `nil` when no provider is set
+    /// or when the relay reports the cell is off-screen.
+    public func currentFrame(for id: UUID) -> CGRect? {
+        frameProvider?(id)
+    }
+}
+
+// MARK: - Frame Provider
+
+public extension FCLChatPresenter {
+    /// Closure the chat screen installs to bridge attachment-cell window-space
+    /// frames from the internal relay into the `FCLChatMediaPreviewDataSource`
+    /// conformance. The chat screen wires this in `onAppear`; no other caller
+    /// should set it.
+    ///
+    /// - Note: A closure is used instead of a direct relay reference so the
+    ///   presenter stays free of any import on `FCLChatMediaPreviewRelay`,
+    ///   which is an internal chat-module type.
+    var frameProvider: ((UUID) -> CGRect?)? {
+        get { _frameProvider }
+        set { _frameProvider = newValue }
+    }
+}
+#endif

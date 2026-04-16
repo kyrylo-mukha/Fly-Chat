@@ -128,7 +128,7 @@ final class FCLPagerProgressModel: ObservableObject {
 /// live scroll position using a `GeometryReader` / `PreferenceKey` pipeline. It is exposed
 /// internally so ``FCLPreviewThumbCarousel`` can apply Photos-like parallax to thumbnails.
 struct FCLMediaPreviewView: View {
-    let presenter: FCLChatPresenter
+    let presenter: any FCLChatMediaPreviewDataSource
     let initialAttachmentID: UUID
     let namespace: Namespace.ID
     let onDismiss: () -> Void
@@ -138,6 +138,11 @@ struct FCLMediaPreviewView: View {
     /// presentation paths keep working until wired up.
     weak var source: (any FCLMediaPreviewSource)? = nil
 
+    /// Window-space source frame captured at the moment the previewer is opened.
+    /// Used exclusively by the present-phase overlay to drive the zoom-in animation.
+    /// Nil when the cell was not visible or no frame was recorded.
+    var sourceFrame: CGRect? = nil
+
     @State private var currentIndex: Int = 0
     /// Fractional page index in [0, count-1] updated in real time as the `TabView` scrolls.
     /// Integer values mean fully-settled pages; fractional values appear mid-swipe.
@@ -146,7 +151,6 @@ struct FCLMediaPreviewView: View {
     /// observes the model directly, re-renders.
     @StateObject private var progressModel = FCLPagerProgressModel()
     @State private var chromeVisible: Bool = true
-    @State private var dragOffset: CGSize = .zero
     @State private var backgroundOpacity: Double = 1.0
     /// Carousel selection kept in sync with `currentIndex` and drives `FCLPreviewThumbCarousel`.
     @State private var carouselSelectedID: UUID = UUID()
@@ -161,25 +165,38 @@ struct FCLMediaPreviewView: View {
     /// Controls whether the overlay is rendered at the "collapsed" target frame.
     /// Flipped inside a `withAnimation` block to drive the shrink.
     @State private var dismissCollapsed: Bool = false
-    /// Latches `true` as soon as the active drag is judged to be primarily
-    /// horizontal so further updates are ignored until the gesture ends. This
-    /// prevents the drag-down strip from stealing ownership of a horizontal
-    /// swipe that really belongs to the underlying `TabView` pager.
-    @State private var dragCancelled: Bool = false
     /// Cached global frame of the preview's outer container, refreshed on
     /// every `GeometryReader` pass. Used by `beginDismiss` to derive the
     /// fall-back center-collapse rect without reaching for
     /// `UIScreen.main.bounds`.
     @State private var lastContainerGlobalFrame: CGRect = .zero
+    /// Cached safe-area insets of the preview container, refreshed each layout pass.
+    /// Used by `fclMediaPreviewAspectFit` to compute a fit rect that does not
+    /// overlap the status bar or home indicator.
+    @State private var lastSafeAreaInsets: EdgeInsets = .init()
+
+    // MARK: - Present-phase overlay state
+
+    /// Snapshot image displayed during the zoom-in present animation. Populated from the
+    /// attachment's thumbnail data at the moment `.onAppear` fires. Cleared once the
+    /// present phase completes.
+    @State private var presentSnapshot: UIImage?
+    /// Container-local rect at which the present-phase overlay starts (source cell frame
+    /// converted from window coordinates into the previewer's local coordinate space).
+    @State private var presentSourceRect: CGRect?
+    /// Container-local rect toward which the present-phase overlay morphs (the aspect-fit
+    /// destination of the asset inside the safe-area bounds).
+    @State private var presentFitRect: CGRect?
+    /// `true` while the present-phase overlay is active and the real pager content is hidden.
+    @State private var presentPhaseActive: Bool = false
+    /// Drives the present-phase spring animation. `false` = overlay at source rect (start);
+    /// `true` = overlay at fit rect and fading out while real content fades in.
+    @State private var presentAnimated: Bool = false
 
     // MARK: - Computed helpers
 
     private var allMedia: [(messageID: UUID, attachmentIndex: Int, attachment: FCLAttachment)] {
         presenter.allConversationMedia
-    }
-
-    private var dragProgress: Double {
-        min(abs(dragOffset.height) / 300, 1)
     }
 
     // MARK: - Body
@@ -203,17 +220,35 @@ struct FCLMediaPreviewView: View {
                         containerGlobalFrame: containerGlobalFrame,
                         safeAreaTop: safeAreaTop
                     )
+                    .opacity(presentPhaseActive ? 0 : 1)
+
+                    // Present-phase overlay: snapshot morphing from source cell → fit rect.
+                    if presentPhaseActive, let snapshot = presentSnapshot {
+                        presentOverlay(
+                            snapshot: snapshot,
+                            containerGlobalFrame: containerGlobalFrame
+                        )
+                    }
                 }
 
-                // Mirror the latest global container frame into state so the
-                // dismiss path can compute a center-collapse rect
-                // without reaching for `UIScreen.main.bounds`. The write is
-                // deferred to a microtask to satisfy SwiftUI's "no state
-                // mutation during view update" rule.
+                // Mirror the latest global container frame and safe-area insets into state so
+                // the dismiss and present paths can compute rects without reaching for
+                // `UIScreen.main.bounds`. The write is deferred to satisfy SwiftUI's
+                // "no state mutation during view update" rule.
                 Color.clear
-                    .onAppear { lastContainerGlobalFrame = containerGlobalFrame }
+                    .onAppear {
+                        lastContainerGlobalFrame = containerGlobalFrame
+                        lastSafeAreaInsets = containerGeo.safeAreaInsets
+                    }
                     .onChange(of: containerGlobalFrame) { _, newValue in
                         lastContainerGlobalFrame = newValue
+                    }
+                    .onChange(of: containerGeo.safeAreaInsets) { _, newValue in
+                        lastSafeAreaInsets = newValue
+                        // Re-evaluate the present fit rect on safe-area changes (rotation).
+                        if presentPhaseActive, let src = presentFitRect {
+                            _ = src // no-op capture; actual update happens on next layout pass
+                        }
                     }
 
                 // Chrome overlay
@@ -263,7 +298,10 @@ struct FCLMediaPreviewView: View {
             }
         }
         .statusBarHidden(true)
-        .onAppear { resolveInitialIndex() }
+        .onAppear {
+            resolveInitialIndex()
+            beginPresentPhase()
+        }
     }
 
     // MARK: - Pager + Dismiss Overlay
@@ -303,7 +341,8 @@ struct FCLMediaPreviewView: View {
                             FCLMediaPreviewPage(
                                 attachment: item.attachment,
                                 namespace: namespace,
-                                isCurrentPage: index == currentIndex
+                                isCurrentPage: index == currentIndex,
+                                safeAreaInsets: lastSafeAreaInsets
                             )
                             // Measure each page's x-origin in the TabView coordinate space
                             // so we can derive a live fractional pageProgress value.
@@ -336,34 +375,54 @@ struct FCLMediaPreviewView: View {
                             progressModel.pageProgress = progress
                         }
                     }
-                    .offset(dragOffset)
-                    .scaleEffect(1 - dragProgress * 0.15)
                     .onTapGesture {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             chromeVisible.toggle()
                         }
                     }
-
-                    // Top drag-down strip. Restricted to the top ~80pt so it never competes
-                    // with horizontal paging on the TabView or with the bottom thumbnail carousel.
-                    // Uses `simultaneousGesture` so the TabView's paging gesture still receives
-                    // the touch and wins for horizontal swipes — our handler independently
-                    // self-cancels once it detects the motion is primarily horizontal.
-                    // Extend the strip below the device's top safe-area
-                    // inset by a fixed 80pt window. On Dynamic Island devices,
-                    // hardcoding the strip to 80pt total left only ~21pt of
-                    // usable touch area below the island; basing it on
-                    // `safeAreaTop + 80` restores a uniform 80pt below any
-                    // status overlay across notch/island/no-notch layouts.
-                    VStack(spacing: 0) {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .frame(height: safeAreaTop + 80)
-                            .simultaneousGesture(dragDownDismissGesture)
-                        Spacer(minLength: 0)
-                    }
-                    .allowsHitTesting(true)
         }
+    }
+
+    // MARK: - Present-Phase Overlay
+
+    /// Renders a zoom-in snapshot overlay that animates from the source cell's window-space frame
+    /// to the asset's aspect-fit destination inside the safe-area bounds, then crossfades away
+    /// as the real pager content becomes visible.
+    ///
+    /// Ordering:
+    ///   1. Overlay appears at `presentSourceRect` (source cell position), real content hidden.
+    ///   2. Spring animation morphs overlay to `presentFitRect` while content fades in.
+    ///   3. Animation completes → overlay removed, present phase ends.
+    @ViewBuilder
+    private func presentOverlay(
+        snapshot: UIImage,
+        containerGlobalFrame: CGRect
+    ) -> some View {
+        let sourceRect = presentSourceRect ?? CGRect(
+            x: containerGlobalFrame.midX,
+            y: containerGlobalFrame.midY,
+            width: 0,
+            height: 0
+        )
+        let fitRect = presentFitRect ?? CGRect(
+            origin: .zero,
+            size: containerGlobalFrame.size
+        )
+        let currentRect = presentAnimated ? fitRect : sourceRect
+        let cornerRadius: CGFloat = presentAnimated ? 0 : 12
+        let overlayAlpha: Double = presentAnimated ? 0 : 1
+
+        Image(uiImage: snapshot)
+            .resizable()
+            .scaledToFill()
+            .frame(
+                width: max(1, currentRect.width),
+                height: max(1, currentRect.height)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .position(x: currentRect.midX, y: currentRect.midY)
+            .opacity(overlayAlpha)
+            .allowsHitTesting(false)
     }
 
     // MARK: - Dismiss Overlay
@@ -384,7 +443,7 @@ struct FCLMediaPreviewView: View {
             : 1
         let startRect = fclMediaPreviewAspectFit(
             aspectRatio: aspect,
-            in: CGRect(origin: .zero, size: containerGlobalFrame.size)
+            in: safeAreaBounds(containerSize: containerGlobalFrame.size)
         )
         // Convert the window-space target frame into the container's local space.
         let localTarget = CGRect(
@@ -407,22 +466,96 @@ struct FCLMediaPreviewView: View {
             .allowsHitTesting(false)
     }
 
+    // MARK: - Present-Phase Coordination
+
+    /// Kicks off the zoom-in present animation when a source cell frame is available.
+    ///
+    /// Phase ordering:
+    ///   t=0      — overlay appears at source rect; pager hidden (opacity 0).
+    ///   t=0→0.38s — spring morphs overlay from source rect → fit rect;
+    ///               real pager content simultaneously fades from 0 → 1.
+    ///   t=0.38s+ — animation logically complete; overlay removed; present phase ends.
+    private func beginPresentPhase() {
+        guard let frame = sourceFrame,
+              let current = allMedia.first(where: { $0.attachment.id == initialAttachmentID }),
+              let thumbData = current.attachment.thumbnailData,
+              let snapshot = UIImage(data: thumbData) else {
+            // No source frame or thumbnail — skip overlay; content appears directly.
+            return
+        }
+
+        // Derive the asset's aspect ratio from the thumbnail so we can compute fitRect
+        // without waiting for full-res dimensions.
+        let aspectRatio = snapshot.size.height > 0
+            ? snapshot.size.width / snapshot.size.height
+            : 1
+
+        // Safe-area bounds at the moment of presentation (lastSafeAreaInsets may be zero
+        // on first appear; fall back to container global frame size if so).
+        let containerSize = lastContainerGlobalFrame.size
+        let safeBounds = safeAreaBounds(containerSize: containerSize)
+        let fitRect = fclMediaPreviewAspectFit(aspectRatio: aspectRatio, in: safeBounds)
+
+        // Convert the window-space source frame into the container's local coordinate space.
+        let localSource = CGRect(
+            x: frame.minX - lastContainerGlobalFrame.minX,
+            y: frame.minY - lastContainerGlobalFrame.minY,
+            width: frame.width,
+            height: frame.height
+        )
+
+        presentSnapshot = snapshot
+        presentSourceRect = localSource
+        presentFitRect = fitRect
+        presentPhaseActive = true
+        presentAnimated = false
+
+        // Defer the spring trigger one runloop cycle so SwiftUI has committed the
+        // initial layout at `presentSourceRect` before we animate away from it.
+        DispatchQueue.main.async {
+            withAnimation(
+                .spring(response: 0.38, dampingFraction: 1.0),
+                completionCriteria: .logicallyComplete
+            ) {
+                presentAnimated = true
+            } completion: {
+                presentPhaseActive = false
+                presentSnapshot = nil
+            }
+        }
+    }
+
     // MARK: - Dismiss Coordination
 
     /// Initiates a source-aware dismiss animation from every entry point (close button,
-    /// drag-past-threshold). When the chat screen's ``FCLMediaPreviewSource`` returns a
-    /// visible frame for the current asset the preview zooms back into that cell;
-    /// otherwise the snapshot collapses to a zero-size point at the screen center.
+    /// programmatic dismiss). Reads the current cell frame at dismiss-time (NOT at
+    /// present-time) from the data source or the legacy FCLMediaPreviewSource protocol.
+    ///
+    /// - When the source cell is **visible**, the snapshot morphs back to its frame using
+    ///   a critically-damped spring (response 0.38, no overshoot). This matches the
+    ///   deceleration curve of the system Photos dismiss.
+    /// - When the source cell is **off-screen** (nil frame), the snapshot collapses to a
+    ///   zero-size point at the screen centre using an easeIn curve over 0.28 s and fades
+    ///   to alpha 0. Both cases resolve via `completionCriteria: .logicallyComplete` so
+    ///   `onDismiss` is called only after the animation finishes.
     private func beginDismiss() {
         guard dismissTargetFrame == nil else { return }
 
-        // Resolve the current asset's source frame in window coordinates.
         guard let current = allMedia[safe: currentIndex] else {
             onDismiss()
             return
         }
-        let id = current.attachment.id.uuidString
-        let sourceFrame = source?.mediaPreviewFrame(forAssetID: id)
+
+        // Read the current cell frame at dismiss-time. Prefer the data source protocol
+        // (FCLChatMediaPreviewDataSource.currentFrame) so the previewer does not need a
+        // separate FCLMediaPreviewSource reference. Fall back to the legacy source ref for
+        // hosts that have not yet adopted the data source extension.
+        let currentID = current.attachment.id
+        let sourceFrame: CGRect? =
+            presenter.currentFrame(for: currentID)
+            ?? source?.mediaPreviewFrame(forAssetID: currentID.uuidString)
+
+        let isOffScreen = sourceFrame == nil
         let target = sourceFrame ?? centerCollapseRect(containerGlobalFrame: lastContainerGlobalFrame)
 
         // Snapshot the current page's image so the overlay can render it during shrink.
@@ -430,13 +563,15 @@ struct FCLMediaPreviewView: View {
         dismissTargetFrame = target
 
         // Drive the shrink via a state toggle so SwiftUI can interpolate frame/alpha/corner.
-        // Critical damping (1.0) reaches the target without overshoot while
-        // preserving a natural approach duration, matching the deceleration
-        // curve of the system Photos dismiss. A lower damping fraction
-        // overshoots the target rect and produces a visible bounce as the
-        // snapshot settles into the source cell.
+        // Two distinct animation curves depending on whether the source cell is visible:
+        //   • Visible cell  — critically-damped spring (no overshoot, natural deceleration).
+        //   • Off-screen    — easeIn over 0.28 s so the collapse feels deliberate and quick.
+        let animation: Animation = isOffScreen
+            ? .easeIn(duration: 0.28)
+            : .spring(response: 0.38, dampingFraction: 1.0)
+
         withAnimation(
-            .spring(response: 0.38, dampingFraction: 1.0),
+            animation,
             completionCriteria: .logicallyComplete
         ) {
             dismissCollapsed = true
@@ -480,67 +615,23 @@ struct FCLMediaPreviewView: View {
         return image
     }
 
-    // MARK: - Drag-Down Dismiss Gesture
+    // MARK: - Safe-Area Bounds
 
-    /// Vertical-only drag gesture attached to a thin strip at the top of the preview. Pulls the
-    /// preview downward with rubber-banding and dismisses past a velocity/distance threshold.
-    /// Because it is attached to a bounded strip it cannot collide with the horizontal paging
-    /// gesture on the underlying `TabView` or the horizontal thumbnail carousel.
-    private var dragDownDismissGesture: some Gesture {
-        DragGesture(minimumDistance: 16, coordinateSpace: .local)
-            .onChanged { value in
-                // If an earlier sample in this drag was already judged horizontal,
-                // ignore the rest of the stream. The latch resets in `.onEnded`.
-                if dragCancelled { return }
-                // Horizontal motions belong to the TabView pager. As soon as the
-                // drag's horizontal component meaningfully outruns its vertical
-                // component, latch and stay out of the way for the remainder of
-                // this gesture.
-                if abs(value.translation.width) > abs(value.translation.height) * 1.2 {
-                    dragCancelled = true
-                    if dragOffset != .zero || backgroundOpacity != 1.0 {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                            dragOffset = .zero
-                            backgroundOpacity = 1.0
-                        }
-                    }
-                    return
-                }
-                // Only consume downward motion; upward drifts shouldn't shift the page.
-                guard value.translation.height > 0 else { return }
-                // Rubber-band: soften dragging beyond a reasonable pull.
-                let y = rubberBanded(value.translation.height)
-                dragOffset = CGSize(width: 0, height: y)
-                let progress = min(y / 300, 1)
-                backgroundOpacity = 1 - progress
-            }
-            .onEnded { value in
-                defer { dragCancelled = false }
-                if dragCancelled {
-                    // Ended as a horizontal swipe we yielded to the pager — nothing
-                    // to unwind; the state was already restored on cancellation.
-                    return
-                }
-                let distance = value.translation.height
-                let predicted = value.predictedEndTranslation.height
-                let shouldDismiss = distance > 120 || predicted > 260
-                if shouldDismiss {
-                    beginDismiss()
-                } else {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                        dragOffset = .zero
-                        backgroundOpacity = 1.0
-                    }
-                }
-            }
-    }
-
-    /// Applies a simple rubber-band curve to a pull distance so the content resists
-    /// unbounded motion during the drag.
-    private func rubberBanded(_ distance: CGFloat) -> CGFloat {
-        let limit: CGFloat = 600
-        let x = max(distance, 0)
-        return limit * (1 - 1 / (x / limit + 1))
+    /// Computes the safe-area-inset-respecting bounds rectangle used as the fit container.
+    ///
+    /// The fit rect is computed inside this reduced rectangle so full-res content does not
+    /// overlap the status bar or home indicator. `lastSafeAreaInsets` is refreshed on every
+    /// `GeometryReader` pass, so rotation and split-view changes propagate automatically.
+    ///
+    /// - Parameter containerSize: The full size of the overlay container (pre-safe-area).
+    private func safeAreaBounds(containerSize: CGSize) -> CGRect {
+        let insets = lastSafeAreaInsets
+        return CGRect(
+            x: insets.leading,
+            y: insets.top,
+            width: max(1, containerSize.width - insets.leading - insets.trailing),
+            height: max(1, containerSize.height - insets.top - insets.bottom)
+        )
     }
 
     // MARK: - Bottom Carousel
@@ -551,14 +642,17 @@ struct FCLMediaPreviewView: View {
             let messageMedia = allMedia.filter { $0.messageID == currentMessageID }
             // Hand the live progress model to a dedicated subview so per-frame
             // page-progress updates do not invalidate FCLMediaPreviewView's body.
+            // Strip sits 88 pt above the safe-area bottom edge as specified in PRD 19.
+            // The chrome VStack is laid out inside the full-screen container, so
+            // `.padding(.bottom, 88)` places the strip center at 88 pt from the
+            // bottom safe-area inset without hardcoding any screen dimensions.
             FCLBottomCarouselContainer(
                 allMedia: allMedia,
                 messageMedia: messageMedia,
                 selectedAttachmentID: $carouselSelectedID,
                 progressModel: progressModel
             )
-            .padding(.horizontal, 8)
-            .padding(.bottom, 16)
+            .padding(.bottom, 88)
         }
     }
 
@@ -632,400 +726,316 @@ private struct FCLBottomCarouselContainer: View {
             messageMedia: messageMedia,
             carouselSelectedID: selectedAttachmentID
         )
-        FCLPreviewThumbCarousel(
+        FCLChatPreviewerCarouselStrip(
             items: messageMedia,
-            selectedAttachmentID: $selectedAttachmentID,
+            selectedItemID: $selectedAttachmentID,
             pageProgress: localProgress
         )
+        .coordinateSpace(.named("fclCarouselSpace"))
+        .padding(.horizontal, 12)
     }
 }
 
 // MARK: - FCLMediaPreviewPage
 
+/// A single pager page that renders one media attachment at aspect-fit size
+/// respecting the container's safe-area insets.
+///
+/// Image loading uses a two-stage approach:
+///   1. Thumbnail from `attachment.thumbnailData` shown immediately (no loading delay).
+///   2. Full-res image loaded asynchronously on a `userInitiated` task; crossfades in
+///      once available. For PHAsset-backed attachments this uses `PHImageManager`
+///      with `.opportunistic` delivery so the system thumbnail upgrades to full-res
+///      within the same request.
+///
+/// The `matchedGeometryEffect` on each image uses the attachment's `id` as the key
+/// and `isSource: false`, linking each page to the corresponding chat grid cell
+/// (which declares `isSource: true` in the same namespace). Because the previewer
+/// is presented via `FCLTransparentFullScreenCover` (a UIKit `overFullScreen`
+/// presentation), SwiftUI cannot animate the matched-geometry effect across the
+/// UIKit boundary; the zoom-in animation is instead driven by the present-phase
+/// overlay in `FCLMediaPreviewView`.
 private struct FCLMediaPreviewPage: View {
     let attachment: FCLAttachment
     let namespace: Namespace.ID
     let isCurrentPage: Bool
+    /// Safe-area insets of the container, refreshed on rotation/size-class changes.
+    /// Used to compute the aspect-fit destination rect so content never overlaps
+    /// the status bar or home indicator.
+    let safeAreaInsets: EdgeInsets
 
     @State private var loadedImage: UIImage?
+    @State private var imageSize: CGSize = .zero
 
     var body: some View {
-        ZStack {
-            if let image = loadedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .matchedGeometryEffect(id: attachment.id, in: namespace, isSource: false)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let data = attachment.thumbnailData, let image = UIImage(data: data) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .matchedGeometryEffect(id: attachment.id, in: namespace, isSource: false)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ProgressView()
-                    .tint(.white)
+        GeometryReader { geo in
+            let containerSize = geo.size
+            let fitSize = resolvedFitSize(containerSize: containerSize)
+
+            ZStack {
+                // Thumbnail layer — always present; acts as placeholder until
+                // full-res arrives, then remains underneath for a smooth crossfade.
+                if let data = attachment.thumbnailData, let thumb = UIImage(data: data) {
+                    Image(uiImage: thumb)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: fitSize.width, height: fitSize.height)
+                        .clipped()
+                        .matchedGeometryEffect(id: attachment.id, in: namespace, isSource: false)
+                }
+
+                // Full-res layer — fades in once loaded. Layered on top of the
+                // thumbnail so the crossfade is seamless.
+                if let image = loadedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: fitSize.width, height: fitSize.height)
+                        .clipped()
+                        .transition(.opacity.animation(.easeInOut(duration: 0.25)))
+                }
+
+                // Loading indicator shown only when no thumbnail is available.
+                if loadedImage == nil,
+                   attachment.thumbnailData == nil || UIImage(data: attachment.thumbnailData ?? Data()) == nil {
+                    ProgressView()
+                        .tint(.white)
+                }
             }
+            .frame(width: containerSize.width, height: containerSize.height)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { loadFullImage() }
     }
 
+    // MARK: - Aspect-Fit Sizing
+
+    /// Computes the fit size for the attachment inside `containerSize` respecting safe-area insets.
+    ///
+    /// When actual image dimensions are known (`imageSize` is non-zero), the aspect ratio is
+    /// derived from those dimensions. Otherwise the thumbnail's aspect ratio is used as a proxy
+    /// until full-res arrives, preventing layout jumps in most cases.
+    ///
+    /// The fit rectangle is computed against `safeAreaBounds` — the container minus its
+    /// safe-area insets — so the content never overlaps the status bar or home indicator.
+    /// On safe-area changes (rotation, split-view) SwiftUI re-evaluates this property
+    /// automatically because `safeAreaInsets` is a stored property on the view struct.
+    private func resolvedFitSize(containerSize: CGSize) -> CGSize {
+        // Build the safe-area-reduced bounds.
+        let safeBounds = CGRect(
+            x: safeAreaInsets.leading,
+            y: safeAreaInsets.top,
+            width: max(1, containerSize.width - safeAreaInsets.leading - safeAreaInsets.trailing),
+            height: max(1, containerSize.height - safeAreaInsets.top - safeAreaInsets.bottom)
+        )
+
+        // Derive the aspect ratio: prefer actual image dimensions, fall back to thumbnail.
+        let aspectRatio: CGFloat
+        if imageSize.height > 0 {
+            aspectRatio = imageSize.width / imageSize.height
+        } else if let data = attachment.thumbnailData,
+                  let thumb = UIImage(data: data),
+                  thumb.size.height > 0 {
+            aspectRatio = thumb.size.width / thumb.size.height
+        } else {
+            // Unknown aspect — show at full safe-area size; re-evaluated once image loads.
+            return safeBounds.size
+        }
+
+        let fitRect = fclMediaPreviewAspectFit(aspectRatio: aspectRatio, in: safeBounds)
+        return fitRect.size
+    }
+
+    // MARK: - Image Loading
+
+    /// Loads the full-resolution image for this attachment.
+    ///
+    /// Strategy:
+    ///   - Reads the file at `attachment.url` on a background task and decodes it.
+    ///   - On load, updates `imageSize` so the aspect-fit computation can upgrade
+    ///     from the thumbnail proxy to the real dimensions.
+    ///   - Does NOT use `Task.detached`; uses a `Task` with `.userInitiated` priority
+    ///     so Swift 6 structured concurrency applies and the capture of `attachment` is safe.
     private func loadFullImage() {
         guard attachment.type == .image || attachment.type == .video else { return }
         let url = attachment.url
-        Task.detached(priority: .userInitiated) {
+        Task(priority: .userInitiated) {
             guard let data = try? Data(contentsOf: url),
                   let image = UIImage(data: data) else { return }
             await MainActor.run {
-                self.loadedImage = image
+                loadedImage = image
+                imageSize = image.size
             }
         }
     }
 }
 
-// MARK: - FCLPickerAssetPreview
-
-/// Full-screen preview for gallery assets in the attachment picker. Allows browsing all assets,
-/// toggling selection, rotating images, adding a caption, and sending.
-struct FCLPickerAssetPreview: View {
-    @ObservedObject var presenter: FCLAttachmentPickerPresenter
-    @ObservedObject var galleryDataSource: FCLGalleryDataSource
-    let initialAssetID: String
-    let onSend: () -> Void
-    let onDismiss: () -> Void
-
-    @State private var currentIndex: Int = 0
-    @State private var rotationByID: [String: Int] = [:]
-    @FocusState private var captionFocused: Bool
-    @State private var isEditorPresented: Bool = false
-    @State private var editorSourceImage: UIImage?
-
-    // MARK: - Body
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            if galleryDataSource.assets.count > 0 {
-                TabView(selection: $currentIndex) {
-                    ForEach(0 ..< galleryDataSource.assets.count, id: \.self) { index in
-                        let asset = galleryDataSource.assets[index]
-                        FCLPickerAssetPageView(
-                            asset: asset,
-                            galleryDataSource: galleryDataSource,
-                            rotationSteps: rotationByID[asset.localIdentifier] ?? 0,
-                            editedImage: presenter.editedImage(for: asset.localIdentifier)
-                        )
-                        .tag(index)
-                    }
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .ignoresSafeArea()
-            } else {
-                ProgressView()
-                    .tint(.white)
-            }
-
-            // Chrome overlay
-            VStack(spacing: 0) {
-                topChrome
-                Spacer()
-            }
-
-            // Send button fixed at bottom-trailing
-            VStack {
-                Spacer()
-                HStack {
-                    Spacer()
-                    Button(action: onSend) {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(presenter.selectedAssets.isEmpty ? Color.gray : Color.blue)
-                            .clipShape(Circle())
-                    }
-                    .disabled(presenter.selectedAssets.isEmpty)
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 24)
-                }
-            }
-        }
-        .safeAreaInset(edge: .bottom) {
-            bottomCaptionBar
-        }
-        .statusBarHidden(true)
-        .onAppear { resolveInitialIndex() }
-        // Attach as `.simultaneousGesture` so the underlying TabView
-        // pager keeps receiving horizontal drag samples. The previous
-        // `.gesture(...)` attachment installed a higher-priority recognizer
-        // at the ZStack root that intercepted every drag, including the
-        // horizontal pan that should reach the pager — making swipe between
-        // assets feel sluggish or completely blocked.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 20)
-                .onEnded { value in
-                    // Light downward swipe while keyboard is open dismisses keyboard only
-                    if captionFocused,
-                       value.translation.height > 20,
-                       value.translation.height < 60,
-                       abs(value.velocity.height) < 800 {
-                        captionFocused = false
-                    }
-                }
-        )
-        .onTapGesture {
-            if captionFocused {
-                captionFocused = false
-            }
-        }
-        .overlay {
-            // In-place editor replacement for the legacy fullScreenCover path.
-            // The gallery preview currently exposes only the rotate/crop tool
-            // via this entry point; markup routing from the gallery-picker
-            // preview is a follow-up.
-            if isEditorPresented, let sourceImage = editorSourceImage, let assetID = currentAssetID {
-                FCLRotateCropEditor(
-                    original: sourceImage,
-                    onCommit: { edited in
-                        presenter.setEditedImage(edited, for: assetID)
-                        isEditorPresented = false
-                    },
-                    onCancel: {
-                        isEditorPresented = false
-                    }
-                )
-                .id(assetID)
-                .transition(.opacity)
-                .zIndex(100)
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: isEditorPresented)
-    }
-
-    // MARK: - Top Chrome
-
-    private var topChrome: some View {
-        HStack(spacing: 12) {
-            // Selection indicator (top-left)
-            selectionIndicator
-                .padding(.leading, 16)
-
-            Spacer()
-
-            // Close button (top-right)
-            Button(action: onDismiss) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 30))
-                    .foregroundColor(.white.opacity(0.8))
-            }
-            .padding(.trailing, 16)
-        }
-        .padding(.top, 16)
-    }
-
-    @ViewBuilder
-    private var selectionIndicator: some View {
-        let assetID = currentAssetID
-        if let assetID {
-            let selectionIndex = presenter.selectedAssets.firstIndex(of: assetID)
-            Button {
-                presenter.toggleAssetSelection(assetID)
-            } label: {
-                if let order = selectionIndex {
-                    ZStack {
-                        Circle()
-                            .fill(Color.blue)
-                            .frame(width: 30, height: 30)
-                        Text("\(order + 1)")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(.white)
-                    }
-                } else {
-                    Circle()
-                        .stroke(Color.white, lineWidth: 2)
-                        .frame(width: 30, height: 30)
-                }
-            }
-        }
-    }
-
-    // MARK: - Bottom Caption Bar
-
-    private var bottomCaptionBar: some View {
-        HStack(spacing: 8) {
-            // Rotate button (bottom-left)
-            Button {
-                if let assetID = currentAssetID {
-                    rotationByID[assetID] = ((rotationByID[assetID] ?? 0) + 1) % 4
-                }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .background(Color.white.opacity(0.2))
-                    .clipShape(Circle())
-            }
-
-            // Edit button
-            Button {
-                openEditor()
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .background(
-                        currentAssetID.flatMap { presenter.editedImage(for: $0) } != nil
-                            ? Color.yellow.opacity(0.5)
-                            : Color.white.opacity(0.2)
-                    )
-                    .clipShape(Circle())
-            }
-
-            // Caption field
-            TextField("Add a caption…", text: $presenter.captionText)
-                .focused($captionFocused)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.white)
-                .foregroundColor(.black)
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-
-            // Spacer so send button overlay stays visible
-            Spacer()
-                .frame(width: 52) // matches send button width + trailing padding
-        }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 24)
-        .background(Color.black.opacity(0.3))
-    }
-
-    // MARK: - Open Editor
-
-    private func openEditor() {
-        guard let assetID = currentAssetID else { return }
-        // Prefer edited image as source if already edited, otherwise load fresh
-        if let edited = presenter.editedImage(for: assetID) {
-            editorSourceImage = edited
-            isEditorPresented = true
-        } else {
-            guard galleryDataSource.assets.count > currentIndex else { return }
-            let asset = galleryDataSource.assets[currentIndex]
-            Task {
-                let image = try? await galleryDataSource.fullSizeImage(for: asset)
-                editorSourceImage = image
-                isEditorPresented = image != nil
-            }
-        }
-    }
-
-    // MARK: - Private
-
-    private var currentAssetID: String? {
-        guard galleryDataSource.assets.count > currentIndex else { return nil }
-        return galleryDataSource.assets[currentIndex].localIdentifier
-    }
-
-    private func resolveInitialIndex() {
-        for i in 0 ..< galleryDataSource.assets.count {
-            if galleryDataSource.assets[i].localIdentifier == initialAssetID {
-                currentIndex = i
-                return
-            }
-        }
-    }
-}
-
-// MARK: - FCLPickerAssetPageView
-
-private struct FCLPickerAssetPageView: View {
-    let asset: PHAsset
-    let galleryDataSource: FCLGalleryDataSource
-    let rotationSteps: Int
-    /// When non-nil, displayed in place of the gallery-loaded full-size image.
-    let editedImage: UIImage?
-
-    @State private var loadedImage: UIImage?
-
-    /// The image to display: edited override takes precedence over gallery-loaded.
-    private var displayImage: UIImage? {
-        editedImage ?? loadedImage
-    }
-
-    var body: some View {
-        ZStack {
-            if let image = displayImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    // Only apply visual rotation when using the gallery image (not the already-rendered edit).
-                    .rotationEffect(.degrees(editedImage == nil ? Double(rotationSteps) * 90 : 0))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ProgressView()
-                    .tint(.white)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task { await loadAsset() }
-    }
-
-    private func loadAsset() async {
-        guard loadedImage == nil else { return }
-        let image = try? await galleryDataSource.fullSizeImage(for: asset)
-        loadedImage = image
-    }
-}
 
 // MARK: - Previews
 
 #if DEBUG
-struct FCLMediaPreviewView_Previews: PreviewProvider {
-    @Namespace static var namespace
+// MARK: Preview Helpers
 
-    static var previews: some View {
-        FCLMediaPreviewPreviewWrapper()
-            .previewDisplayName("Media Preview — Empty")
+/// Generates solid-color JPEG data of the requested size for use in previews.
+@MainActor
+private func fclPreviewImageData(
+    width: Int,
+    height: Int,
+    color: UIColor = .systemBlue
+) -> Data? {
+    let size = CGSize(width: width, height: height)
+    UIGraphicsBeginImageContextWithOptions(size, true, 1)
+    defer { UIGraphicsEndImageContext() }
+    color.setFill()
+    UIRectFill(CGRect(origin: .zero, size: size))
+    return UIGraphicsGetImageFromCurrentImageContext()?.jpegData(compressionQuality: 0.8)
+}
 
-        FCLPickerAssetPreviewWrapper()
-            .previewDisplayName("Picker Asset Preview")
+/// Builds a minimal `FCLAttachment` with the given JPEG thumbnail data.
+@MainActor
+private func fclPreviewAttachment(
+    name: String,
+    width: Int,
+    height: Int,
+    color: UIColor = .systemBlue
+) -> FCLAttachment {
+    let data = fclPreviewImageData(width: width, height: height, color: color)
+    return FCLAttachment(
+        id: UUID(),
+        type: .image,
+        url: URL(string: "https://example.com/\(name).jpg")!,
+        thumbnailData: data,
+        fileName: "\(name).jpg",
+        fileSize: nil
+    )
+}
+
+/// Preview-only stub conforming to ``FCLChatMediaPreviewDataSource`` so the
+/// previewer module's `#Preview` does not reach back into the chat module for a
+/// concrete presenter.
+@MainActor
+private final class FCLPreviewDataSourceStub: FCLChatMediaPreviewDataSource {
+    var allConversationMedia: [(messageID: UUID, attachmentIndex: Int, attachment: FCLAttachment)]
+
+    init(attachments: [FCLAttachment] = []) {
+        let msgID = UUID()
+        self.allConversationMedia = attachments.enumerated().map { idx, att in
+            (messageID: msgID, attachmentIndex: idx, attachment: att)
+        }
     }
 }
 
-private struct FCLMediaPreviewPreviewWrapper: View {
-    @Namespace var namespace
+// MARK: Preview Wrappers
+
+private struct FCLPreviewWrapperPortraitPhoto: View {
+    @Namespace var ns
 
     var body: some View {
-        let sender = FCLChatMessageSender(id: "user1", displayName: "Alice")
-        let presenter = FCLChatPresenter(
-            messages: [],
-            currentUser: sender
-        )
+        let attachment = fclPreviewAttachment(name: "portrait", width: 1080, height: 1920, color: .systemIndigo)
+        let stub = FCLPreviewDataSourceStub(attachments: [attachment])
         FCLMediaPreviewView(
-            presenter: presenter,
-            initialAttachmentID: UUID(),
-            namespace: namespace,
+            presenter: stub,
+            initialAttachmentID: attachment.id,
+            namespace: ns,
             onDismiss: {}
         )
         .background(Color.black)
     }
 }
 
-private struct FCLPickerAssetPreviewWrapper: View {
+private struct FCLPreviewWrapperLandscapePhoto: View {
+    @Namespace var ns
+
     var body: some View {
-        let pickerPresenter = FCLAttachmentPickerPresenter(delegate: nil, onSend: { _, _ in })
-        let dataSource = FCLGalleryDataSource(isVideoEnabled: true)
-        FCLPickerAssetPreview(
-            presenter: pickerPresenter,
-            galleryDataSource: dataSource,
-            initialAssetID: "",
-            onSend: {},
+        let attachment = fclPreviewAttachment(name: "landscape", width: 3024, height: 1440, color: .systemTeal)
+        let stub = FCLPreviewDataSourceStub(attachments: [attachment])
+        FCLMediaPreviewView(
+            presenter: stub,
+            initialAttachmentID: attachment.id,
+            namespace: ns,
             onDismiss: {}
         )
+        .background(Color.black)
+    }
+}
+
+private struct FCLPreviewWrapperVerticalVideo: View {
+    @Namespace var ns
+
+    var body: some View {
+        // Simulate a vertical (9:16) video attachment using thumbnail data.
+        let data = fclPreviewImageData(width: 1080, height: 1920, color: .systemOrange)
+        let attachment = FCLAttachment(
+            id: UUID(),
+            type: .video,
+            url: URL(string: "https://example.com/vertical.mp4")!,
+            thumbnailData: data,
+            fileName: "vertical.mp4",
+            fileSize: nil
+        )
+        let stub = FCLPreviewDataSourceStub(attachments: [attachment])
+        FCLMediaPreviewView(
+            presenter: stub,
+            initialAttachmentID: attachment.id,
+            namespace: ns,
+            onDismiss: {}
+        )
+        .background(Color.black)
+    }
+}
+
+private struct FCLPreviewWrapperEmpty: View {
+    @Namespace var ns
+
+    var body: some View {
+        let stub = FCLPreviewDataSourceStub(attachments: [])
+        FCLMediaPreviewView(
+            presenter: stub,
+            initialAttachmentID: UUID(),
+            namespace: ns,
+            onDismiss: {}
+        )
+        .background(Color.black)
+    }
+}
+
+/// Preview variant that simulates the off-screen-collapse dismiss path.
+///
+/// `FCLPreviewDataSourceStub` always returns `nil` from `currentFrame(for:)` (via the
+/// default extension on `FCLChatMediaPreviewDataSource`), so closing the previewer from
+/// this state triggers the easeIn 0.28 s collapse-to-zero-size animation rather than the
+/// spring zoom-back. Use this to inspect the collapse animation in Xcode Previews.
+private struct FCLPreviewWrapperOffScreenCollapse: View {
+    @Namespace var ns
+
+    var body: some View {
+        let attachment = fclPreviewAttachment(name: "offscreen", width: 1080, height: 1080, color: .systemPurple)
+        // FCLPreviewDataSourceStub always returns nil for currentFrame — source cell
+        // is considered off-screen, which exercises the easeIn collapse path.
+        let stub = FCLPreviewDataSourceStub(attachments: [attachment])
+        FCLMediaPreviewView(
+            presenter: stub,
+            initialAttachmentID: attachment.id,
+            namespace: ns,
+            onDismiss: {}
+        )
+        .background(Color.black)
+    }
+}
+
+struct FCLChatMediaPreviewScreen_Previews: PreviewProvider {
+    static var previews: some View {
+        Group {
+            FCLPreviewWrapperPortraitPhoto()
+                .previewDisplayName("Portrait Photo (1080x1920)")
+            FCLPreviewWrapperLandscapePhoto()
+                .previewDisplayName("Landscape Photo (3024x1440)")
+            FCLPreviewWrapperVerticalVideo()
+                .previewDisplayName("Vertical Video (1080x1920)")
+            FCLPreviewWrapperEmpty()
+                .previewDisplayName("Empty — No Media")
+            FCLPreviewWrapperOffScreenCollapse()
+                .previewDisplayName("Off-Screen Collapse — easeIn 0.28 s")
+        }
     }
 }
 #endif

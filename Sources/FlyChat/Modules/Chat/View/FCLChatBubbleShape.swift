@@ -77,7 +77,10 @@ public struct FCLChatBubbleShape: Shape, Sendable, Hashable {
     public var edgedCornerRadius: CGFloat
 
     /// The default corner radius applied to all non-tail corners.
-    private static let standardRadius: CGFloat = 17
+    ///
+    /// Exposed as internal so that attachment mask shapes can reference the canonical
+    /// bubble top radius without duplicating the constant.
+    static let standardRadius: CGFloat = 17
     /// The smaller corner radius applied to the tail corner in `.edged` style.
     private static let reducedRadius: CGFloat = 6
 

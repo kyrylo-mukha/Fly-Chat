@@ -7,11 +7,15 @@ import UIKit
 /// Top-level SwiftUI screen for the FlyChat camera module.
 ///
 /// Arranges an `AVCaptureVideoPreviewLayer`-backed view under an overlay of
-/// top/bottom bars, focus reticle, and record timer. Wires all user
-/// interactions to `FCLCameraPresenter` and surfaces final results to the
-/// caller via closures (typically owned by `FCLCameraRouter`).
+/// top bar, mode-switcher row, shutter row, focus reticle, and record timer.
+/// Wires all user interactions to `FCLCameraPresenter` and surfaces final
+/// results to the caller via closures (typically owned by `FCLCameraRouter`).
 public struct FCLCameraView: View {
     @StateObject private var presenter: FCLCameraPresenter
+    /// Optional scope-08 relay used to keep the capture session alive across
+    /// cross-dissolves to the pre-send previewer. When `nil` the view falls
+    /// back to the original `onDisappear` teardown behavior.
+    private let sourceRelay: FCLCameraSourceRelay?
     private let onFinish: ([FCLCameraCaptureResult]) -> Void
     private let onCancel: () -> Void
 
@@ -21,14 +25,26 @@ public struct FCLCameraView: View {
     @State private var shutterFlashOpacity: Double = 0
     @State private var flipMidpointBlur: Bool = false
     @State private var previewGesturesEnabled: Bool = true
-    @State private var latestThumbnail: UIImage?
+    @State private var pinchBaseZoom: CGFloat = 1.0
+    @State private var zoomHUDVisible: Bool = false
+    @State private var zoomHUDHideTask: Task<Void, Never>?
+    @State private var showDiscardDialog: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Shared capture relay mirroring the camera's in-flight capture list. Owned
+    /// here so the Done-chip thumbnail and the downstream pre-send editor consume
+    /// the same source of truth. The presenter's `lastCapturedThumbnail` is kept
+    /// in sync via `updateLastCapturedThumbnail(_:)` after each relay append so
+    /// the Done-chip reflects the most recent capture.
+    @StateObject private var captureRelay = FCLCaptureSessionRelay()
 
     public init(
         presenter: FCLCameraPresenter,
+        sourceRelay: FCLCameraSourceRelay? = nil,
         onFinish: @escaping ([FCLCameraCaptureResult]) -> Void,
         onCancel: @escaping () -> Void
     ) {
         _presenter = StateObject(wrappedValue: presenter)
+        self.sourceRelay = sourceRelay
         self.onFinish = onFinish
         self.onCancel = onCancel
     }
@@ -41,8 +57,10 @@ public struct FCLCameraView: View {
 
             overlay
 
+            zoomHUD
+                .allowsHitTesting(false)
+
             // Photo shutter flash feedback overlay (on top, non-interactive).
-            // iOS Camera flashes white briefly on capture — match that.
             Color.white
                 .opacity(shutterFlashOpacity)
                 .ignoresSafeArea()
@@ -59,7 +77,23 @@ public struct FCLCameraView: View {
             }
         }
         .onDisappear {
+            // Scope 08: when a cross-dissolve to the pre-send previewer is in
+            // flight the relay's `isTransitioning` flag is true — keep the
+            // capture session alive so the dissolve does not flash black.
+            // The router's `dismissForPreviewer` path stops the session after
+            // the dissolve completes.
+            if sourceRelay?.isTransitioning == true { return }
             presenter.stopSession()
+        }
+        .onExitCommand {
+            // Scope 09: accessibility back gesture (VoiceOver escape) routes
+            // through the same close handler as the X button. If 2+ assets are
+            // pending, a confirmation dialog is shown.
+            if presenter.capturedCount >= 2 {
+                showDiscardDialog = true
+            } else {
+                handleClose()
+            }
         }
     }
 
@@ -88,17 +122,14 @@ public struct FCLCameraView: View {
                         presenter.focusAndExpose(at: devicePoint)
                         focusTap = FCLCameraFocusTap(location: viewPoint)
                     },
-                    onPinchZoom: { factor in
-                        presenter.setZoom(factor)
+                    onPinch: { phase in
+                        handlePinch(phase)
                     },
-                    zoomFactorProvider: { presenter.zoomFactor },
                     gesturesEnabled: previewGesturesEnabled
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
 
-                // Focus reticle lives in the same coordinate space as the
-                // tap points reported by the preview layer above.
                 FCLCameraFocusIndicator(tap: focusTap)
                     .frame(width: proxy.size.width, height: proxy.size.height)
             }
@@ -153,11 +184,12 @@ public struct FCLCameraView: View {
             ZStack(alignment: .top) {
                 FCLCameraTopBar(
                     flashMode: presenter.flashMode,
-                    showsDone: shouldShowDone,
+                    capturedCount: presenter.capturedCount,
                     isRecording: presenter.isRecording,
                     onClose: handleClose,
                     onToggleFlash: cycleFlash,
-                    onDone: handleDone
+                    onDiscardAssets: { captureRelay.clear() },
+                    showDiscardDialog: $showDiscardDialog
                 )
 
                 if presenter.isRecording {
@@ -173,20 +205,42 @@ public struct FCLCameraView: View {
 
             Spacer()
 
-            FCLCameraBottomBar(
+            if presenter.configuration.allowsVideo || !presenter.isRecording {
+                FCLCameraZoomPresetRing(
+                    currentZoom: presenter.zoomFactor,
+                    presets: presenter.zoomPresets,
+                    zoomRange: presenter.zoomRange,
+                    onSelectPreset: { factor in
+                        // While recording, skip the ramp animation to avoid
+                        // frame-rate glitches; otherwise animate to mimic
+                        // the system Camera preset feel.
+                        presenter.setZoom(factor, animated: !presenter.isRecording)
+                        showZoomHUD()
+                    },
+                    onSliderDrag: { factor in
+                        presenter.setZoom(factor, animated: false)
+                        showZoomHUD()
+                    }
+                )
+                .opacity(presenter.isRecording ? 0 : 1)
+                .animation(.easeInOut(duration: 0.2), value: presenter.isRecording)
+            }
+
+            FCLCameraModeSwitcherRow(
                 mode: presenter.mode,
                 isRecording: presenter.isRecording,
                 allowsVideo: presenter.configuration.allowsVideo,
-                capturedCount: presenter.capturedResults.count,
-                latestThumbnail: latestThumbnail,
-                canShowStack: presenter.configuration.maxAssets > 1,
-                currentZoom: presenter.zoomFactor,
-                showsZoomPresets: !presenter.isRecording,
-                onSetMode: { presenter.setMode($0) },
-                onShutter: { handleShutter() },
                 onFlip: handleFlip,
-                onOpenStack: handleDone,
-                onSelectZoomPreset: { presenter.setZoom($0) }
+                onSetMode: { presenter.setMode($0) }
+            )
+
+            FCLCameraShutterRow(
+                mode: presenter.mode,
+                isRecording: presenter.isRecording,
+                capturedCount: presenter.capturedCount,
+                lastCapturedThumbnail: presenter.lastCapturedThumbnail,
+                onShutter: { handleShutter() },
+                onDone: handleDone
             )
         }
         .onChange(of: presenter.capturedResults.count) { _, _ in
@@ -196,40 +250,23 @@ public struct FCLCameraView: View {
 
     // MARK: - Actions
 
-    private var shouldShowDone: Bool {
-        presenter.configuration.maxAssets > 1
-            && !presenter.capturedResults.isEmpty
-            && !presenter.isRecording
-    }
-
     private func handleClose() {
-        if presenter.isRecording {
-            Task { try? await presenter.stopRecording() }
-        }
-        presenter.clearResults()
+        presenter.closeTapped(stopRecordingIfNeeded: true)
         onCancel()
     }
 
     private func handleDone() {
         guard !presenter.capturedResults.isEmpty else { return }
         let results = presenter.capturedResults
-        // Clear staged camera results on every Done exit so the
-        // presenter cannot leak stale captures into a later re-entry. The
-        // router currently constructs a fresh presenter per-presentation, but
-        // making the clear explicit here also covers any future host that
-        // retains the presenter across sessions.
-        presenter.clearResults()
+        presenter.doneTapped()
         onFinish(results)
     }
 
     private func handleFlip() {
+        guard !presenter.isRecording else { return }
         flipAnimationTrigger += 1
         presenter.flipCamera()
-        // Suppress preview tap/pinch recognizers for the duration of
-        // the flip rotation so pre-rotation tap coordinates and in-flight
-        // pinch deltas cannot leak into the post-flip device configuration.
         previewGesturesEnabled = false
-        // Mid-rotation blur + fade to hide the hardware handoff.
         Task { @MainActor in
             flipMidpointBlur = true
             try? await Task.sleep(nanoseconds: 175_000_000)
@@ -303,33 +340,38 @@ public struct FCLCameraView: View {
         }
     }
 
-    /// Decode a small thumbnail from the most recent capture off the
-    /// main thread and feed it into the stack counter tile. For videos the
-    /// thumbnail URL is preferred; if absent (current capture pipeline does
-    /// not pre-generate one), the file URL is used directly — `UIImage` will
-    /// load only a downsampled representation thanks to `.scaledToFill` in
-    /// the consumer view, but we still constrain pixel work here.
+    /// Decodes a small thumbnail from the most recent capture off the main
+    /// thread and pushes it into the presenter so the Done chip can display it.
     private func refreshLatestThumbnail() {
         guard let last = presenter.capturedResults.last else {
-            latestThumbnail = nil
+            presenter.updateLastCapturedThumbnail(nil)
+            captureRelay.clear()
             return
         }
         let url = last.thumbnailURL ?? last.fileURL
         let mediaType = last.mediaType
+        let captureID = last.id
+        let fileURL = last.fileURL
         Task { @MainActor in
-            // Decode off the main actor on a utility-priority detached task,
-            // then await its result back on the main actor for state assignment.
             let image = await Task.detached(priority: .utility) {
                 Self.loadThumbnail(at: url, mediaType: mediaType)
             }.value
-            self.latestThumbnail = image
+            // Source the Done-chip thumbnail through the shared capture relay so
+            // the Done-chip and the pre-send editor share a single in-flight
+            // capture store. Tapping Done routes through handleDone → onFinish,
+            // which the host router maps to the pre-send editor presentation.
+            let asset = FCLCapturedAsset(id: captureID, thumbnail: image, fileURL: fileURL)
+            if captureRelay.capturedAssets.last?.id == captureID {
+                captureRelay.removeLast()
+            }
+            captureRelay.append(asset)
+            presenter.updateLastCapturedThumbnail(captureRelay.lastCapturedAsset?.thumbnail)
         }
     }
 
     nonisolated private static func loadThumbnail(at url: URL, mediaType: FCLCameraMode) -> UIImage? {
         switch mediaType {
         case .photo:
-            // Downsample via ImageIO for memory efficiency.
             let options: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceShouldCacheImmediately: true,
@@ -355,6 +397,57 @@ public struct FCLCameraView: View {
         }
     }
 
+    // MARK: - Zoom HUD + pinch
+
+    @ViewBuilder
+    private var zoomHUD: some View {
+        if zoomHUDVisible {
+            VStack {
+                Spacer().frame(height: 88)
+                FCLGlassChip(title: String(format: "%.1f×", Double(presenter.zoomFactor)))
+                Spacer()
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private func handlePinch(_ phase: FCLCameraPreviewLayerView.PinchPhase) {
+        switch phase {
+        case .began:
+            pinchBaseZoom = presenter.zoomFactor
+            showZoomHUD(resetFade: false)
+        case .changed(let scale, let velocity):
+            presenter.applyPinchZoom(
+                base: pinchBaseZoom,
+                scale: scale,
+                velocity: velocity,
+                exponential: !reduceMotion
+            )
+            showZoomHUD(resetFade: false)
+        case .ended:
+            showZoomHUD(resetFade: true)
+        }
+    }
+
+    /// Shows the zoom HUD chip. When `resetFade` is true, (re)starts the
+    /// 1.5s fade-out timer. Otherwise keeps the HUD sticky — used during an
+    /// active gesture so rapid deltas do not continuously reset the timer.
+    private func showZoomHUD(resetFade: Bool = true) {
+        withAnimation(reduceMotion ? .linear(duration: 0.15) : .spring(response: 0.25, dampingFraction: 0.85)) {
+            zoomHUDVisible = true
+        }
+        if resetFade {
+            zoomHUDHideTask?.cancel()
+            zoomHUDHideTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.25)) {
+                    zoomHUDVisible = false
+                }
+            }
+        }
+    }
+
     private func openSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)
@@ -362,15 +455,7 @@ public struct FCLCameraView: View {
 }
 
 #if DEBUG
-#Preview("Camera — default") {
-    FCLCameraView(
-        presenter: FCLCameraPresenter(configuration: FCLCameraConfiguration()),
-        onFinish: { _ in },
-        onCancel: { }
-    )
-}
-
-#Preview("Camera — multi-capture") {
+#Preview("Camera — FirstEnter-Photo (count=0)") {
     FCLCameraView(
         presenter: FCLCameraPresenter(
             configuration: FCLCameraConfiguration(allowsVideo: true, maxAssets: 5)
@@ -378,6 +463,43 @@ public struct FCLCameraView: View {
         onFinish: { _ in },
         onCancel: { }
     )
+    .previewDisplayName("Camera — FirstEnter-Photo (count=0)")
+}
+
+#Preview("Camera — FirstEnter-Video (count=0)") {
+    FCLCameraView(
+        presenter: {
+            let p = FCLCameraPresenter(
+                configuration: FCLCameraConfiguration(allowsVideo: true, maxAssets: 5, defaultMode: .video)
+            )
+            return p
+        }(),
+        onFinish: { _ in },
+        onCancel: { }
+    )
+    .previewDisplayName("Camera — FirstEnter-Video (count=0)")
+}
+
+#Preview("Camera — count=1 (no dialog on close)") {
+    FCLCameraView(
+        presenter: FCLCameraPresenter(
+            configuration: FCLCameraConfiguration(allowsVideo: true, maxAssets: 5)
+        ),
+        onFinish: { _ in },
+        onCancel: { }
+    )
+    .previewDisplayName("Camera — count=1 (no dialog on close)")
+}
+
+#Preview("Camera — count=3 (discard dialog available)") {
+    FCLCameraView(
+        presenter: FCLCameraPresenter(
+            configuration: FCLCameraConfiguration(allowsVideo: true, maxAssets: 5)
+        ),
+        onFinish: { _ in },
+        onCancel: { }
+    )
+    .previewDisplayName("Camera — count=3 (discard dialog available)")
 }
 #endif
 
