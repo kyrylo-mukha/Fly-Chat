@@ -249,22 +249,18 @@ final class FCLCameraTransitioningDelegate: NSObject, UIViewControllerTransition
         self.sourceRelay = sourceRelay
     }
 
-    nonisolated func animationController(
+    func animationController(
         forPresented presented: UIViewController,
         presenting: UIViewController,
         source: UIViewController
     ) -> (any UIViewControllerAnimatedTransitioning)? {
-        MainActor.assumeIsolated {
-            FCLCameraTransition(isPresenting: true, sourceRelay: sourceRelay)
-        }
+        FCLCameraTransition(isPresenting: true, sourceRelay: sourceRelay)
     }
 
-    nonisolated func animationController(
+    func animationController(
         forDismissed dismissed: UIViewController
     ) -> (any UIViewControllerAnimatedTransitioning)? {
-        MainActor.assumeIsolated {
-            FCLCameraTransition(isPresenting: false, sourceRelay: sourceRelay)
-        }
+        FCLCameraTransition(isPresenting: false, sourceRelay: sourceRelay)
     }
 }
 

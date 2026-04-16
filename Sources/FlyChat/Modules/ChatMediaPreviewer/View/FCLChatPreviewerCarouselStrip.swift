@@ -79,9 +79,11 @@ struct FCLChatPreviewerCarouselStrip: View {
 
     // MARK: - Body
 
+    @ViewBuilder
     var body: some View {
-        guard items.count > 1 else { return AnyView(EmptyView()) }
-        return AnyView(stripBody)
+        if items.count > 1 {
+            stripBody
+        }
     }
 
     // MARK: - Strip Body
@@ -141,12 +143,11 @@ struct FCLChatPreviewerCarouselStrip: View {
             // Measure the thumb's center relative to the strip's coordinate space.
             let thumbCenterX = thumbGeo.frame(in: .named("fclCarouselSpace")).midX
             let screenCenterX = stripWidth / 2
-            var rawOffset = thumbCenterX - screenCenterX
-
+            let baseOffset = thumbCenterX - screenCenterX
             // RTL: mirror the offset direction so parallax slides the correct way.
-            if layoutDirection == .rightToLeft {
-                rawOffset = -rawOffset
-            }
+            // Expressed as a ternary on a `let` so the GeometryReader ViewBuilder
+            // closure does not see a statement with a Void body.
+            let rawOffset: CGFloat = (layoutDirection == .rightToLeft) ? -baseOffset : baseOffset
 
             // fadeDistance derived from visible strip half-width — no magic constant.
             let fadeDistance = max(1, stripWidth / 2)
@@ -315,7 +316,6 @@ private struct CarouselStripPreviewContainer: View {
     let mid = UUID()
     let items = [makeCarouselItem(messageID: mid, index: 0, color: .systemBlue)]
     return CarouselStripPreviewContainer(items: items, initialIndex: 0)
-        .previewDisplayName("1 Thumbnail — Strip Hidden")
 }
 
 /// Short list: first and last thumbnails must be reachable at strip center.
@@ -323,7 +323,6 @@ private struct CarouselStripPreviewContainer: View {
     let mid = UUID()
     let items = (0..<3).map { makeCarouselItem(messageID: mid, index: $0, color: carouselColors[$0]) }
     return CarouselStripPreviewContainer(items: items, initialIndex: 0)
-        .previewDisplayName("3 Thumbnails — First Selected")
 }
 
 /// Long list: middle thumbnail selected, verifies scale + parallax on surrounding items.
@@ -331,7 +330,6 @@ private struct CarouselStripPreviewContainer: View {
     let mid = UUID()
     let items = (0..<10).map { makeCarouselItem(messageID: mid, index: $0, color: carouselColors[$0]) }
     return CarouselStripPreviewContainer(items: items, initialIndex: 4)
-        .previewDisplayName("10 Thumbnails — Middle (Index 4) Selected")
 }
 
 #endif

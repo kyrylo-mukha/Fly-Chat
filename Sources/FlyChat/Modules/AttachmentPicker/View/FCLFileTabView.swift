@@ -164,7 +164,7 @@ struct FCLFileTabView: View {
     }
 
     private func fileTypeBadge(for fileName: String) -> some View {
-        let ext = (fileName as NSString).pathExtension.lowercased()
+        let ext = URL(fileURLWithPath: fileName).pathExtension.lowercased()
         let iconName: String
         switch ext {
         case "pdf": iconName = "doc.richtext"

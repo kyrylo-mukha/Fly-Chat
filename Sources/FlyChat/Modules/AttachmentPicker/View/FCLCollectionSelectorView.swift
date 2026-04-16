@@ -127,22 +127,18 @@ private struct FCLCollectionListSheet: View {
 
 #Preview("Selector Pill — Collapsed (Recents selected)") {
     FCLCollectionSelectorPreviewWrapper(selectedIndex: 0, showSheet: false)
-        .previewDisplayName("Selector Pill — Collapsed (Recents selected)")
 }
 
 #Preview("Selector Sheet — Collection List (populated)") {
     FCLCollectionSelectorPreviewWrapper(selectedIndex: 0, showSheet: true)
-        .previewDisplayName("Selector Sheet — Collection List (populated)")
 }
 
 #Preview("Selector — Hidden in Limited mode") {
     FCLCollectionSelectorLimitedPreview()
-        .previewDisplayName("Selector — Hidden in Limited mode")
 }
 
 #Preview("Gallery — Non-default collection selected") {
     FCLCollectionSelectorPreviewWrapper(selectedIndex: 2, showSheet: false)
-        .previewDisplayName("Gallery — Non-default collection selected (Selfies)")
 }
 
 // MARK: - Preview Helpers

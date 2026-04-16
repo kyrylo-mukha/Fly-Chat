@@ -153,7 +153,7 @@ final class FCLAssetCollectionRegistry: ObservableObject {
 
         // PHCachingImageManager result handler fires on an arbitrary queue.
         // We hop back to MainActor before mutating @Published state.
-        nonisolated(unsafe) let collectionID = item.id
+        let collectionID = item.id
         imageManager.requestImage(
             for: keyAsset,
             targetSize: targetSize,
@@ -229,7 +229,6 @@ extension FCLAssetCollectionRegistry {
 #if DEBUG
 #Preview("Registry — loaded") {
     FCLAssetCollectionRegistryPreview()
-        .previewDisplayName("Registry — loaded")
 }
 
 private struct FCLAssetCollectionRegistryPreview: View {

@@ -400,11 +400,15 @@ public final class FCLCameraPresenter: ObservableObject {
     /// configuration and after camera flip.
     private nonisolated func refreshZoomDeviceBinding() {
         // Invoked from `sessionQueue`; captures the current device pointer
-        // there and hops to the actor for the bind.
-        let currentDevice = videoDeviceInput?.device
+        // there and hops to the actor for the bind. `AVCaptureDevice` is not
+        // `Sendable`, so the device pointer is wrapped in a `FCLUncheckedBox`
+        // for the cross-actor hand-off. The invariant: `videoDeviceInput` is
+        // mutated only on the session queue, and the zoom actor owns exclusive
+        // access once bound.
+        let deviceBox = FCLUncheckedBox(videoDeviceInput?.device)
         Task { [weak self] in
             guard let self else { return }
-            await self.zoomController.bind(device: currentDevice)
+            await self.zoomController.bind(device: deviceBox.value)
             if let snap = await self.zoomController.currentSnapshot() {
                 await MainActor.run { [weak self] in
                     self?.zoomPresets = snap.presetFactors

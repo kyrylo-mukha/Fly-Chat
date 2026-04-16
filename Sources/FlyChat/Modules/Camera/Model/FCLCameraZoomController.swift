@@ -77,7 +77,12 @@ actor FCLCameraZoomController {
     /// Binds a capture device and refreshes the cached snapshot. Resets the
     /// internal user zoom to 1.0 and yields it to any active consumers so the
     /// UI re-syncs after a device flip.
-    func bind(device newDevice: AVCaptureDevice?) {
+    ///
+    /// The `sending` parameter transfers ownership of the (non-`Sendable`)
+    /// `AVCaptureDevice?` into the actor's executor so callers can hand off
+    /// the device from a `nonisolated` context (e.g. the camera session queue)
+    /// without triggering a strict-concurrency race diagnostic.
+    func bind(device newDevice: sending AVCaptureDevice?) {
         device = newDevice
         snapshot = newDevice.map { Self.makeSnapshot(for: $0) }
         userZoom = 1.0

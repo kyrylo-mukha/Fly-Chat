@@ -74,22 +74,18 @@ final class FCLPhotoAuthorizationCoordinator: ObservableObject {
 #if DEBUG
 #Preview("Coordinator — notDetermined") {
     FCLPhotoAuthorizationCoordinatorPreviewView(overrideStatus: .notDetermined)
-        .previewDisplayName("Auth — notDetermined")
 }
 
 #Preview("Coordinator — authorized") {
     FCLPhotoAuthorizationCoordinatorPreviewView(overrideStatus: .authorized)
-        .previewDisplayName("Auth — authorized")
 }
 
 #Preview("Coordinator — limited") {
     FCLPhotoAuthorizationCoordinatorPreviewView(overrideStatus: .limited)
-        .previewDisplayName("Auth — limited")
 }
 
 #Preview("Coordinator — denied") {
     FCLPhotoAuthorizationCoordinatorPreviewView(overrideStatus: .denied)
-        .previewDisplayName("Auth — denied")
 }
 
 private struct FCLPhotoAuthorizationCoordinatorPreviewView: View {

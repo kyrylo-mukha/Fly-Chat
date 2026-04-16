@@ -76,47 +76,43 @@ struct FCLCameraTopBar: View {
 
 #if DEBUG
 #Preview("Top bar — first enter, flash auto (count=0)") {
-    @State var showDialog = false
-    return ZStack {
+    @Previewable @State var showDialog = false
+    ZStack {
         Color.gray
         FCLCameraTopBar(flashMode: .auto, capturedCount: 0, isRecording: false,
                         onClose: {}, onToggleFlash: {}, onDiscardAssets: {},
                         showDiscardDialog: $showDialog)
     }
-    .previewDisplayName("Top bar — first enter, flash auto (count=0)")
 }
 
 #Preview("Top bar — count=1, flash on") {
-    @State var showDialog = false
-    return ZStack {
+    @Previewable @State var showDialog = false
+    ZStack {
         Color.gray
         FCLCameraTopBar(flashMode: .on, capturedCount: 1, isRecording: false,
                         onClose: {}, onToggleFlash: {}, onDiscardAssets: {},
                         showDiscardDialog: $showDialog)
     }
-    .previewDisplayName("Top bar — count=1, flash on")
 }
 
 #Preview("Top bar — count=3 with discard dialog shown, flash on") {
-    @State var showDialog = true
-    return ZStack {
+    @Previewable @State var showDialog = true
+    ZStack {
         Color.gray
         FCLCameraTopBar(flashMode: .on, capturedCount: 3, isRecording: false,
                         onClose: {}, onToggleFlash: {}, onDiscardAssets: {},
                         showDiscardDialog: $showDialog)
     }
-    .previewDisplayName("Top bar — count=3 with discard dialog shown, flash on")
 }
 
 #Preview("Top bar — recording") {
-    @State var showDialog = false
-    return ZStack {
+    @Previewable @State var showDialog = false
+    ZStack {
         Color.gray
         FCLCameraTopBar(flashMode: .off, capturedCount: 0, isRecording: true,
                         onClose: {}, onToggleFlash: {}, onDiscardAssets: {},
                         showDiscardDialog: $showDialog)
     }
-    .previewDisplayName("Top bar — recording")
 }
 #endif
 

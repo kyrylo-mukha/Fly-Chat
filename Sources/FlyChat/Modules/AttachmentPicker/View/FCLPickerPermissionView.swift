@@ -124,22 +124,18 @@ struct FCLLimitedLibraryPickerBridge: UIViewControllerRepresentable {
 
 #Preview("Permission — notDetermined") {
     FCLPickerPermissionPreviewContainer(state: .notDetermined)
-        .previewDisplayName("Permission — notDetermined")
 }
 
 #Preview("Permission — authorized") {
     FCLPickerPermissionPreviewContainer(state: .authorized)
-        .previewDisplayName("Permission — authorized")
 }
 
 #Preview("Permission — limited") {
     FCLPickerPermissionPreviewContainer(state: .limited)
-        .previewDisplayName("Permission — limited")
 }
 
 #Preview("Permission — denied") {
     FCLPickerPermissionPreviewContainer(state: .denied)
-        .previewDisplayName("Permission — denied")
 }
 
 private struct FCLPickerPermissionPreviewContainer: View {

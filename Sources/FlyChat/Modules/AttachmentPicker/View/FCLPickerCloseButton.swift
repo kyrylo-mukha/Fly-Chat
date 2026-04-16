@@ -33,7 +33,6 @@ struct FCLPickerCloseButton: View {
         FCLPickerCloseButton(sourceRelay: FCLPickerSourceRelay())
             .padding(12)
     }
-    .previewDisplayName("Close Button — liquidGlass")
 }
 
 #Preview("CloseButton — opaque (.default style)") {
@@ -43,7 +42,6 @@ struct FCLPickerCloseButton: View {
             .fclVisualStyle(.default)
             .padding(12)
     }
-    .previewDisplayName("Close Button — opaque")
 }
 #endif
 #endif

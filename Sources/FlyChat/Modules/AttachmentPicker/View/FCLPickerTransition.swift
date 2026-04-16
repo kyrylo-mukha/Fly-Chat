@@ -41,7 +41,7 @@ final class FCLPickerTransitionAnimator: NSObject, UIViewControllerAnimatedTrans
         self.sourceRelay = sourceRelay
     }
 
-    nonisolated func transitionDuration(using transitionContext: (any UIViewControllerContextTransitioning)?) -> TimeInterval {
+    func transitionDuration(using transitionContext: (any UIViewControllerContextTransitioning)?) -> TimeInterval {
         FCLPickerTransitionCurves.morphDuration
     }
 
@@ -235,34 +235,28 @@ final class FCLPickerTransitioningDelegate: NSObject, UIViewControllerTransition
         self.sourceRelay = sourceRelay
     }
 
-    nonisolated func animationController(
+    func animationController(
         forPresented presented: UIViewController,
         presenting: UIViewController,
         source: UIViewController
     ) -> (any UIViewControllerAnimatedTransitioning)? {
-        MainActor.assumeIsolated {
-            FCLPickerTransitionAnimator(isPresenting: true, sourceRelay: sourceRelay)
-        }
+        FCLPickerTransitionAnimator(isPresenting: true, sourceRelay: sourceRelay)
     }
 
-    nonisolated func animationController(
+    func animationController(
         forDismissed dismissed: UIViewController
     ) -> (any UIViewControllerAnimatedTransitioning)? {
-        MainActor.assumeIsolated {
-            let animator = FCLPickerTransitionAnimator(isPresenting: false, sourceRelay: sourceRelay)
-            animator.onCompletion = { [weak self] completed in
-                if completed { self?.onDismissCompleted?() }
-            }
-            return animator
+        let animator = FCLPickerTransitionAnimator(isPresenting: false, sourceRelay: sourceRelay)
+        animator.onCompletion = { [weak self] completed in
+            if completed { self?.onDismissCompleted?() }
         }
+        return animator
     }
 
-    nonisolated func interactionControllerForDismissal(
+    func interactionControllerForDismissal(
         using animator: any UIViewControllerAnimatedTransitioning
     ) -> (any UIViewControllerInteractiveTransitioning)? {
-        MainActor.assumeIsolated {
-            interactiveDismiss.isActive ? interactiveDismiss : nil
-        }
+        interactiveDismiss.isActive ? interactiveDismiss : nil
     }
 }
 
@@ -281,7 +275,16 @@ struct FCLPickerPresentation<CoverContent: View>: UIViewControllerRepresentable 
     let sourceRelay: FCLPickerSourceRelay
     let content: () -> CoverContent
 
-    final class Coordinator {
+    // `@unchecked Sendable` is required so the `Coordinator` can be captured
+    // inside the `@Sendable` closures passed to
+    // `NotificationCenter.addObserver(forName:object:queue:using:)`. The
+    // invariant: every access to Coordinator state happens on the main actor —
+    // `makeCoordinator` / `updateUIViewController` are @MainActor by virtue of
+    // `UIViewControllerRepresentable`, `handlePan` is explicitly @MainActor,
+    // the notification callbacks run on `.main` and funnel through
+    // `MainActor.assumeIsolated`, and `deinit` touches only
+    // `NotificationCenter.removeObserver(_:)` which is thread-safe.
+    final class Coordinator: NSObject, @unchecked Sendable {
         weak var ownedHost: UIViewController?
         var transitioningDelegate: FCLPickerTransitioningDelegate?
         var panGesture: UIPanGestureRecognizer?
@@ -289,11 +292,49 @@ struct FCLPickerPresentation<CoverContent: View>: UIViewControllerRepresentable 
         var keyboardObservers: [NSObjectProtocol] = []
 
         deinit {
-            let observers = keyboardObservers
-            Task { @MainActor in
-                for observer in observers {
-                    NotificationCenter.default.removeObserver(observer)
+            for observer in keyboardObservers {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+
+        // `handlePan(_:)` must live on the primary class declaration: extensions of
+        // classes from a generic context (`FCLPickerPresentation<CoverContent>`) cannot
+        // contain `@objc` members, and `UIPanGestureRecognizer`'s target-action API
+        // requires Obj-C exposure.
+        @MainActor
+        @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
+            guard let host = ownedHost,
+                  let view = host.view,
+                  let transitioning = transitioningDelegate else { return }
+            let interactive = transitioning.interactiveDismiss
+            let translationY = gesture.translation(in: view).y
+            let height = max(view.bounds.height, 1)
+            let progress = max(0, min(1, translationY / height))
+
+            // Only engage downward drags from the top ~40pt pill region. A drag
+            // started outside that strip is ignored so inner scroll views keep
+            // working.
+            switch gesture.state {
+            case .began:
+                let startY = gesture.location(in: view).y - translationY
+                guard startY <= 56 else {
+                    gesture.isEnabled = false
+                    gesture.isEnabled = true
+                    return
                 }
+                interactive.begin()
+                host.dismiss(animated: true)
+            case .changed:
+                guard interactive.isActive else { return }
+                interactive.update(progress)
+            case .ended, .cancelled, .failed:
+                guard interactive.isActive else { return }
+                let velocity = gesture.velocity(in: view).y
+                let shouldFinish = progress >= FCLPickerTransitionCurves.interactiveCancelThreshold
+                    || velocity > 800
+                interactive.end(shouldFinish: shouldFinish)
+            default:
+                break
             }
         }
     }
@@ -426,45 +467,6 @@ struct FCLPickerPresentation<CoverContent: View>: UIViewControllerRepresentable 
         override func accessibilityPerformEscape() -> Bool {
             onEscape()
             return true
-        }
-    }
-}
-
-extension FCLPickerPresentation.Coordinator {
-    @MainActor
-    @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard let host = ownedHost,
-              let view = host.view,
-              let transitioning = transitioningDelegate else { return }
-        let interactive = transitioning.interactiveDismiss
-        let translationY = gesture.translation(in: view).y
-        let height = max(view.bounds.height, 1)
-        let progress = max(0, min(1, translationY / height))
-
-        // Only engage downward drags from the top ~40pt pill region. A drag
-        // started outside that strip is ignored so inner scroll views keep
-        // working.
-        switch gesture.state {
-        case .began:
-            let startY = gesture.location(in: view).y - translationY
-            guard startY <= 56 else {
-                gesture.isEnabled = false
-                gesture.isEnabled = true
-                return
-            }
-            interactive.begin()
-            host.dismiss(animated: true)
-        case .changed:
-            guard interactive.isActive else { return }
-            interactive.update(progress)
-        case .ended, .cancelled, .failed:
-            guard interactive.isActive else { return }
-            let velocity = gesture.velocity(in: view).y
-            let shouldFinish = progress >= FCLPickerTransitionCurves.interactiveCancelThreshold
-                || velocity > 800
-            interactive.end(shouldFinish: shouldFinish)
-        default:
-            break
         }
     }
 }

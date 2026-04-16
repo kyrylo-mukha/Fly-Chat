@@ -85,10 +85,12 @@ public struct FCLCameraView: View {
             if sourceRelay?.isTransitioning == true { return }
             presenter.stopSession()
         }
-        .onExitCommand {
-            // Scope 09: accessibility back gesture (VoiceOver escape) routes
-            // through the same close handler as the X button. If 2+ assets are
-            // pending, a confirmation dialog is shown.
+        // Scope 09: accessibility back gesture (VoiceOver two-finger Z escape)
+        // routes through the same close handler as the X button. If 2+ assets
+        // are pending, a confirmation dialog is shown. `.accessibilityAction(.escape)`
+        // is the iOS-supported hook for the accessibility escape gesture;
+        // `.onExitCommand` is macOS/tvOS-only and unavailable on iOS.
+        .accessibilityAction(.escape) {
             if presenter.capturedCount >= 2 {
                 showDiscardDialog = true
             } else {
@@ -463,7 +465,6 @@ public struct FCLCameraView: View {
         onFinish: { _ in },
         onCancel: { }
     )
-    .previewDisplayName("Camera — FirstEnter-Photo (count=0)")
 }
 
 #Preview("Camera — FirstEnter-Video (count=0)") {
@@ -477,7 +478,6 @@ public struct FCLCameraView: View {
         onFinish: { _ in },
         onCancel: { }
     )
-    .previewDisplayName("Camera — FirstEnter-Video (count=0)")
 }
 
 #Preview("Camera — count=1 (no dialog on close)") {
@@ -488,7 +488,6 @@ public struct FCLCameraView: View {
         onFinish: { _ in },
         onCancel: { }
     )
-    .previewDisplayName("Camera — count=1 (no dialog on close)")
 }
 
 #Preview("Camera — count=3 (discard dialog available)") {
@@ -499,7 +498,6 @@ public struct FCLCameraView: View {
         onFinish: { _ in },
         onCancel: { }
     )
-    .previewDisplayName("Camera — count=3 (discard dialog available)")
 }
 #endif
 
