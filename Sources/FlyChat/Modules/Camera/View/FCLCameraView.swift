@@ -32,18 +32,22 @@ public struct FCLCameraView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Shared capture relay mirroring the camera's in-flight capture list. Owned
     /// here so the Done-chip thumbnail and the downstream pre-send editor consume
-    /// the same source of truth. The presenter's `lastCapturedThumbnail` is kept
-    /// in sync via `updateLastCapturedThumbnail(_:)` after each relay append so
-    /// the Done-chip reflects the most recent capture.
-    @StateObject private var captureRelay = FCLCaptureSessionRelay()
+    /// the same source of truth. Scope 07: the presenter subscribes to this
+    /// relay's `capturedAssets` publisher at init time and republishes
+    /// `.last?.thumbnail` as `lastCapturedThumbnail` — no manual push from the
+    /// view is needed. The legacy `updateLastCapturedThumbnail(_:)` path
+    /// remains available for presenters constructed without a relay.
+    @StateObject private var captureRelay: FCLCaptureSessionRelay
 
     public init(
         presenter: FCLCameraPresenter,
         sourceRelay: FCLCameraSourceRelay? = nil,
+        captureRelay: FCLCaptureSessionRelay? = nil,
         onFinish: @escaping ([FCLCameraCaptureResult]) -> Void,
         onCancel: @escaping () -> Void
     ) {
         _presenter = StateObject(wrappedValue: presenter)
+        _captureRelay = StateObject(wrappedValue: captureRelay ?? FCLCaptureSessionRelay())
         self.sourceRelay = sourceRelay
         self.onFinish = onFinish
         self.onCancel = onCancel
@@ -65,9 +69,21 @@ public struct FCLCameraView: View {
                 .opacity(shutterFlashOpacity)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
+
+            // Scope 09: top-edge drag-down catcher. When 2+ captures are
+            // pending and the user drags downward beyond 80 pt from the top
+            // edge of the screen, raise the discard dialog instead of
+            // allowing the enclosing presentation to dismiss. The capture
+            // area is an invisible 80 pt strip at the top of the screen.
+            swipeDownCatcher
         }
         .statusBarHidden(true)
         .preferredColorScheme(.dark)
+        // Scope 09: suppress interactive dismissal while the user has
+        // 2+ captures pending. SwiftUI honors this for sheet-style
+        // presentations; the UIHostingController also mirrors
+        // `isModalInPresentation` in the router when count changes.
+        .interactiveDismissDisabled(presenter.capturedCount >= 2)
         .task {
             if presenter.authorizationState == .notDetermined {
                 _ = await presenter.requestAuthorization()
@@ -75,6 +91,13 @@ public struct FCLCameraView: View {
             if presenter.authorizationState == .authorized {
                 presenter.startSession()
             }
+        }
+        .onChange(of: presenter.capturedCount) { _, newCount in
+            // Scope 09: mirror the SwiftUI interactive-dismiss gate onto the
+            // hosting controller's `isModalInPresentation` so UIKit-level
+            // swipe-down on the presented `UIHostingController` also respects
+            // the confirmation contract.
+            sourceRelay?.isModalInPresentation = newCount >= 2
         }
         .onDisappear {
             // Scope 08: when a cross-dissolve to the pre-send previewer is in
@@ -96,6 +119,33 @@ public struct FCLCameraView: View {
             } else {
                 handleClose()
             }
+        }
+    }
+
+    // MARK: - Swipe-down catcher
+
+    /// Scope 09: invisible 80 pt top-edge strip that detects downward drags
+    /// beyond 80 pt and, when 2+ captures are pending, raises the discard
+    /// dialog. Cancels the drag so the enclosing presentation sees no motion.
+    @ViewBuilder
+    private var swipeDownCatcher: some View {
+        if presenter.capturedCount >= 2 {
+            VStack(spacing: 0) {
+                Color.clear
+                    .frame(height: 80)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                if value.translation.height > 80 {
+                                    showDiscardDialog = true
+                                }
+                            }
+                    )
+                Spacer()
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(true)
         }
     }
 
@@ -127,7 +177,8 @@ public struct FCLCameraView: View {
                     onPinch: { phase in
                         handlePinch(phase)
                     },
-                    gesturesEnabled: previewGesturesEnabled
+                    gesturesEnabled: previewGesturesEnabled,
+                    sourceRelay: sourceRelay
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
@@ -343,10 +394,12 @@ public struct FCLCameraView: View {
     }
 
     /// Decodes a small thumbnail from the most recent capture off the main
-    /// thread and pushes it into the presenter so the Done chip can display it.
+    /// thread and appends the result to the shared capture relay. Scope 07:
+    /// the presenter is subscribed to the relay's `capturedAssets` publisher
+    /// and republishes `.last?.thumbnail` as `lastCapturedThumbnail`, so no
+    /// manual push into the presenter is required here.
     private func refreshLatestThumbnail() {
         guard let last = presenter.capturedResults.last else {
-            presenter.updateLastCapturedThumbnail(nil)
             captureRelay.clear()
             return
         }
@@ -358,16 +411,11 @@ public struct FCLCameraView: View {
             let image = await Task.detached(priority: .utility) {
                 Self.loadThumbnail(at: url, mediaType: mediaType)
             }.value
-            // Source the Done-chip thumbnail through the shared capture relay so
-            // the Done-chip and the pre-send editor share a single in-flight
-            // capture store. Tapping Done routes through handleDone → onFinish,
-            // which the host router maps to the pre-send editor presentation.
             let asset = FCLCapturedAsset(id: captureID, thumbnail: image, fileURL: fileURL)
             if captureRelay.capturedAssets.last?.id == captureID {
                 captureRelay.removeLast()
             }
             captureRelay.append(asset)
-            presenter.updateLastCapturedThumbnail(captureRelay.lastCapturedAsset?.thumbnail)
         }
     }
 
@@ -457,7 +505,23 @@ public struct FCLCameraView: View {
 }
 
 #if DEBUG
-#Preview("Camera — FirstEnter-Photo (count=0)") {
+/// Scope 05: four preview variants required by the spec. The "FirstEnter"
+/// variants seed an empty presenter; the "SecondEnter" variants use
+/// `FCLCameraPresenter.makeForPreview(capturedCount:thumbnail:)` so the
+/// Done-chip (count + thumbnail) is exercised in preview.
+private let _flcCameraPreviewThumbnail: UIImage = {
+    let config = UIImage.SymbolConfiguration(
+        pointSize: 18,
+        weight: .semibold
+    )
+    let base = UIImage(
+        systemName: "photo.fill",
+        withConfiguration: config
+    ) ?? UIImage()
+    return base.withTintColor(.white, renderingMode: .alwaysOriginal)
+}()
+
+#Preview("Camera — FirstEnter-Photo") {
     FCLCameraView(
         presenter: FCLCameraPresenter(
             configuration: FCLCameraConfiguration(allowsVideo: true, maxAssets: 5)
@@ -467,33 +531,45 @@ public struct FCLCameraView: View {
     )
 }
 
-#Preview("Camera — FirstEnter-Video (count=0)") {
+#Preview("Camera — FirstEnter-Video") {
     FCLCameraView(
-        presenter: {
-            let p = FCLCameraPresenter(
-                configuration: FCLCameraConfiguration(allowsVideo: true, maxAssets: 5, defaultMode: .video)
+        presenter: FCLCameraPresenter(
+            configuration: FCLCameraConfiguration(
+                allowsVideo: true,
+                maxAssets: 5,
+                defaultMode: .video
             )
-            return p
-        }(),
-        onFinish: { _ in },
-        onCancel: { }
-    )
-}
-
-#Preview("Camera — count=1 (no dialog on close)") {
-    FCLCameraView(
-        presenter: FCLCameraPresenter(
-            configuration: FCLCameraConfiguration(allowsVideo: true, maxAssets: 5)
         ),
         onFinish: { _ in },
         onCancel: { }
     )
 }
 
-#Preview("Camera — count=3 (discard dialog available)") {
+#Preview("Camera — SecondEnter-Photo(count=3,thumb)") {
     FCLCameraView(
-        presenter: FCLCameraPresenter(
-            configuration: FCLCameraConfiguration(allowsVideo: true, maxAssets: 5)
+        presenter: FCLCameraPresenter.makeForPreview(
+            capturedCount: 3,
+            thumbnail: _flcCameraPreviewThumbnail,
+            configuration: FCLCameraConfiguration(
+                allowsVideo: true,
+                maxAssets: 5
+            )
+        ),
+        onFinish: { _ in },
+        onCancel: { }
+    )
+}
+
+#Preview("Camera — SecondEnter-Video(count=1)") {
+    FCLCameraView(
+        presenter: FCLCameraPresenter.makeForPreview(
+            capturedCount: 1,
+            thumbnail: nil,
+            configuration: FCLCameraConfiguration(
+                allowsVideo: true,
+                maxAssets: 5,
+                defaultMode: .video
+            )
         ),
         onFinish: { _ in },
         onCancel: { }

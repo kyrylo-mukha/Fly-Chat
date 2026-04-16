@@ -66,15 +66,17 @@ struct FCLCameraShutterRow: View {
     @ViewBuilder
     private var thumbnailAccessory: some View {
         if let image = lastCapturedThumbnail {
+            // Scope 05/07: rely on `FCLGlassChip`'s own 8pt corner + 4pt
+            // padding. An inner `.clipShape(RoundedRectangle(cornerRadius: 4))`
+            // would mask the outer 8pt radius the primitive applies.
             Image(uiImage: image)
                 .resizable()
-                .scaledToFill()
+                .aspectRatio(contentMode: .fill)
                 .frame(width: 24, height: 24)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         } else {
-            // Placeholder when thumbnail is not yet loaded.
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(Color.white.opacity(0.2))
+            // Placeholder when thumbnail is not yet loaded. Same no-inner-clip
+            // rule applies — the primitive owns the corner.
+            Color.white.opacity(0.2)
                 .frame(width: 24, height: 24)
         }
     }

@@ -69,11 +69,25 @@ struct FCLExpandingTextView: UIViewRepresentable {
         }
         context.coordinator.placeholderLabel?.isHidden = !text.isEmpty
         textView.font = font
+        // Skip the recalculation until the text view has a real width.
+        // On scene reactivation UIKit re-lays out the wrapping hierarchy
+        // and briefly hands us a zero-width frame; measuring there produces
+        // a single-line height, and the subsequent restore of the real
+        // width fires a second height change that SwiftUI would animate.
+        guard textView.frame.width > 0 else { return }
         recalculateHeight(textView)
     }
 
     /// Measures the text view's intrinsic content size and updates the bound height,
     /// clamping between a single-line minimum and the configured maximum.
+    ///
+    /// The height write is funnelled through `Transaction(animation: nil)` so a
+    /// scene-return-triggered remeasure does not inherit the ambient animation
+    /// scope. User-typed content changes still receive their normal (implicit,
+    /// non-animated) update because no call site wraps the binding mutation in
+    /// a `withAnimation` block; this transaction only guards against inherited
+    /// animations that would otherwise make the input bar visibly jump when
+    /// the app returns from background.
     private func recalculateHeight(_ textView: UITextView) {
         let size = textView.sizeThatFits(CGSize(width: textView.frame.width, height: .greatestFiniteMagnitude))
         let newHeight = min(size.height, maxHeight)
@@ -82,7 +96,9 @@ struct FCLExpandingTextView: UIViewRepresentable {
 
         if abs(clampedHeight - height) > 0.5 {
             DispatchQueue.main.async {
-                self.height = clampedHeight
+                withTransaction(Transaction(animation: nil)) {
+                    self.height = clampedHeight
+                }
                 textView.isScrollEnabled = size.height > maxHeight
             }
         }

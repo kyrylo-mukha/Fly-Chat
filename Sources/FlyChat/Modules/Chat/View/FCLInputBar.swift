@@ -140,22 +140,44 @@ struct FCLInputBar: View {
     /// Auto-calculate max rows from available screen height.
     /// Formula: clamp(4, floor(height / 160), 10)
     private func resolveMaxRows(forAvailableHeight height: CGFloat) -> Int {
-        if let maxRows { return maxRows }
+        FCLInputBar.resolveMaxRows(forAvailableHeight: height, explicitMaxRows: maxRows)
+    }
+
+    /// Static entry point for the same row-count formula, usable in unit tests
+    /// and in the pure body expression without a live `maxRows` capture.
+    ///
+    /// - Parameters:
+    ///   - height: Available container height in points.
+    ///   - explicitMaxRows: An optional host-supplied override. When non-nil, it
+    ///     is returned directly; when `nil`, the formula is applied.
+    /// - Returns: The clamped maximum row count in `[4, 10]`.
+    static func resolveMaxRows(forAvailableHeight height: CGFloat, explicitMaxRows: Int? = nil) -> Int {
+        if let maxRows = explicitMaxRows { return maxRows }
         return min(max(Int(height / 160), 4), 10)
     }
 
     /// Builds the full input bar content with the input row and attachment picker sheet.
+    ///
+    /// Glass resolution: the container inherits the library-wide style from the
+    /// `FCLVisualStyleDelegate` installed on ``FCLChatScreen``. The deprecated
+    /// `liquidGlass` init flag is honored only when the host explicitly set it
+    /// to `true` — passing `false` is treated as "no opinion" so new installs
+    /// take the library default (`.liquidGlass`) instead of being forced onto
+    /// the opaque path. Tint is intentionally not routed from the delegate's
+    /// `backgroundColor` when glass is active: painting the light-gray fallback
+    /// color on top of glass desaturates it into a gray rectangle, which is
+    /// what the pre-fix build produced. Opaque style (explicit `.default` or
+    /// reduce-transparency) falls back to the delegate-provided background
+    /// through ``FCLGlassContainer``'s own opaque branch.
     @ViewBuilder
     private func inputBarContent(maxTextHeight: CGFloat, uiFont: UIFont) -> some View {
-        FCLGlassContainer(cornerRadius: 0, tint: backgroundColor) {
+        FCLGlassContainer(cornerRadius: 0, tint: nil) {
             VStack(spacing: 0) {
                 inputRow(maxTextHeight: maxTextHeight, uiFont: uiFont)
                     .padding(contentInsets.edgeInsets)
             }
         }
-        // Route the deprecated liquidGlass flag into the visual-style system so
-        // existing hosts that set it explicitly continue to get glass rendering.
-        .fclVisualStyle(liquidGlass ? .liquidGlass : .default)
+        .modifier(FCLInputBarLegacyLiquidGlassOverride(optedIn: liquidGlass))
         .fclPickerPresentation(
             isPresented: $showAttachmentPicker,
             sourceRelay: pickerSourceRelay
@@ -280,6 +302,27 @@ struct FCLInputBar: View {
     }
 }
 
+// MARK: - Legacy Liquid Glass Override
+
+/// Applies `.fclVisualStyle(.liquidGlass)` only when the host explicitly opted
+/// into the deprecated `FCLInputDelegate.liquidGlass` flag. Passing `false` is
+/// a no-op, preserving whatever style the installed
+/// ``FCLVisualStyleDelegate`` provides. The legacy flag's `false` default used
+/// to force an opaque fallback, which painted the input bar as a solid gray
+/// rectangle on every new install; dropping that override is what restores
+/// glass rendering by default.
+private struct FCLInputBarLegacyLiquidGlassOverride: ViewModifier {
+    let optedIn: Bool
+
+    func body(content: Content) -> some View {
+        if optedIn {
+            content.fclVisualStyle(.liquidGlass)
+        } else {
+            content
+        }
+    }
+}
+
 // MARK: - Attachment Picker Host
 
 /// A private wrapper that owns the attachment picker's presenter and gallery data source
@@ -326,24 +369,23 @@ private struct FCLAttachmentPickerHost: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Transparent tap-catcher fills the space above the sheet so a tap
-            // in the dimmed region above the picker collapses it through the same
-            // morph animator as every other dismiss path (close button, swipe-down,
-            // accessibility escape). `.allowsHitTesting` is always true here; the
-            // underlying transparent area has no interactive content.
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { sourceRelay.requestDismiss() }
-
-            FCLAttachmentPickerSheet(
-                presenter: presenter,
-                galleryDataSource: galleryDataSource,
-                delegate: delegate,
-                sourceRelay: sourceRelay,
-                onDismiss: onDismiss
-            )
-        }
+        // The picker sheet owns the full hosting container. The morph animator
+        // in ``FCLPickerTransitionAnimator`` snapshots the top 40 pt of the
+        // hosted view to interpolate from the attach button — that pill is
+        // the drag handle plus top bar of `FCLAttachmentPickerSheet`, which
+        // only works when the sheet is anchored at the top of the host. The
+        // previous layout wrapped the sheet in a VStack with a tap-to-dismiss
+        // `Color.clear` above it, producing a 50/50 split that both hid the
+        // sheet under the navigation bar and left the morph snapshotting an
+        // empty region. Dismissal still routes through the close button,
+        // swipe-down, and accessibility escape paths on the sheet itself.
+        FCLAttachmentPickerSheet(
+            presenter: presenter,
+            galleryDataSource: galleryDataSource,
+            delegate: delegate,
+            sourceRelay: sourceRelay,
+            onDismiss: onDismiss
+        )
         .ignoresSafeArea(edges: .bottom)
     }
 }

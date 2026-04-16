@@ -2,7 +2,7 @@
 import Foundation
 import UIKit
 
-// MARK: - FCLChatMediaPreviewDataSource
+// MARK: - FCLChatMediaPreviewSourceDelegate
 
 /// Data feed the chat media previewer observes to derive its pager contents.
 ///
@@ -10,7 +10,7 @@ import UIKit
 /// any compile-time dependency on chat-module concrete types. The previewer reads
 /// the ordered list of conversation media but does not mutate it.
 @MainActor
-public protocol FCLChatMediaPreviewDataSource: AnyObject, ObservableObject {
+public protocol FCLChatMediaPreviewSourceDelegate: AnyObject, ObservableObject {
     /// All image and video attachments across the conversation in chronological order,
     /// each paired with the message identifier and its index within that message's media run.
     var allConversationMedia: [(messageID: UUID, attachmentIndex: Int, attachment: FCLAttachment)] { get }
@@ -23,7 +23,7 @@ public protocol FCLChatMediaPreviewDataSource: AnyObject, ObservableObject {
     /// (shrink to 0×0 at screen center, alpha → 0, duration 0.28s easeIn).
     ///
     /// - Parameter id: Stable identifier of the attachment whose cell frame is requested.
-    func currentFrame(for id: UUID) -> CGRect?
+    func currentFrame(forItemID id: UUID) -> CGRect?
 
     /// Requests the data source to scroll the cell for the given attachment into view.
     ///
@@ -41,13 +41,19 @@ public protocol FCLChatMediaPreviewDataSource: AnyObject, ObservableObject {
     func ensureVisible(itemID id: UUID, animated: Bool) -> Bool
 }
 
-public extension FCLChatMediaPreviewDataSource {
+public extension FCLChatMediaPreviewSourceDelegate {
     /// Default implementation: reports no visible frame, triggering the center-collapse fallback.
-    func currentFrame(for id: UUID) -> CGRect? { nil }
+    func currentFrame(forItemID id: UUID) -> CGRect? { nil }
 
     /// Default implementation: no-op. Returns `false` to indicate no scroll will occur.
     func ensureVisible(itemID id: UUID, animated: Bool) -> Bool { false }
 }
+
+// MARK: - Backward Compatibility Typealias
+
+/// Backward-compatibility alias for hosts that adopted the previous protocol name.
+/// Deprecated: use `FCLChatMediaPreviewSourceDelegate` directly.
+public typealias FCLChatMediaPreviewDataSource = FCLChatMediaPreviewSourceDelegate
 
 // MARK: - FCLChatMediaPreviewItem
 

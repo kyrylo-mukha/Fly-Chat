@@ -41,7 +41,10 @@ actor FCLCameraZoomController {
         let switchOverFactors: [CGFloat]
         /// Preset factors to show in the ring, in display order.
         /// Always includes `1.0`; `0.5` only if ultra-wide is present;
-        /// `2.0` and `3.0` only if a telephoto lens is present.
+        /// `2.0` and `3.0` only if a telephoto lens is present. When the
+        /// device reports a `videoZoomFactorUpscaleThreshold` lower than a
+        /// preset target, the preset is clamped to the threshold so the ring
+        /// does not offer a value that forces digital upscaling.
         let presetFactors: [CGFloat]
         /// Multiplier that maps "user-visible" zoom (where 1x corresponds to
         /// the device's default wide field of view) to the raw
@@ -50,6 +53,11 @@ actor FCLCameraZoomController {
         /// 1.0 factor corresponds to 0.5x user zoom, so the multiplier is 2.
         /// For a plain wide camera, the multiplier is 1.
         let userToDeviceScale: CGFloat
+        /// User-visible upscale threshold, or `nil` when the device does not
+        /// report one. Above this factor, the device begins digital upscaling.
+        /// Exposed so the preset ring (and any future HUD affordance) can
+        /// render a "max without upscale" marker.
+        let upscaleThresholdUser: CGFloat?
     }
 
     // MARK: - Stored state
@@ -162,8 +170,14 @@ actor FCLCameraZoomController {
     /// gesture start. `base` is the user-zoom factor at gesture start.
     /// `velocity` is the pinch recognizer's reported velocity (in `1/s`).
     /// `exponential` controls whether to apply the `pow(scale, 2.0)` curve
-    /// (disabled for reduce-motion). The value is applied directly (no ramp)
-    /// because pinch is already continuous user input.
+    /// (disabled for reduce-motion).
+    ///
+    /// Scope 06: when the magnitude of `velocity` exceeds the fast-pinch
+    /// threshold (20 pt/s), an animated ramp is issued with a rate derived
+    /// from the velocity magnitude so fast pinches land via a smooth
+    /// `ramp(toVideoZoomFactor:withRate:)` envelope. Slow pinches fall
+    /// through to the existing direct-assignment path because the pinch is
+    /// already a continuous gesture.
     func applyPinch(
         base: CGFloat,
         scale: CGFloat,
@@ -183,10 +197,30 @@ actor FCLCameraZoomController {
             curved = scale
         }
         let target = base * curved
-        // Velocity-dependent: rely on direct assignment (instantaneous) for
-        // gesture input; ramp is reserved for preset taps.
-        _ = velocity
-        setZoom(target, animated: false)
+        // Scope 06: fast pinches shape the ramp rate from the gesture
+        // velocity; slow pinches stay on the direct-assignment path so the
+        // preview tracks the finger movement 1:1 without overshoot.
+        let velocityMagnitude = abs(velocity)
+        if velocityMagnitude > Self.fastPinchVelocityThreshold {
+            let rate = Self.rateFromVelocity(velocity)
+            setZoom(target, animated: true, rateOverride: rate)
+        } else {
+            setZoom(target, animated: false)
+        }
+    }
+
+    /// Pinch-velocity magnitude (points/sec) above which `applyPinch` shifts
+    /// to an animated `ramp(toVideoZoomFactor:withRate:)` call. Below the
+    /// threshold the zoom tracks the finger 1:1 via direct assignment.
+    static let fastPinchVelocityThreshold: CGFloat = 20.0
+
+    /// Maps pinch-velocity magnitude to an AVFoundation ramp rate (doublings
+    /// per second). Empirically tuned to give fast pinches a snappy envelope
+    /// (rate ≈ 8 at `|v|` ≈ 480 pt/s) while keeping slow ramps gentle (rate
+    /// floor = 1) and protecting the device from runaway ramps (rate ceiling
+    /// = 32).
+    static func rateFromVelocity(_ v: CGFloat) -> Float {
+        max(1.0, min(32.0, Float(abs(v) / 60)))
     }
 
     /// Cancels an in-flight ramp, if any. Used when a new input supersedes
@@ -249,6 +283,23 @@ actor FCLCameraZoomController {
         let minUserFactor = minDeviceFactor / userToDeviceScale
         let maxUserFactor = maxDeviceFactor / userToDeviceScale
 
+        // Scope 06: `videoZoomFactorUpscaleThreshold` marks the raw device
+        // factor above which the device begins digital upscaling. On telephoto
+        // devices the threshold often lives inside the 2x/3x preset band, so
+        // presets above it force undesirable digital zoom. Convert the raw
+        // threshold to user-visible units and clamp preset targets below it.
+        // The property lives on `AVCaptureDevice.Format`, not on the device
+        // itself — read it from the currently active format.
+        let rawUpscaleThreshold = CGFloat(device.activeFormat.videoZoomFactorUpscaleThreshold)
+        let upscaleThresholdUser: CGFloat?
+        if rawUpscaleThreshold > 0,
+           rawUpscaleThreshold.isFinite,
+           rawUpscaleThreshold < maxDeviceFactor {
+            upscaleThresholdUser = rawUpscaleThreshold / userToDeviceScale
+        } else {
+            upscaleThresholdUser = nil
+        }
+
         // Lens detection via constituent devices for virtual cameras, or via
         // the device's own deviceType for single-lens cameras.
         let constituents = device.constituentDevices
@@ -271,12 +322,22 @@ actor FCLCameraZoomController {
             if maxUserFactor >= 3.0 { presets.append(3.0) }
         }
 
+        // Clamp preset targets to the upscale threshold when it is defined
+        // and below the preset's target. This prevents the ring from offering
+        // a value that would force digital upscaling across a lens boundary.
+        if let threshold = upscaleThresholdUser {
+            presets = presets.map { preset in
+                preset > threshold ? threshold : preset
+            }
+        }
+
         return DeviceSnapshot(
             minFactor: minUserFactor,
             maxFactor: maxUserFactor,
             switchOverFactors: rawSwitchOvers,
             presetFactors: presets,
-            userToDeviceScale: userToDeviceScale
+            userToDeviceScale: userToDeviceScale,
+            upscaleThresholdUser: upscaleThresholdUser
         )
     }
 }

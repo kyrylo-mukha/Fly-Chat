@@ -42,21 +42,34 @@ final class FCLGalleryDataSource: NSObject, ObservableObject {
     func requestAccessAndFetch() {
         guard !Self.isRunningInPreview else { return }
         let currentStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        // Sync the published status even if no fetch can run yet — SwiftUI
+        // views observing `authorizationStatus` should always see the latest
+        // system reading.
+        authorizationStatus = currentStatus
         if currentStatus == .authorized || currentStatus == .limited {
             fetchAssets()
             registerObserver()
-            authorizationStatus = currentStatus
             return
         }
-        PHPhotoLibrary.requestAuthorization(for: .readWrite) { [weak self] status in
-            Task { @MainActor in
-                self?.authorizationStatus = status
-                if status == .authorized || status == .limited {
-                    self?.fetchAssets()
-                    self?.registerObserver()
-                }
-            }
+        // `.notDetermined` is intentionally **not** handled here. The sole
+        // authorization request path lives on ``FCLPhotoAuthorizationCoordinator``
+        // so exactly one system prompt can ever fire, and its resolved status
+        // propagates into this data source via ``FCLGalleryTabView``'s
+        // `syncDataSourceAfterAuth()` once the user has chosen. Issuing a
+        // second `PHPhotoLibrary.requestAuthorization(for:)` here would race
+        // the coordinator's own request and could display two system dialogs
+        // on cold launch.
+        #if DEBUG
+        // Defensive assertion: this data source must only be asked to fetch
+        // after the coordinator has resolved `.notDetermined`. If a future
+        // call site forgets to gate on the coordinator's status, surface the
+        // misuse loudly in debug builds instead of silently doing nothing.
+        if currentStatus == .notDetermined {
+            assertionFailure(
+                "FCLGalleryDataSource.requestAccessAndFetch called with status = .notDetermined. Authorization must be resolved by FCLPhotoAuthorizationCoordinator before the gallery data source fetches; calling this here would duplicate the system prompt."
+            )
         }
+        #endif
     }
 
     func thumbnail(for asset: PHAsset, targetSize: CGSize, completion: @escaping (UIImage?) -> Void) {

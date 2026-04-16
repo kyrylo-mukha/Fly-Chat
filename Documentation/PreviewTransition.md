@@ -8,10 +8,10 @@ The preview module follows the standard FlyChat MVP layout:
 
 | Layer | Types |
 |---|---|
-| **Model** | `FCLChatMediaPreviewItem` (the asset descriptor the previewer consumes), `FCLChatMediaPreviewDataSource` (protocol that supplies items and source frames). |
+| **Model** | `FCLChatMediaPreviewItem` (the asset descriptor the previewer consumes), `FCLChatMediaPreviewSourceDelegate` (protocol supplying `currentFrame(forItemID:)` and an optional `ensureVisible(itemID:animated:)` hook). A `public typealias FCLChatMediaPreviewDataSource = FCLChatMediaPreviewSourceDelegate` is retained for the transitional release. |
 | **Presenter** | `FCLChatMediaPreviewPresenter` — owns the current index, zoom state, and dismiss coordination. |
-| **View** | `FCLChatMediaPreviewScreen` (root SwiftUI screen), `FCLTransparentFullScreenCover` (presentation host), `FCLMediaPreviewTransition` (protocol wired to the presenting animator), and `FCLChatPreviewerCarouselStrip` (the parallax thumbnail strip). |
-| **Router** | `FCLChatMediaPreviewRouter.present(item:)` — the public entry point the Chat module calls when a bubble tap requests a preview. |
+| **View** | `FCLChatMediaPreviewScreen` (root SwiftUI screen; also surfaced via `typealias FCLMediaPreviewView = FCLChatMediaPreviewScreen` for a transition), `FCLTransparentFullScreenCover` (presentation host), `FCLMediaPreviewTransition` (protocol wired to the presenting animator), and `FCLChatPreviewerCarouselStrip` (the parallax thumbnail strip). |
+| **Router** | `FCLChatMediaPreviewRouter.present(item:)` — the public entry point the Chat module calls when a bubble tap requests a preview. `FCLChatScreen` now threads every media tap through this call (rather than writing the presentation state itself) and observes the router's published `activeAttachmentID` to drive the transparent full-screen cover. |
 
 The Chat module keeps `FCLChatMediaPreviewRelay` as a small bridge between the chat timeline (which knows which cell currently hosts an asset) and the previewer (which needs that cell's window frame at open and dismiss time). Captured assets (from camera, markup, or in-place edit) are modeled by `FCLCapturedAsset` and carried through `FCLCaptureSessionRelay` under `Sources/FlyChat/Core/Media/`.
 
@@ -73,7 +73,7 @@ If the chat scrolled past the originating cell and no window frame is available 
 
 ## Parallax Thumbnail Strip
 
-`FCLChatPreviewerCarouselStrip` sits `88pt` above the bottom safe area on an `FCLGlassContainer`. It is built with native SwiftUI scroll primitives:
+`FCLChatPreviewerCarouselStrip` sits `88pt + bottom safe-area inset` above the bottom edge on an `FCLGlassContainer`, so on notched devices the strip clears the home indicator. The `FCLChatPreviewerLayout.carouselBottomSpacing(safeArea:)` helper owns the sum so call sites do not re-derive it. It is built with native SwiftUI scroll primitives:
 
 - **Structure.** `ScrollView(.horizontal)` + `scrollTargetBehavior(.viewAligned)` + `scrollPosition` so the strip snaps to the focused thumbnail without programmatic `scrollTo` thrash.
 - **Per-thumbnail scale.** Each thumbnail scales from `1.0` at the center to `0.65` at the edges, using `centerOffset / (stripWidth / 2)` as the normalized falloff.

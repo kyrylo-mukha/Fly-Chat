@@ -40,6 +40,19 @@ public final class FCLCameraSourceRelay: ObservableObject {
     /// runs a single 0.35s ease-in-out pulse.
     @Published public var pulseTick: Int = 0
 
+    /// Scope 09: mirrors the `.interactiveDismissDisabled(_:)` gate onto the
+    /// UIKit `UIHostingController`'s `isModalInPresentation` so swipe-down on
+    /// the presented hosting controller honors the same confirmation contract
+    /// as the SwiftUI gate. The camera view writes this when `capturedCount`
+    /// crosses the threshold; the router observes and assigns it on the host.
+    @Published public var isModalInPresentation: Bool = false
+
+    /// Scope 08: weak reference to the camera preview view so the close
+    /// transition can take a Metal-safe `snapshotView(afterScreenUpdates:)`
+    /// without reaching through the view hierarchy. The preview view writes
+    /// itself here on `makeUIView` and clears on teardown.
+    public weak var previewView: UIView?
+
     public init() {}
 
     /// Triggers a single pulse-highlight cycle on the source cell.

@@ -8,15 +8,33 @@ import UIKit
 /// A compact banner rendered above the gallery grid when the user has granted
 /// limited photo access (`.limited`).
 ///
-/// "Manage selected photos" opens the system limited-library picker via
+/// The leading label prefers the `"\(selectedCount) of \(totalCount) selected"`
+/// format when counts are supplied by the caller; when counts are `nil` the
+/// banner falls back to the generic `"You gave access to selected photos only."`
+/// sentence so the component stays usable in contexts that don't know the
+/// numbers yet.
+///
+/// "Manage" opens the system limited-library picker via
 /// ``FCLLimitedLibraryPickerBridge`` so the user can adjust which assets are
 /// visible without leaving the app.
 struct FCLPickerPermissionBanner: View {
+    /// Number of assets currently selected inside the picker's staging list,
+    /// or `nil` when the caller does not have the count to hand.
+    let selectedCount: Int?
+    /// Total number of assets the user granted access to (the limited set
+    /// size), or `nil` when it is not yet available.
+    let totalCount: Int?
+
     @State private var isShowingLimitedPicker = false
+
+    init(selectedCount: Int? = nil, totalCount: Int? = nil) {
+        self.selectedCount = selectedCount
+        self.totalCount = totalCount
+    }
 
     var body: some View {
         HStack {
-            Text("You gave access to selected photos only.")
+            Text(bannerText)
                 .font(.caption)
                 .foregroundStyle(Color(.secondaryLabel))
             Spacer()
@@ -32,6 +50,13 @@ struct FCLPickerPermissionBanner: View {
             FCLLimitedLibraryPickerBridge(isPresented: $isShowingLimitedPicker)
                 .frame(width: 0, height: 0)
         )
+    }
+
+    private var bannerText: String {
+        if let selectedCount, let totalCount {
+            return "\(selectedCount) of \(totalCount) selected"
+        }
+        return "You gave access to selected photos only."
     }
 }
 
@@ -134,18 +159,27 @@ struct FCLLimitedLibraryPickerBridge: UIViewControllerRepresentable {
     FCLPickerPermissionPreviewContainer(state: .limited)
 }
 
+#Preview("Permission — limited (counted)") {
+    FCLPickerPermissionPreviewContainer(state: .limited, selectedCount: 2, totalCount: 8)
+}
+
 #Preview("Permission — denied") {
     FCLPickerPermissionPreviewContainer(state: .denied)
 }
 
 private struct FCLPickerPermissionPreviewContainer: View {
     let state: PHAuthorizationStatus
+    var selectedCount: Int? = nil
+    var totalCount: Int? = nil
 
     var body: some View {
         VStack(spacing: 0) {
             switch state {
             case .limited:
-                FCLPickerPermissionBanner()
+                FCLPickerPermissionBanner(
+                    selectedCount: selectedCount,
+                    totalCount: totalCount
+                )
                 mockGallery
 
             case .denied, .restricted:

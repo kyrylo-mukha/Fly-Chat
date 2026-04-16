@@ -81,9 +81,12 @@ public final class FCLCameraPresenter: ObservableObject {
     /// Number of assets captured in the current session. MainActor-safe.
     @Published public private(set) var capturedCount: Int = 0
 
-    /// Thumbnail of the most recently captured asset. Kept in sync by
-    /// `FCLCameraView.refreshLatestThumbnail()` via the shared
-    /// `FCLCaptureSessionRelay` so the Done-chip always shows the latest capture.
+    /// Thumbnail of the most recently captured asset. Scope 07: when the
+    /// presenter is constructed with an `FCLCaptureSessionRelay`, this value
+    /// is driven by the relay's `capturedAssets` publisher; the presenter
+    /// sinks the publisher and republishes `.last?.thumbnail`. Legacy call
+    /// sites that still push via `updateLastCapturedThumbnail(_:)` continue
+    /// to work for relay-less constructions.
     @Published public var lastCapturedThumbnail: UIImage?
 
     // MARK: Session plumbing
@@ -107,6 +110,14 @@ public final class FCLCameraPresenter: ObservableObject {
     private let zoomController = FCLCameraZoomController()
     private var zoomStreamTask: Task<Void, Never>?
 
+    // MARK: Scope 07 — capture relay
+
+    /// Shared in-flight capture store. When provided, the presenter sinks the
+    /// relay's `capturedAssets` publisher and republishes the last thumbnail
+    /// as `lastCapturedThumbnail`.
+    private let captureRelay: FCLCaptureSessionRelay?
+    private var captureRelayCancellable: AnyCancellable?
+
     // Active delegates held strong for the life of a capture.
     nonisolated(unsafe) private var activePhotoDelegate: PhotoCaptureDelegate?
     nonisolated(unsafe) private var activeMovieDelegate: MovieRecordingDelegate?
@@ -119,11 +130,29 @@ public final class FCLCameraPresenter: ObservableObject {
 
     // MARK: Init
 
-    public init(configuration: FCLCameraConfiguration = FCLCameraConfiguration()) {
+    public init(
+        configuration: FCLCameraConfiguration = FCLCameraConfiguration(),
+        captureRelay: FCLCaptureSessionRelay? = nil
+    ) {
         self.configuration = configuration
         self.mode = configuration.defaultMode
         self.flashMode = configuration.defaultFlash
+        self.captureRelay = captureRelay
         startZoomStreamTask()
+        bindCaptureRelayIfNeeded()
+    }
+
+    /// Scope 07: subscribes to the relay's `capturedAssets` publisher and
+    /// mirrors the last entry's thumbnail onto `lastCapturedThumbnail`. A
+    /// `nil` relay is a no-op so host integrations that do not wire a relay
+    /// continue to drive the thumbnail through `updateLastCapturedThumbnail(_:)`.
+    private func bindCaptureRelayIfNeeded() {
+        guard let relay = captureRelay else { return }
+        captureRelayCancellable = relay.$capturedAssets
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] assets in
+                self?.lastCapturedThumbnail = assets.last?.thumbnail
+            }
     }
 
     deinit {
@@ -637,6 +666,25 @@ public final class FCLCameraPresenter: ObservableObject {
     public func updateLastCapturedThumbnail(_ image: UIImage?) {
         lastCapturedThumbnail = image
     }
+
+    #if DEBUG
+    /// Scope 05: factory that returns a presenter with seeded `capturedCount`
+    /// and `lastCapturedThumbnail` so SwiftUI previews can exercise the
+    /// "second enter" Done-chip states without running an `AVCaptureSession`.
+    public static func makeForPreview(
+        capturedCount: Int,
+        thumbnail: UIImage?,
+        configuration: FCLCameraConfiguration = FCLCameraConfiguration(
+            allowsVideo: true,
+            maxAssets: 5
+        )
+    ) -> FCLCameraPresenter {
+        let presenter = FCLCameraPresenter(configuration: configuration)
+        presenter.capturedCount = capturedCount
+        presenter.lastCapturedThumbnail = thumbnail
+        return presenter
+    }
+    #endif
 }
 
 // MARK: - Photo delegate

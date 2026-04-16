@@ -34,11 +34,12 @@ enum FCLCameraTransitionCurves {
 /// the camera screen's full frame, cross-fading the camera view in as it
 /// scales.
 ///
-/// Close: captures a snapshot of the live camera preview (via
-/// `view.drawHierarchy(in:afterScreenUpdates:)` which faithfully samples the
-/// `AVCaptureVideoPreviewLayer` output while the session is still alive),
-/// animates the snapshot from the full-screen camera rect back to the source
-/// cell rect, and fades the snapshot out over the final
+/// Close: captures a Metal-safe snapshot of the live camera preview via
+/// `UIView.snapshotView(afterScreenUpdates:)` (required because
+/// `AVCaptureVideoPreviewLayer` is GPU-backed — `drawHierarchy(in:)` would
+/// return a black frame on modern devices), animates the snapshot from the
+/// full-screen camera rect back to the source cell rect, and fades the
+/// snapshot out over the final
 /// ``FCLCameraTransitionCurves/closeSnapshotFadeFraction`` of the morph.
 /// While the snapshot animates, the relay's `firePulse()` is invoked so the
 /// source cell plays a single 0.35s ease-in-out pulse-highlight.
@@ -135,10 +136,16 @@ final class FCLCameraTransition: NSObject, UIViewControllerAnimatedTransitioning
         }
 
         let fullRect = fromView.frame
-        let snapshotImage = renderSnapshot(of: fromView)
-        let snapshotView = UIImageView(image: snapshotImage)
+        // Scope 08: `AVCaptureVideoPreviewLayer` is Metal-backed on modern
+        // devices, so `UIView.drawHierarchy(in:afterScreenUpdates:false)`
+        // returns a black frame. `UIView.snapshotView(afterScreenUpdates:)`
+        // is documented to correctly capture GPU-backed content, including
+        // the preview layer. We snapshot the full hosting view so overlay
+        // chrome (top bar, shutter row) morphs with the preview content.
+        // The session stays running until the parent router stops it in its
+        // dismiss completion, so the snapshot captures a live frame.
+        let snapshotView = makeSnapshotView(for: fromView, fallbackFrame: fullRect)
         snapshotView.frame = fullRect
-        snapshotView.contentMode = .scaleAspectFill
         snapshotView.clipsToBounds = true
         container.addSubview(snapshotView)
 
@@ -224,16 +231,19 @@ final class FCLCameraTransition: NSObject, UIViewControllerAnimatedTransitioning
         return container.bounds.intersects(frame)
     }
 
-    /// Renders a bitmap snapshot of `view`. Uses
-    /// `UIView.drawHierarchy(in:afterScreenUpdates:)` so the
-    /// `AVCaptureVideoPreviewLayer` (CALayer-backed metal surface) is
-    /// captured while the session is still live. `afterScreenUpdates` is
-    /// `false` to sample the current frame without forcing a re-layout.
-    private func renderSnapshot(of view: UIView) -> UIImage {
-        let renderer = UIGraphicsImageRenderer(bounds: view.bounds)
-        return renderer.image { _ in
-            view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
+    /// Produces a Metal-safe snapshot view of the live camera UI. Prefers
+    /// `UIView.snapshotView(afterScreenUpdates:)` because
+    /// `AVCaptureVideoPreviewLayer` renders via Metal on modern devices and
+    /// cannot be captured with `drawHierarchy` or `CALayer.render(in:)`.
+    /// Falls back to a black placeholder when snapshotView returns `nil`
+    /// (e.g. the view is not yet onscreen).
+    private func makeSnapshotView(for view: UIView, fallbackFrame: CGRect) -> UIView {
+        if let snap = view.snapshotView(afterScreenUpdates: false) {
+            return snap
         }
+        let placeholder = UIView(frame: fallbackFrame)
+        placeholder.backgroundColor = .black
+        return placeholder
     }
 }
 

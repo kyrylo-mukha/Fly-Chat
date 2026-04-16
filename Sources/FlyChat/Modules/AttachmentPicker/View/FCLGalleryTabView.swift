@@ -79,7 +79,13 @@ struct FCLGalleryTabView: View {
 
         case .limited:
             VStack(spacing: 0) {
-                FCLPickerPermissionBanner()
+                // Thread the current staged selection count and the total
+                // assets the user granted access to into the banner so the
+                // label reads "N of M selected" when both counts are known.
+                FCLPickerPermissionBanner(
+                    selectedCount: presenter.selectedAssets.count,
+                    totalCount: galleryDataSource.assets.count
+                )
                 assetContent
             }
 

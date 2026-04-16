@@ -104,6 +104,7 @@ public struct FCLChatMessageStatusView: View {
                 FCLDoubleCheckmarkShape()
                     .stroke(color.color, style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
                     .frame(width: 16, height: 10)
+                    .flipsForRightToLeftLayoutDirection(true)
             }
         }
     }

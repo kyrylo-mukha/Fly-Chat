@@ -74,10 +74,13 @@ No host-side gating is required; the primitive branches internally.
 
 ## Accessibility
 
-The resolver honors two accessibility environment values:
+The resolver honors three accessibility environment values:
 
 - **`accessibilityReduceTransparency`** — when enabled, glass materials degrade to opaque surfaces backed by the active appearance color tokens. Shape, layout, and hit-testing are unchanged.
 - **`accessibilityReduceMotion`** — when enabled, parallax and depth-based animations inside glass surfaces are disabled. Content still renders on top of the opaque fallback.
+- **`accessibilityShowButtonShapes`** — when enabled, the interactive primitives (`FCLGlassButton`, `FCLGlassIconButton`, `FCLGlassChip`) render a visible rim stroke around their hit target regardless of the resolved glass branch. The stroke is derived from the active tint and remains above the glass overlay so the shape reads clearly against busy backgrounds.
+
+Each primitive exposes both styles and the accessibility variants through `#Preview` blocks; the previews use internal proxy environment keys (`fclPreviewReduceTransparency()` / `fclPreviewReduceMotion()`) because SwiftUI does not allow writes to the system accessibility keys from a preview or a test. The proxies merge with the system values at render time so production behavior is governed exclusively by the real environment.
 
 VoiceOver labels and traits are unchanged by style selection; accessibility content is defined on the content wrapped by the primitive.
 
@@ -98,7 +101,9 @@ New glass or chrome primitives must live under `Sources/FlyChat/Core/Visual/Prim
 
 ## Migration Note
 
-`FCLInputDelegate.liquidGlass` is deprecated. It remains functional and bridges into the new `FCLVisualStyleDelegate` pipeline so existing integrations keep working without changes, but new code should set `visualStyle` on `FCLChatDelegate` directly. The internal `FCLInputBarBackground` type has been removed; the input bar now composes `FCLGlassContainer` with the rest of the chrome.
+`FCLInputDelegate.liquidGlass` is deprecated. The flag is still honored when the host explicitly sets it to `true` — in that case it routes through the new `FCLVisualStyleDelegate` pipeline as a per-instance glass override. Setting the flag to `false` (or omitting it) now means *no opinion*: the input bar inherits the library default (`.liquidGlass`) instead of being forced onto the opaque path, so new installs get glass automatically. Hosts that want an opaque input bar should supply an `FCLVisualStyleDelegate` whose `visualStyle` returns `.default` or apply `.fclVisualStyle(.default)` to the chat screen. The internal `FCLInputBarBackground` type has been removed; the input bar now composes `FCLGlassContainer` with the rest of the chrome.
+
+`FCLInputDelegate.backgroundColor` continues to act as the opaque fallback when the resolved style is `.default` or when `accessibilityReduceTransparency` is on. It is not painted as a tint on top of glass; applying the legacy light-gray default over the material would desaturate glass into a flat rectangle.
 
 ## Related Documents
 

@@ -16,10 +16,16 @@ public struct FCLGlassChip<Accessory: View>: View {
     @Environment(\.fclDelegateVisualStyle) private var delegateStyle
     @Environment(\.fclDelegateVisualTint) private var delegateTint
     @Environment(\.fclReducedTransparencyBackground) private var reducedBackground
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.accessibilityShowButtonShapes) private var showButtonShapes
+    @Environment(\.fclPreviewReduceTransparency) private var previewReduceTransparency
+    @Environment(\.fclPreviewReduceMotion) private var previewReduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.legibilityWeight) private var legibilityWeight
+
+    private var reduceTransparency: Bool { previewReduceTransparency ?? systemReduceTransparency }
+    private var reduceMotion: Bool { previewReduceMotion ?? systemReduceMotion }
 
     public init(
         title: String,
@@ -86,7 +92,15 @@ public struct FCLGlassChip<Accessory: View>: View {
             }
         }()
 
-        let body = content.background(background)
+        let rimColor = Self.effectiveRimStroke(showButtonShapes: showButtonShapes, tint: tint)
+        let body = content
+            .background(background)
+            .overlay {
+                if let rimColor {
+                    Capsule(style: .continuous)
+                        .strokeBorder(rimColor.opacity(0.9), lineWidth: 1.5)
+                }
+            }
 
         if let action {
             Button(action: action) { body }
@@ -94,6 +108,18 @@ public struct FCLGlassChip<Accessory: View>: View {
         } else {
             body
         }
+    }
+
+    /// Returns the rim stroke color when `showButtonShapes` is active, `nil` otherwise.
+    ///
+    /// Exposed as `internal` so unit tests can assert that the environment flag
+    /// produces a non-nil stroke without rendering the full view.
+    static func effectiveRimStroke(
+        showButtonShapes: Bool,
+        tint: FCLChatColorToken?
+    ) -> Color? {
+        guard showButtonShapes else { return nil }
+        return tint?.color ?? Color.primary
     }
 
     @ViewBuilder
@@ -157,6 +183,20 @@ struct FCLChipPressStyle: ButtonStyle {
     }
     .padding()
     .background(LinearGradient(colors: [.purple, .blue], startPoint: .top, endPoint: .bottom))
+}
+
+#Preview("Chip — Reduced Transparency") {
+    FCLGlassChip(title: "Photos", badgeCount: 3)
+        .padding()
+        .background(Color.gray.opacity(0.2))
+        .fclPreviewReduceTransparency()
+}
+
+#Preview("Chip — Reduced Motion") {
+    FCLGlassChip(title: "Camera", action: {})
+        .padding()
+        .background(Color.gray.opacity(0.2))
+        .fclPreviewReduceMotion()
 }
 
 #Preview("Chip — Done with image accessory and badge (camera Done-chip)") {

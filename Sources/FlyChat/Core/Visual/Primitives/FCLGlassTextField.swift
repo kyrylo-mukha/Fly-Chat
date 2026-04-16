@@ -19,10 +19,15 @@ public struct FCLGlassTextField: View {
     @Environment(\.fclDelegateVisualStyle) private var delegateStyle
     @Environment(\.fclDelegateVisualTint) private var delegateTint
     @Environment(\.fclReducedTransparencyBackground) private var reducedBackground
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.fclPreviewReduceTransparency) private var previewReduceTransparency
+    @Environment(\.fclPreviewReduceMotion) private var previewReduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.legibilityWeight) private var legibilityWeight
+
+    private var reduceTransparency: Bool { previewReduceTransparency ?? systemReduceTransparency }
+    private var reduceMotion: Bool { previewReduceMotion ?? systemReduceMotion }
 
     public init(
         text: Binding<String>,
@@ -131,5 +136,17 @@ private struct FCLGlassTextFieldPreviewHost: View {
 #Preview("TextField — Native (iOS 26)") {
     FCLGlassTextFieldPreviewHost()
         .background(LinearGradient(colors: [.blue, .cyan], startPoint: .top, endPoint: .bottom))
+}
+
+#Preview("TextField — Reduced Transparency") {
+    FCLGlassTextFieldPreviewHost()
+        .background(Color.gray.opacity(0.2))
+        .fclPreviewReduceTransparency()
+}
+
+#Preview("TextField — Reduced Motion") {
+    FCLGlassTextFieldPreviewHost()
+        .background(Color.gray.opacity(0.2))
+        .fclPreviewReduceMotion()
 }
 #endif

@@ -153,6 +153,23 @@ public struct FCLChatScreen: View {
             messagesList(availableWidth: screenWidth)
             inputBarSection
         }
+        // Blanket-suppress SwiftUI animations throughout the chat subtree during
+        // the ~0.3 s window after a `.background → .active` transition.
+        // Individual state writes (scene-size preference, expanding-text-view
+        // height, input-bar layout) already guard themselves, but UIKit-driven
+        // measurements that land later in the runloop — `UITextView`
+        // resize callbacks, `UITableView` row relayout when the appearance
+        // proxy is touched, cell `GeometryReader` re-emits after a SwiftUI
+        // tree rebuild — inherit whichever transaction is active at the
+        // moment of the write. This modifier makes that inherited transaction
+        // a no-op across the reactivation window, eliminating the visible
+        // "input bar jumps" regression without disabling animations on
+        // genuinely user-driven updates outside the window.
+        .transaction { transaction in
+            if isReturningFromBackground {
+                transaction.disablesAnimations = true
+            }
+        }
         .fclInstallVisualStyleDelegate(delegate?.visualStyle)
         .background(Color(red: 0.96, green: 0.97, blue: 0.99))
         // Read container size via a background GeometryReader + PreferenceKey.
@@ -220,20 +237,24 @@ public struct FCLChatScreen: View {
         }
         .onChange(of: scenePhase, initial: false) { _, newPhase in
             // Flip the returning-from-background flag around the first active tick
-            // so the next size-preference emission is applied without animation.
-            // The flag is cleared on a subsequent async hop so genuinely user-driven
-            // layout updates that happen after the scene stabilises keep their
-            // intended implicit animations.
+            // so any size-preference emission, expanding-text-view remeasure, or
+            // list-cell re-identification in the window following scene
+            // reactivation is applied without animation. The window extends for
+            // ~0.3 s because UIKit-driven layout (backing `UITextView`
+            // measurements, table-view row relayout when the appearance proxy
+            // is touched, etc.) can lag one or two run-loop ticks behind the
+            // SwiftUI scene-phase transition. The previous single-runloop
+            // window cleared the flag before those UIKit-driven passes landed,
+            // letting their frame deltas inherit the ambient transaction's
+            // animation.
             switch newPhase {
             case .active:
                 if isReturningFromBackground == false {
                     isReturningFromBackground = true
-                    DispatchQueue.main.async {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         isReturningFromBackground = false
                     }
                 }
-                // Late-configure the appearance proxy if the very first `onAppear`
-                // ran while the scene was still backgrounded.
                 if !didConfigureListAppearance {
                     configureListAppearance()
                     didConfigureListAppearance = true
@@ -255,7 +276,12 @@ public struct FCLChatScreen: View {
         .fclTransparentFullScreenCover(
             isPresented: Binding(
                 get: { previewAttachmentID != nil },
-                set: { if !$0 { withTransaction(Transaction(animation: nil)) { previewAttachmentID = nil } } }
+                set: { if !$0 {
+                    withTransaction(Transaction(animation: nil)) {
+                        previewAttachmentID = nil
+                        previewRouter.presenter.activeAttachmentID = nil
+                    }
+                } }
             )
         ) {
             if let attachmentID = previewAttachmentID {
@@ -266,10 +292,23 @@ public struct FCLChatScreen: View {
                     onDismiss: {
                         withTransaction(Transaction(animation: nil)) {
                             previewAttachmentID = nil
+                            previewRouter.presenter.activeAttachmentID = nil
                         }
                     },
                     source: previewRelay
                 )
+            }
+        }
+        // Keep previewAttachmentID in sync with the router's presenter so
+        // programmatic calls to previewRouter.present(item:) also trigger
+        // the transparent full-screen cover.
+        .onChange(of: previewRouter.presenter.activeAttachmentID) { _, newID in
+            if let id = newID, previewAttachmentID == nil {
+                previewAttachmentID = id
+            } else if newID == nil {
+                withTransaction(Transaction(animation: nil)) {
+                    previewAttachmentID = nil
+                }
             }
         }
         #endif
@@ -327,6 +366,11 @@ public struct FCLChatScreen: View {
                         heroNamespace: mediaHeroNamespace,
                         onMediaTap: { attachment in
                             #if canImport(UIKit)
+                            let item = FCLChatMediaPreviewItem(
+                                asset: attachment,
+                                sourceFrame: previewRelay.mediaPreviewFrame(forAssetID: attachment.id.uuidString)
+                            )
+                            previewRouter.present(item: item)
                             previewAttachmentID = attachment.id
                             #endif
                         },
@@ -436,13 +480,33 @@ public struct FCLChatScreen: View {
     }
 
     /// Configures `UITableView` global appearance to remove separators and enable drag-to-dismiss keyboard.
-    /// Called when the chat screen appears.
+    ///
+    /// The mutation is double-guarded against animating an already on-screen
+    /// list:
+    /// 1. `UIView.performWithoutAnimation` suppresses any SwiftUI / UIKit
+    ///    implicit frame animations triggered by the appearance change.
+    /// 2. A `CATransaction` actions-disabled block catches Core Animation
+    ///    implicit layer animations that `performWithoutAnimation` does not
+    ///    reach (pre-iOS 14 this mattered; retained here as a belt-and-braces
+    ///    guard because the proxy mutation reaches every `UITableView`
+    ///    currently in the hierarchy).
+    ///
+    /// Without either guard, mutating the appearance proxy while the chat
+    /// `List` is already on-screen can force UIKit to invalidate row insets
+    /// and separator layout inside the ambient scene-reactivation run-loop
+    /// tick, producing the visible "input bar jumps" regression on
+    /// background → foreground transitions.
     private func configureListAppearance() {
         #if canImport(UIKit)
-        UITableView.appearance().separatorStyle = .none
-        UITableView.appearance().separatorColor = .clear
-        UITableView.appearance().tableFooterView = UIView(frame: .zero)
-        UITableView.appearance().keyboardDismissMode = .onDrag
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            UITableView.appearance().separatorStyle = .none
+            UITableView.appearance().separatorColor = .clear
+            UITableView.appearance().tableFooterView = UIView(frame: .zero)
+            UITableView.appearance().keyboardDismissMode = .onDrag
+        }
+        CATransaction.commit()
         #endif
     }
 

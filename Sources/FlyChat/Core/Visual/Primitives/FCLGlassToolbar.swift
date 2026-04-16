@@ -27,8 +27,13 @@ public struct FCLGlassToolbar<Content: View>: View {
     @Environment(\.fclDelegateVisualStyle) private var delegateStyle
     @Environment(\.fclDelegateVisualTint) private var delegateTint
     @Environment(\.fclReducedTransparencyBackground) private var reducedBackground
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.fclPreviewReduceTransparency) private var previewReduceTransparency
+    @Environment(\.fclPreviewReduceMotion) private var previewReduceMotion
+
+    private var reduceTransparency: Bool { previewReduceTransparency ?? systemReduceTransparency }
+    private var reduceMotion: Bool { previewReduceMotion ?? systemReduceMotion }
 
     public init(
         placement: Placement = .top,
@@ -138,5 +143,34 @@ public struct FCLGlassToolbar<Content: View>: View {
     }
     .padding()
     .background(LinearGradient(colors: [.teal, .indigo], startPoint: .top, endPoint: .bottom))
+}
+
+#Preview("Toolbar — Reduced Transparency") {
+    VStack {
+        FCLGlassToolbar(placement: .top) {
+            Image(systemName: "xmark")
+            Spacer()
+            Text("Title").font(.headline)
+            Spacer()
+            Image(systemName: "ellipsis")
+        }
+        Spacer()
+    }
+    .background(Color.gray.opacity(0.2))
+    .fclPreviewReduceTransparency()
+}
+
+#Preview("Toolbar — Reduced Motion") {
+    VStack {
+        Spacer()
+        FCLGlassToolbar(placement: .bottom) {
+            Image(systemName: "camera")
+            Spacer()
+            Text("Done").font(.subheadline.weight(.semibold))
+        }
+        .padding()
+    }
+    .background(Color.gray.opacity(0.2))
+    .fclPreviewReduceMotion()
 }
 #endif

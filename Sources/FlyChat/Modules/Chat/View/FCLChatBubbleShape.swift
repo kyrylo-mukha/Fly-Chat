@@ -125,7 +125,7 @@ public struct FCLChatBubbleShape: Shape, Sendable, Hashable {
     ///   - contentBelow: Pass `true` when another content element sits below the image container.
     ///     The container's bottom corners will be squared.
     /// - Returns: ``FCLBubbleCorners`` with the appropriate radius at each corner.
-    public static func imageContainerCorners(
+    static func imageContainerCorners(
         side: FCLChatBubbleSide,
         tailStyle: FCLBubbleTailStyle,
         contentAbove: Bool,

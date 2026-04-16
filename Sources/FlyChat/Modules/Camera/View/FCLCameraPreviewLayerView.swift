@@ -49,6 +49,10 @@ struct FCLCameraPreviewLayerView: UIViewRepresentable {
     /// coordinates and in-flight pinch scales do not leak into post-flip
     /// device configuration.
     var gesturesEnabled: Bool = true
+    /// Scope 08: optional relay that records the preview view reference so
+    /// the close transition can take a Metal-safe `snapshotView(...)` of the
+    /// live preview layer without reaching through the view hierarchy.
+    var sourceRelay: FCLCameraSourceRelay?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onTapToFocus: onTapToFocus, onPinch: onPinch)
@@ -73,6 +77,9 @@ struct FCLCameraPreviewLayerView: UIViewRepresentable {
 
         context.coordinator.previewView = view
         context.coordinator.applyGesturesEnabled(gesturesEnabled)
+        // Scope 08: register the preview view with the relay so the close
+        // transition can snapshot the live Metal-backed preview layer.
+        sourceRelay?.previewView = view
         return view
     }
 
@@ -81,6 +88,7 @@ struct FCLCameraPreviewLayerView: UIViewRepresentable {
             uiView.session = session
         }
         context.coordinator.applyGesturesEnabled(gesturesEnabled)
+        sourceRelay?.previewView = uiView
     }
 
     @MainActor

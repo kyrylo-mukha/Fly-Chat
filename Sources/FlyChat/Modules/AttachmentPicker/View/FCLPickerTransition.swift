@@ -106,9 +106,14 @@ final class FCLPickerTransitionAnimator: NSObject, UIViewControllerAnimatedTrans
 
         toView.alpha = 0
 
-        let timing = UISpringTimingParameters(
-            dampingRatio: FCLPickerTransitionCurves.springDampingFraction,
-            initialVelocity: .zero
+        // Use the shared (response, dampingFraction) → (mass, stiffness, damping)
+        // converter so both animator call sites share a single source of truth
+        // and land on the exact spring envelope the spec dictates (response
+        // 0.38, dampingFraction 0.86) — the `dampingRatio:` overload only
+        // accepts damping and forces UIKit to pick its own natural period.
+        let timing = springTimingParameters(
+            response: FCLPickerTransitionCurves.springResponse,
+            dampingFraction: FCLPickerTransitionCurves.springDampingFraction
         )
         let animator = UIViewPropertyAnimator(
             duration: FCLPickerTransitionCurves.morphDuration,
@@ -163,9 +168,11 @@ final class FCLPickerTransitionAnimator: NSObject, UIViewControllerAnimatedTrans
         snapshot.clipsToBounds = true
         container.addSubview(snapshot)
 
-        let timing = UISpringTimingParameters(
-            dampingRatio: FCLPickerTransitionCurves.springDampingFraction,
-            initialVelocity: .zero
+        // Same converter as in `animatePresent` to keep the dismiss spring
+        // envelope aligned with the present spring envelope.
+        let timing = springTimingParameters(
+            response: FCLPickerTransitionCurves.springResponse,
+            dampingFraction: FCLPickerTransitionCurves.springDampingFraction
         )
         let animator = UIViewPropertyAnimator(
             duration: FCLPickerTransitionCurves.morphDuration,
@@ -185,6 +192,48 @@ final class FCLPickerTransitionAnimator: NSObject, UIViewControllerAnimatedTrans
             completionHook?(didComplete)
         }
         animator.startAnimation()
+    }
+}
+
+// MARK: - FCLPickerPanDelegate
+
+/// Gesture delegate for the picker's dismiss pan.
+///
+/// Split out from ``FCLPickerPresentation/Coordinator`` because
+/// `UIGestureRecognizerDelegate` is `@MainActor`-annotated in the iOS SDK, and
+/// conforming the nested `Coordinator` (which is not `@MainActor`-isolated
+/// because it must be capturable by `@Sendable` `NotificationCenter` closures)
+/// would force the class onto the main actor and break the `deinit`'s access
+/// to the non-Sendable observer array. Hosting the delegate in its own
+/// `@MainActor` helper keeps the isolation boundaries clean.
+@MainActor
+final class FCLPickerPanDelegate: NSObject, UIGestureRecognizerDelegate {
+    weak var host: UIViewController?
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        // Only allow the dismiss pan to begin inside the top ~56 pt strip of
+        // the sheet, and only when the user's motion is predominantly downward.
+        // Rejecting here (instead of toggling `isEnabled` in the `.began`
+        // handler as the previous implementation did) lets inner gesture
+        // recognizers — the gallery collection view's own pan in particular —
+        // pick up the touch cleanly.
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer,
+              let view = host?.view else { return true }
+        let start = pan.location(in: view)
+        let translation = pan.translation(in: view)
+        let verticalDominant = abs(translation.y) >= abs(translation.x)
+        let downward = translation.y >= 0
+        return start.y <= 56 && verticalDominant && downward
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        // Permit inner scroll views and tap recognizers to fire alongside the
+        // dismiss pan when both qualify. Without this, the dismiss pan's
+        // exclusivity starves the gallery collection view of its own pan.
+        true
     }
 }
 
@@ -258,6 +307,164 @@ final class FCLPickerTransitioningDelegate: NSObject, UIViewControllerTransition
     ) -> (any UIViewControllerInteractiveTransitioning)? {
         interactiveDismiss.isActive ? interactiveDismiss : nil
     }
+
+    // Supplying a presentation controller is required for `.custom`
+    // modalPresentationStyle to lay the presented view out correctly. Without
+    // this, UIKit inherits the frame from the presenting view controller —
+    // which is the 0 × 0 SwiftUI bridge VC — and the animator receives a
+    // zero-sized `finalFrame`, leaving the picker invisible.
+    func presentationController(
+        forPresented presented: UIViewController,
+        presenting: UIViewController?,
+        source: UIViewController
+    ) -> UIPresentationController? {
+        FCLPickerPresentationController(
+            presentedViewController: presented,
+            presenting: presenting,
+            sourceRelay: sourceRelay
+        )
+    }
+}
+
+// MARK: - FCLPickerPresentationController
+
+/// Presentation controller that renders the picker as a half-sheet anchored to
+/// the bottom of the container, matching the pre-overhaul `.presentationDetents`
+/// look while keeping the custom `FCLPickerTransitionAnimator` for the open /
+/// close morph.
+///
+/// Layout:
+/// - The presented view fills the container horizontally and extends from the
+///   bottom up to `topInset` (safe-area top + a ~10 pt peek, minimum 54 pt).
+///   This matches the `.large` detent of `UISheetPresentationController`.
+/// - Top corners are rounded at 16 pt so the sheet reads as a modal card.
+/// - A translucent dim backdrop sits behind the sheet; the strip above the
+///   sheet and the sides remain clear so the morph animator can still capture
+///   the top 40 pt of the presented view as its pill snapshot.
+///
+/// The dim view also catches tap-outside touches and routes them through
+/// ``FCLPickerSourceRelay/requestDismiss()`` so every dismiss path — tap-outside,
+/// swipe-down, close button, accessibility escape — funnels through the same
+/// morph animator and keyboard-hide sequencing.
+@MainActor
+final class FCLPickerPresentationController: UIPresentationController {
+    /// Relay routing dismiss intents back through the shared morph animator.
+    /// Retained so the tap recognizer's target can invoke `requestDismiss()`
+    /// without crossing isolation boundaries.
+    private let sourceRelay: FCLPickerSourceRelay
+
+    /// Translucent backdrop installed as the container view's first subview so
+    /// UIKit layers the presented view on top of it. The dim remains visible
+    /// in the strip above the sheet (between the top safe area and the sheet's
+    /// top edge) and catches tap-outside touches that would otherwise not have
+    /// a receiver.
+    private var dimView: UIView?
+
+    /// Minimum gap reserved between the top of the container and the top of
+    /// the sheet. Matches the visual peek that `.large` detent provides.
+    private let topInsetFallback: CGFloat = 54
+
+    init(
+        presentedViewController: UIViewController,
+        presenting presentingViewController: UIViewController?,
+        sourceRelay: FCLPickerSourceRelay
+    ) {
+        self.sourceRelay = sourceRelay
+        super.init(
+            presentedViewController: presentedViewController,
+            presenting: presentingViewController
+        )
+    }
+
+    override var frameOfPresentedViewInContainerView: CGRect {
+        guard let container = containerView else { return .zero }
+        let bounds = container.bounds
+        let safeTop = container.safeAreaInsets.top
+        // Leave a peek at the top so the sheet reads as a modal card, not a
+        // full-screen takeover. Use the larger of the safe-area-aware offset
+        // and a hard fallback so the peek is preserved even on devices /
+        // preview hosts that report zero safe-area insets.
+        let topInset = max(safeTop + 10, topInsetFallback)
+        return CGRect(
+            x: 0,
+            y: topInset,
+            width: bounds.width,
+            height: bounds.height - topInset
+        )
+    }
+
+    override func containerViewWillLayoutSubviews() {
+        super.containerViewWillLayoutSubviews()
+        presentedView?.frame = frameOfPresentedViewInContainerView
+        dimView?.frame = containerView?.bounds ?? .zero
+    }
+
+    override func presentationTransitionWillBegin() {
+        super.presentationTransitionWillBegin()
+        guard let containerView else { return }
+
+        // Dim backdrop — behind the presented view so it does not obstruct the
+        // morph pill snapshot. Fades from 0 → full alpha alongside the morph.
+        let dim = UIView(frame: containerView.bounds)
+        dim.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        dim.backgroundColor = UIColor.black.withAlphaComponent(0.32)
+        dim.isUserInteractionEnabled = true
+        dim.alpha = 0
+        dim.accessibilityIdentifier = "FCLPickerPresentationDim"
+        let tap = UITapGestureRecognizer(
+            target: self,
+            action: #selector(handleDimTap(_:))
+        )
+        tap.cancelsTouchesInView = false
+        dim.addGestureRecognizer(tap)
+        containerView.insertSubview(dim, at: 0)
+        dimView = dim
+
+        // Round the top corners to match the `.presentationDetents` look. The
+        // bottom corners stay square — the sheet sits flush against the
+        // bottom edge of the container.
+        if let presentedView {
+            presentedView.layer.cornerRadius = 16
+            presentedView.layer.maskedCorners = [
+                .layerMinXMinYCorner,
+                .layerMaxXMinYCorner
+            ]
+            presentedView.layer.masksToBounds = true
+        }
+
+        if let coordinator = presentedViewController.transitionCoordinator {
+            coordinator.animate(alongsideTransition: { [weak self] _ in
+                self?.dimView?.alpha = 1
+            })
+        } else {
+            dim.alpha = 1
+        }
+    }
+
+    override func dismissalTransitionWillBegin() {
+        super.dismissalTransitionWillBegin()
+        guard let coordinator = presentedViewController.transitionCoordinator else {
+            dimView?.alpha = 0
+            return
+        }
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            self?.dimView?.alpha = 0
+        })
+    }
+
+    override func dismissalTransitionDidEnd(_ completed: Bool) {
+        super.dismissalTransitionDidEnd(completed)
+        if completed {
+            dimView?.removeFromSuperview()
+            dimView = nil
+        } else {
+            dimView?.alpha = 1
+        }
+    }
+
+    @objc private func handleDimTap(_ recognizer: UITapGestureRecognizer) {
+        sourceRelay.requestDismiss()
+    }
 }
 
 // MARK: - FCLPickerPresentation
@@ -288,6 +495,7 @@ struct FCLPickerPresentation<CoverContent: View>: UIViewControllerRepresentable 
         weak var ownedHost: UIViewController?
         var transitioningDelegate: FCLPickerTransitioningDelegate?
         var panGesture: UIPanGestureRecognizer?
+        var panDelegate: FCLPickerPanDelegate?
         var keyboardIsVisible: Bool = false
         var keyboardObservers: [NSObjectProtocol] = []
 
@@ -311,19 +519,26 @@ struct FCLPickerPresentation<CoverContent: View>: UIViewControllerRepresentable 
             let height = max(view.bounds.height, 1)
             let progress = max(0, min(1, translationY / height))
 
-            // Only engage downward drags from the top ~40pt pill region. A drag
-            // started outside that strip is ignored so inner scroll views keep
-            // working.
             switch gesture.state {
             case .began:
-                let startY = gesture.location(in: view).y - translationY
-                guard startY <= 56 else {
-                    gesture.isEnabled = false
-                    gesture.isEnabled = true
-                    return
-                }
+                // `FCLPickerPanDelegate.shouldBegin` already gated the start
+                // location to the top pill region. Flip the interactive
+                // controller on **before** routing dismiss through the relay —
+                // the relay's handler triggers the SwiftUI binding flip that
+                // re-enters `updateUIViewController`'s else branch to call
+                // `host.dismiss(animated: true)`. When UIKit then asks the
+                // transitioning delegate for an interaction controller,
+                // `interactiveDismiss.isActive` must already be `true` so the
+                // percent-driven controller is returned; otherwise the
+                // swipe-down dismiss would fall back to a non-interactive
+                // morph and ignore the user's drag progress.
                 interactive.begin()
-                host.dismiss(animated: true)
+                // Route through the relay so the keyboard-hide sequencing
+                // (0.15 s lead) runs just like the close button and
+                // accessibility escape paths. Any other dismiss path (tap,
+                // close, escape) already uses the relay; routing swipe-down
+                // the same way keeps all four triggers behaviorally aligned.
+                transitioning.sourceRelay.requestDismiss()
             case .changed:
                 guard interactive.isActive else { return }
                 interactive.update(progress)
@@ -418,13 +633,21 @@ struct FCLPickerPresentation<CoverContent: View>: UIViewControllerRepresentable 
             host.view.accessibilityViewIsModal = true
             installEscapeGesture(on: host, coordinator: context.coordinator)
 
-            // Pan-to-dismiss on the top pill region.
+            // Pan-to-dismiss on the top pill region. An external
+            // `FCLPickerPanDelegate` gates `shouldBegin` and permits
+            // simultaneous recognition so inner scroll recognizers keep
+            // working.
             let pan = UIPanGestureRecognizer(
                 target: context.coordinator,
                 action: #selector(Coordinator.handlePan(_:))
             )
+            let panDelegate = FCLPickerPanDelegate()
+            panDelegate.host = host
+            pan.delegate = panDelegate
+            pan.cancelsTouchesInView = false
             host.view.addGestureRecognizer(pan)
             context.coordinator.panGesture = pan
+            context.coordinator.panDelegate = panDelegate
 
             uiViewController.present(host, animated: true)
         } else {
@@ -442,6 +665,16 @@ struct FCLPickerPresentation<CoverContent: View>: UIViewControllerRepresentable 
         // is invoked by the system on the hosted view. The SwiftUI content cannot
         // override it easily; we swap the host's view to a small subclass that
         // forwards the call to the relay's dismiss hook.
+        //
+        // CRITICAL: the inner `hostView` must track the outer `escapeView`'s
+        // size. When the presentation controller later resizes `escapeView` to
+        // the final sheet frame, the inner hosting view would otherwise stay
+        // pinned to the pre-present bounds (typically a small default size from
+        // `UIHostingController.loadView()`), and SwiftUI would lay the entire
+        // sheet out inside that tiny rect — producing the user-visible bug
+        // where only a ~40 pt fragment of the sheet's top renders at the
+        // top-left. Setting `autoresizingMask` is the minimal fix; using Auto
+        // Layout constraints would achieve the same result.
         let relay = sourceRelay
         let escapeView = EscapeRelayView(frame: host.view.bounds) { [weak relay] in
             relay?.requestDismiss()
@@ -449,10 +682,9 @@ struct FCLPickerPresentation<CoverContent: View>: UIViewControllerRepresentable 
         escapeView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         escapeView.backgroundColor = .clear
         escapeView.isUserInteractionEnabled = true
-        // Embed the hosting view inside the escape view so the escape gesture
-        // reaches us before SwiftUI swallows it.
         let hostView = host.view!
         hostView.frame = escapeView.bounds
+        hostView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         escapeView.addSubview(hostView)
         host.view = escapeView
     }

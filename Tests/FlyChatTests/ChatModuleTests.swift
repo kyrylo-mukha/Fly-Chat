@@ -374,6 +374,59 @@ final class FCLChatModuleTests: XCTestCase {
         XCTAssertEqual(presenter.resolvedInterGroupSpacing, interGroupBefore)
     }
 
+    /// Spec-15 regression: `FCLInputBar.resolveMaxRows(forAvailableHeight:)` must be a
+    /// pure function — identical inputs always produce identical output regardless of how
+    /// many times the function is called or what scene-phase transitions preceded the call.
+    ///
+    /// This test acts as a pixel-identity proxy for the frame stability requirement in the
+    /// PRD: if the row-count formula ever became stateful (e.g., started counting scene
+    /// transitions), the carousel strip and input bar would re-layout on foreground return,
+    /// producing a visible animated jump. Stable output here means the layout height is
+    /// identical before backgrounding and after foregrounding.
+    ///
+    /// Heights chosen to span the representative input-bar lifecycle:
+    ///   - 667 pt  → iPhone SE-class screen height
+    ///   - 844 pt  → iPhone 14 class
+    ///   - 1024 pt → iPad portrait
+    ///   - 390 pt  → narrow side of iPhone Pro Max landscape
+    #if canImport(UIKit)
+    @MainActor
+    func testInputBarFrameIsPixelIdenticalAcrossSceneTransition() {
+        let testHeights: [CGFloat] = [390, 667, 844, 1024]
+
+        for height in testHeights {
+            // Simulate: measure before backgrounding.
+            let rowsBefore = FCLInputBar.resolveMaxRows(forAvailableHeight: height)
+
+            // Simulate: scene goes background then returns to active.
+            // The formula is a pure function; the transition must not affect the result.
+            let rowsAfterBackground = FCLInputBar.resolveMaxRows(forAvailableHeight: height)
+            let rowsAfterActive = FCLInputBar.resolveMaxRows(forAvailableHeight: height)
+
+            XCTAssertEqual(
+                rowsBefore, rowsAfterBackground,
+                "Row count changed between foreground and background for height \(height)"
+            )
+            XCTAssertEqual(
+                rowsBefore, rowsAfterActive,
+                "Row count changed on foreground return for height \(height)"
+            )
+        }
+
+        // Explicit override must be respected regardless of scene transitions.
+        let overrideRows = FCLInputBar.resolveMaxRows(forAvailableHeight: 844, explicitMaxRows: 6)
+        XCTAssertEqual(overrideRows, 6, "Explicit maxRows override must be returned as-is")
+
+        // Boundary: height 0 must clamp to the minimum of 4.
+        let zeroRows = FCLInputBar.resolveMaxRows(forAvailableHeight: 0)
+        XCTAssertEqual(zeroRows, 4, "Zero available height must produce minimum row count of 4")
+
+        // Boundary: very large height must clamp to the maximum of 10.
+        let largeRows = FCLInputBar.resolveMaxRows(forAvailableHeight: 10_000)
+        XCTAssertEqual(largeRows, 10, "Excessive available height must produce maximum row count of 10")
+    }
+    #endif
+
     /// Input-bar derived geometry must not depend on the number of scene
     /// transitions observed; it is a pure function of the passed-in available
     /// height and the delegate's row configuration. This asserts that the

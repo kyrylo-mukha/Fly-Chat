@@ -78,6 +78,26 @@ final class FCLAssetCollectionRegistry: ObservableObject {
 
     // MARK: - API
 
+    /// User-meaningful smart-album subtypes. Everything outside this list
+    /// (e.g. `smartAlbumAllHidden`, `smartAlbumSlomoVideos`,
+    /// `smartAlbumGeneric`) is filtered out during discovery so the selector
+    /// list only shows collections a user would recognize from the Photos
+    /// app. Keep the order aligned with the Photos-app sidebar.
+    private static let allowedSmartAlbumSubtypes: Set<PHAssetCollectionSubtype> = [
+        .smartAlbumRecentlyAdded,
+        .smartAlbumFavorites,
+        .smartAlbumVideos,
+        .smartAlbumPanoramas,
+        .smartAlbumScreenshots,
+        // Portrait-mode album — the PhotoKit enum case is `smartAlbumDepthEffect`,
+        // not `smartAlbumPortrait`; the latter does not exist.
+        .smartAlbumDepthEffect,
+        .smartAlbumLivePhotos,
+        .smartAlbumSelfPortraits,
+        .smartAlbumBursts,
+        .smartAlbumTimelapses
+    ]
+
     /// Discovers all available collections and preloads key-asset thumbnails.
     ///
     /// Safe to call repeatedly; subsequent calls after the first are no-ops.
@@ -88,6 +108,11 @@ final class FCLAssetCollectionRegistry: ObservableObject {
         var result: [FCLAssetCollection] = []
 
         // 1. Smart albums in Photos-app system order (default PHFetchOptions ordering).
+        //    `.any` returns every subtype including internal / developer-only
+        //    ones (`smartAlbumAllHidden`, `smartAlbumSlomoVideos`, …); the
+        //    `makeItem(from:)` helper rejects subtypes outside
+        //    `allowedSmartAlbumSubtypes` so only user-meaningful albums reach
+        //    the selector.
         let smartFetch = PHAssetCollection.fetchAssetCollections(
             with: .smartAlbum,
             subtype: .any,
@@ -111,7 +136,14 @@ final class FCLAssetCollectionRegistry: ObservableObject {
             }
         }
 
-        // Promote Recents (smartAlbumRecentlyAdded) to index 0 if present.
+        // Promote Recents (smartAlbumRecentlyAdded) to index 0 if present and
+        // pre-select it as the default collection. When the device does not
+        // expose a `smartAlbumRecentlyAdded` (possible on early-state
+        // libraries or custom OS configurations), leave
+        // `selectedCollectionID` at `nil` so the data source falls back to a
+        // flat `PHAsset.fetchAssets(with:)` — a "Recents"-equivalent view
+        // across the entire library — instead of picking whichever allow-listed
+        // album happens to sort first.
         if let recentsIndex = result.firstIndex(where: { $0.subtype == .smartAlbumRecentlyAdded }),
            recentsIndex != 0 {
             let recents = result.remove(at: recentsIndex)
@@ -120,8 +152,11 @@ final class FCLAssetCollectionRegistry: ObservableObject {
 
         collections = result
 
-        // Pre-select Recents by default.
-        selectedCollectionID = result.first?.id
+        if let recents = result.first, recents.subtype == .smartAlbumRecentlyAdded {
+            selectedCollectionID = recents.id
+        } else {
+            selectedCollectionID = nil
+        }
 
         // Kick off thumbnail loads.
         result.forEach { loadThumbnail(for: $0) }
@@ -171,6 +206,14 @@ final class FCLAssetCollectionRegistry: ObservableObject {
 
     private static func makeItem(from collection: PHAssetCollection) -> FCLAssetCollection? {
         guard let title = collection.localizedTitle, !title.isEmpty else { return nil }
+        // Smart-album allow-list. User albums (`.album` / `.albumRegular`)
+        // bypass this filter so the user's named folders keep surfacing
+        // regardless of subtype.
+        let subtype = collection.assetCollectionSubtype
+        if collection.assetCollectionType == .smartAlbum,
+           !allowedSmartAlbumSubtypes.contains(subtype) {
+            return nil
+        }
         // Count assets accurately (estimatedAssetCount is NSNotFound for smart albums).
         let count = PHAsset.fetchAssets(in: collection, options: nil).count
         // Skip empty albums.
@@ -179,7 +222,7 @@ final class FCLAssetCollectionRegistry: ObservableObject {
             id: collection.localIdentifier,
             title: title,
             assetCount: count,
-            subtype: collection.assetCollectionSubtype
+            subtype: subtype
         )
     }
 
@@ -193,6 +236,17 @@ final class FCLAssetCollectionRegistry: ObservableObject {
             options: nil
         )
         return fetch.firstObject
+    }
+
+    // MARK: - Defaults
+
+    /// The identifier of the preferred default collection, or `nil` when the
+    /// spec's preferred default (`smartAlbumRecentlyAdded`) is not available
+    /// on this device. A `nil` return instructs ``FCLGalleryDataSource`` to
+    /// fall back to the flat all-photos fetch, which still yields a
+    /// "Recents"-equivalent view ordered by creation date descending.
+    var defaultCollectionID: String? {
+        collections.first(where: { $0.subtype == .smartAlbumRecentlyAdded })?.id
     }
 }
 

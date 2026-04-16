@@ -1,4 +1,5 @@
 #if canImport(AVFoundation) && canImport(UIKit)
+import Combine
 import SwiftUI
 import UIKit
 
@@ -31,6 +32,10 @@ public final class FCLCameraRouter {
     /// Retained for the lifetime of the presentation so the custom open/close
     /// transition stays wired to the hosting controller.
     private var transitioningDelegate: FCLCameraTransitioningDelegate?
+    /// Scope 09: observer that mirrors the relay's `isModalInPresentation`
+    /// flag onto the hosting controller so UIKit swipe-down honors the
+    /// confirmation contract.
+    private var modalInPresentationCancellable: AnyCancellable?
 
     public init(
         configuration: FCLCameraConfiguration = FCLCameraConfiguration(),
@@ -50,11 +55,19 @@ public final class FCLCameraRouter {
     /// relay's `sourceFrame`. When `sourceFrame` is `nil`, a safe bottom-center
     /// fallback rect is used (see ``FCLCameraTransition``).
     public func present(from presenter: UIViewController) {
-        let cameraPresenter = FCLCameraPresenter(configuration: configuration)
+        // Scope 07: share a single capture relay between the presenter (which
+        // subscribes to `capturedAssets` for the Done-chip thumbnail) and the
+        // SwiftUI view (which appends decoded thumbnails to the relay).
+        let captureRelay = FCLCaptureSessionRelay()
+        let cameraPresenter = FCLCameraPresenter(
+            configuration: configuration,
+            captureRelay: captureRelay
+        )
         activePresenter = cameraPresenter
         let view = FCLCameraView(
             presenter: cameraPresenter,
             sourceRelay: sourceRelay,
+            captureRelay: captureRelay,
             onFinish: { [weak self] results in
                 self?.dismiss { self?.onFinish(results) }
             },
@@ -73,6 +86,15 @@ public final class FCLCameraRouter {
             hosting.transitioningDelegate = delegate
             hosting.modalPresentationStyle = .custom
             relay.isTransitioning = true
+            // Scope 09: mirror the relay's isModalInPresentation onto the
+            // hosted controller so UIKit swipe-down is suppressed when
+            // `capturedCount >= 2`.
+            hosting.isModalInPresentation = relay.isModalInPresentation
+            modalInPresentationCancellable = relay.$isModalInPresentation
+                .receive(on: DispatchQueue.main)
+                .sink { [weak hosting] newValue in
+                    hosting?.isModalInPresentation = newValue
+                }
             presenter.present(hosting, animated: true) { [weak relay] in
                 relay?.isTransitioning = false
             }
@@ -103,6 +125,7 @@ public final class FCLCameraRouter {
             activePresenter = nil
             hostedController = nil
             transitioningDelegate = nil
+            modalInPresentationCancellable = nil
             return
         }
         sourceRelay?.isTransitioning = true
@@ -111,6 +134,7 @@ public final class FCLCameraRouter {
             self?.activePresenter = nil
             self?.hostedController = nil
             self?.transitioningDelegate = nil
+            self?.modalInPresentationCancellable = nil
             self?.sourceRelay?.isTransitioning = false
         }
     }
@@ -180,6 +204,7 @@ public final class FCLCameraRouter {
         }
         hostedController = nil
         transitioningDelegate = nil
+        modalInPresentationCancellable = nil
     }
 
     /// Dismisses without stopping the session; used when the host is about to
@@ -203,6 +228,7 @@ public final class FCLCameraRouter {
             self?.activePresenter = nil
             self?.hostedController = nil
             self?.transitioningDelegate = nil
+            self?.modalInPresentationCancellable = nil
             completion()
         }
     }

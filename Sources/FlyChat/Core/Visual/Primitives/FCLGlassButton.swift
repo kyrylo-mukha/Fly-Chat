@@ -15,10 +15,16 @@ public struct FCLGlassButton<Label: View>: View {
     @Environment(\.fclDelegateVisualStyle) private var delegateStyle
     @Environment(\.fclDelegateVisualTint) private var delegateTint
     @Environment(\.fclReducedTransparencyBackground) private var reducedBackground
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.accessibilityShowButtonShapes) private var showButtonShapes
+    @Environment(\.fclPreviewReduceTransparency) private var previewReduceTransparency
+    @Environment(\.fclPreviewReduceMotion) private var previewReduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.legibilityWeight) private var legibilityWeight
+
+    private var reduceTransparency: Bool { previewReduceTransparency ?? systemReduceTransparency }
+    private var reduceMotion: Bool { previewReduceMotion ?? systemReduceMotion }
 
     public init(
         role: ButtonRole? = nil,
@@ -39,33 +45,61 @@ public struct FCLGlassButton<Label: View>: View {
             reduceTransparency: reduceTransparency
         )
         let tint = tintOverride ?? delegateTint
+        let rimColor = Self.effectiveRimStroke(showButtonShapes: showButtonShapes, tint: tint)
 
-        switch resolved {
-        case .liquidGlassNative:
-            #if os(iOS)
-            if #available(iOS 26, *) {
-                Button(role: role, action: action) {
-                    label.padding(.horizontal, 14).padding(.vertical, 10)
+        let core: AnyView = {
+            switch resolved {
+            case .liquidGlassNative:
+                #if os(iOS)
+                if #available(iOS 26, *) {
+                    return AnyView(
+                        Button(role: role, action: action) {
+                            label.padding(.horizontal, 14).padding(.vertical, 10)
+                        }
+                        .buttonStyle(.glass)
+                        .tint(tint?.color)
+                    )
+                } else {
+                    return AnyView(fallbackButton(tint: tint))
                 }
-                .buttonStyle(.glass)
-                .tint(tint?.color)
-            } else {
-                fallbackButton(tint: tint)
+                #else
+                return AnyView(fallbackButton(tint: tint))
+                #endif
+            case .liquidGlassFallback:
+                return AnyView(fallbackButton(tint: tint))
+            case .opaque:
+                return AnyView(
+                    Button(role: role, action: action) {
+                        label.padding(.horizontal, 14).padding(.vertical, 10)
+                    }
+                    .buttonStyle(FCLOpaqueCapsuleButtonStyle(
+                        tint: tint ?? reducedBackground,
+                        reduceMotion: reduceMotion
+                    ))
+                )
             }
-            #else
-            fallbackButton(tint: tint)
-            #endif
-        case .liquidGlassFallback:
-            fallbackButton(tint: tint)
-        case .opaque:
-            Button(role: role, action: action) {
-                label.padding(.horizontal, 14).padding(.vertical, 10)
-            }
-            .buttonStyle(FCLOpaqueCapsuleButtonStyle(
-                tint: tint ?? reducedBackground,
-                reduceMotion: reduceMotion
-            ))
+        }()
+
+        if let rimColor {
+            core.overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(rimColor.opacity(0.9), lineWidth: 1.5)
+            )
+        } else {
+            core
         }
+    }
+
+    /// Returns the rim stroke color when `showButtonShapes` is active, `nil` otherwise.
+    ///
+    /// Exposed as `internal` so unit tests can assert that the environment flag
+    /// produces a non-nil stroke without rendering the full view.
+    static func effectiveRimStroke(
+        showButtonShapes: Bool,
+        tint: FCLChatColorToken?
+    ) -> Color? {
+        guard showButtonShapes else { return nil }
+        return tint?.color ?? Color.primary
     }
 
     @ViewBuilder
@@ -164,5 +198,19 @@ struct FCLOpaqueCapsuleButtonStyle: ButtonStyle {
     FCLGlassButton(action: {}) { Text("Native glass") }
         .padding()
         .background(LinearGradient(colors: [.orange, .pink], startPoint: .top, endPoint: .bottom))
+}
+
+#Preview("Button — Reduced Transparency") {
+    FCLGlassButton(action: {}) { Text("Send") }
+        .padding()
+        .background(Color.gray.opacity(0.2))
+        .fclPreviewReduceTransparency()
+}
+
+#Preview("Button — Reduced Motion") {
+    FCLGlassButton(action: {}) { Text("Send") }
+        .padding()
+        .background(Color.gray.opacity(0.2))
+        .fclPreviewReduceMotion()
 }
 #endif

@@ -216,6 +216,52 @@ extension View {
     }
 }
 
+// MARK: - Preview accessibility overrides
+
+// These internal keys allow #Preview blocks to force-inject accessibility states
+// that the system environment does not expose as writable key paths in Swift 6.3+.
+// They have nil defaults so they are inert at runtime and do not affect production builds.
+
+struct FCLPreviewReduceTransparencyKey: EnvironmentKey {
+    static let defaultValue: Bool? = nil
+}
+
+struct FCLPreviewReduceMotionKey: EnvironmentKey {
+    static let defaultValue: Bool? = nil
+}
+
+extension EnvironmentValues {
+    /// Preview override for `accessibilityReduceTransparency`. `nil` defers to
+    /// the system `accessibilityReduceTransparency` value. Injected only in
+    /// `#Preview` blocks inside this package.
+    var fclPreviewReduceTransparency: Bool? {
+        get { self[FCLPreviewReduceTransparencyKey.self] }
+        set { self[FCLPreviewReduceTransparencyKey.self] = newValue }
+    }
+
+    /// Preview override for `accessibilityReduceMotion`. `nil` defers to
+    /// the system `accessibilityReduceMotion` value. Injected only in
+    /// `#Preview` blocks inside this package.
+    var fclPreviewReduceMotion: Bool? {
+        get { self[FCLPreviewReduceMotionKey.self] }
+        set { self[FCLPreviewReduceMotionKey.self] = newValue }
+    }
+}
+
+#if DEBUG
+extension View {
+    /// Forces the reduce-transparency accessibility path in Xcode Previews.
+    func fclPreviewReduceTransparency(_ value: Bool = true) -> some View {
+        environment(\.fclPreviewReduceTransparency, value)
+    }
+
+    /// Forces the reduce-motion accessibility path in Xcode Previews.
+    func fclPreviewReduceMotion(_ value: Bool = true) -> some View {
+        environment(\.fclPreviewReduceMotion, value)
+    }
+}
+#endif
+
 // MARK: - Shared fallback recipe
 
 /// Renders the shared iOS 17/18 fallback "glass stack" behind any shape.

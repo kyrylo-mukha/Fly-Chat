@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import FlyChat
 
 @MainActor
@@ -99,5 +100,71 @@ final class FCLVisualStyleTests: XCTestCase {
     func testChatDelegateReturnsNilVisualStyleByDefault() {
         let delegate = EmptyChatDelegate()
         XCTAssertNil(delegate.visualStyle)
+    }
+
+    // MARK: - accessibilityShowButtonShapes rim stroke
+
+    func testGlassButtonEffectiveRimStrokeOffWhenShowButtonShapesFalse() {
+        let color = FCLGlassButton<Text>.effectiveRimStroke(
+            showButtonShapes: false,
+            tint: nil
+        )
+        XCTAssertNil(color, "No rim stroke should be produced when showButtonShapes is false")
+    }
+
+    func testGlassButtonEffectiveRimStrokeOnWhenShowButtonShapesTrue() {
+        let color = FCLGlassButton<Text>.effectiveRimStroke(
+            showButtonShapes: true,
+            tint: nil
+        )
+        XCTAssertNotNil(color, "A rim stroke color must be produced when showButtonShapes is true")
+    }
+
+    func testGlassButtonEffectiveRimStrokeUsesTintWhenProvided() {
+        let tint = FCLChatColorToken(red: 0.0, green: 0.48, blue: 1.0)
+        let withTint = FCLGlassButton<Text>.effectiveRimStroke(
+            showButtonShapes: true,
+            tint: tint
+        )
+        let withoutTint = FCLGlassButton<Text>.effectiveRimStroke(
+            showButtonShapes: true,
+            tint: nil
+        )
+        XCTAssertNotNil(withTint)
+        XCTAssertNotNil(withoutTint)
+        // Both are non-nil; tint-based vs primary-based colors differ in value.
+        XCTAssertNotEqual(withTint, withoutTint)
+    }
+
+    func testGlassIconButtonEffectiveRimStrokeOffWhenShowButtonShapesFalse() {
+        let color = FCLGlassIconButton.effectiveRimStroke(
+            showButtonShapes: false,
+            tint: nil
+        )
+        XCTAssertNil(color, "No rim stroke should be produced when showButtonShapes is false")
+    }
+
+    func testGlassIconButtonEffectiveRimStrokeOnWhenShowButtonShapesTrue() {
+        let color = FCLGlassIconButton.effectiveRimStroke(
+            showButtonShapes: true,
+            tint: nil
+        )
+        XCTAssertNotNil(color, "A rim stroke color must be produced when showButtonShapes is true")
+    }
+
+    func testGlassChipEffectiveRimStrokeOffWhenShowButtonShapesFalse() {
+        let color = FCLGlassChip<EmptyView>.effectiveRimStroke(
+            showButtonShapes: false,
+            tint: nil
+        )
+        XCTAssertNil(color, "No rim stroke should be produced when showButtonShapes is false")
+    }
+
+    func testGlassChipEffectiveRimStrokeOnWhenShowButtonShapesTrue() {
+        let color = FCLGlassChip<EmptyView>.effectiveRimStroke(
+            showButtonShapes: true,
+            tint: nil
+        )
+        XCTAssertNotNil(color, "A rim stroke color must be produced when showButtonShapes is true")
     }
 }

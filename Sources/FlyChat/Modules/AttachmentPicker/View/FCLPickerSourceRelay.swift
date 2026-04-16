@@ -60,4 +60,43 @@ enum FCLPickerTransitionCurves {
     /// below this fraction cancel; at or above this fraction finish.
     static let interactiveCancelThreshold: CGFloat = 0.33
 }
+
+// MARK: - UISpringTimingParameters helper
+
+/// Builds a `UISpringTimingParameters` instance from SwiftUI-style `(response,
+/// dampingFraction)` pair.
+///
+/// `UISpringTimingParameters(dampingRatio:initialVelocity:)` only accepts a
+/// damping ratio; it does not expose the natural period ("response") that
+/// SwiftUI's `.spring(response:dampingFraction:)` and the rest of FlyChat's
+/// visual language use. The four-argument `(mass:stiffness:damping:...)`
+/// overload does, so we convert `(response, dampingFraction)` to
+/// `(mass, stiffness, damping)` via the standard formulas:
+///
+/// ```
+/// mass      = 1
+/// stiffness = (2 * π / response)^2 * mass
+/// damping   = 4 * π * dampingFraction * mass / response
+/// ```
+///
+/// The damping ratio that UIKit derives from the computed `damping`,
+/// `stiffness`, and `mass` — `damping / (2 * sqrt(stiffness * mass))` —
+/// simplifies back to `dampingFraction`, so the spring envelope lands on the
+/// intended feel. See `UISpringTimingParameters.init(mass:stiffness:damping:initialVelocity:)`.
+@MainActor
+func springTimingParameters(
+    response: CGFloat,
+    dampingFraction: CGFloat,
+    initialVelocity: CGVector = .zero
+) -> UISpringTimingParameters {
+    let mass: CGFloat = 1
+    let stiffness = pow(2 * .pi / response, 2) * mass
+    let damping = 4 * .pi * dampingFraction * mass / response
+    return UISpringTimingParameters(
+        mass: mass,
+        stiffness: stiffness,
+        damping: damping,
+        initialVelocity: initialVelocity
+    )
+}
 #endif

@@ -367,18 +367,18 @@ public final class FCLChatPresenter: ObservableObject {
 }
 
 #if canImport(UIKit)
-// MARK: - FCLChatMediaPreviewDataSource Conformance
+// MARK: - FCLChatMediaPreviewSourceDelegate Conformance
 
 /// Conformance added here (rather than the primary declaration) so the
 /// ChatMediaPreviewer module stays free of any reference back to concrete
 /// chat-module types. The previewer consumes this protocol; the chat
 /// presenter supplies the data.
-extension FCLChatPresenter: FCLChatMediaPreviewDataSource {
+extension FCLChatPresenter: FCLChatMediaPreviewSourceDelegate {
     /// Returns the current window-space frame for the given attachment by
     /// delegating to `frameProvider`, which the chat screen wires to its
     /// internal relay on `onAppear`. Returns `nil` when no provider is set
     /// or when the relay reports the cell is off-screen.
-    public func currentFrame(for id: UUID) -> CGRect? {
+    public func currentFrame(forItemID id: UUID) -> CGRect? {
         frameProvider?(id)
     }
 }

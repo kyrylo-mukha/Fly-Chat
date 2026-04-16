@@ -111,7 +111,7 @@ private struct FCLPageOffsetPreference: PreferenceKey {
 
 /// Holds the live fractional `pageProgress` derived from the `TabView` pager's
 /// `PreferenceKey` pipeline. Isolating this value into a small `ObservableObject`
-/// instead of a `@State` on `FCLMediaPreviewView` prevents the entire preview
+/// instead of a `@State` on `FCLChatMediaPreviewScreen` prevents the entire preview
 /// body from recomputing on every frame of a swipe. Only the bottom carousel —
 /// the single subview that actually depends on `pageProgress` — observes it.
 @MainActor
@@ -119,7 +119,7 @@ final class FCLPagerProgressModel: ObservableObject {
     @Published var pageProgress: CGFloat = 0
 }
 
-// MARK: - FCLMediaPreviewView
+// MARK: - FCLChatMediaPreviewScreen
 
 /// A full-screen media preview that displays all conversation attachments with horizontal swipe
 /// navigation, drag-to-dismiss, chrome toggling, and a message-scoped bottom thumbnail carousel.
@@ -127,8 +127,8 @@ final class FCLPagerProgressModel: ObservableObject {
 /// `pageProgress` is a `CGFloat` fractional page index derived from the `TabView` pager's
 /// live scroll position using a `GeometryReader` / `PreferenceKey` pipeline. It is exposed
 /// internally so ``FCLPreviewThumbCarousel`` can apply Photos-like parallax to thumbnails.
-struct FCLMediaPreviewView: View {
-    let presenter: any FCLChatMediaPreviewDataSource
+struct FCLChatMediaPreviewScreen: View {
+    let presenter: any FCLChatMediaPreviewSourceDelegate
     let initialAttachmentID: UUID
     let namespace: Namespace.ID
     let onDismiss: () -> Void
@@ -546,13 +546,13 @@ struct FCLMediaPreviewView: View {
             return
         }
 
-        // Read the current cell frame at dismiss-time. Prefer the data source protocol
-        // (FCLChatMediaPreviewDataSource.currentFrame) so the previewer does not need a
-        // separate FCLMediaPreviewSource reference. Fall back to the legacy source ref for
-        // hosts that have not yet adopted the data source extension.
+        // Read the current cell frame at dismiss-time. Prefer the delegate protocol
+        // (FCLChatMediaPreviewSourceDelegate.currentFrame(forItemID:)) so the previewer does
+        // not need a separate FCLMediaPreviewSource reference. Fall back to the legacy source
+        // ref for hosts that have not yet adopted the delegate extension.
         let currentID = current.attachment.id
         let sourceFrame: CGRect? =
-            presenter.currentFrame(for: currentID)
+            presenter.currentFrame(forItemID: currentID)
             ?? source?.mediaPreviewFrame(forAssetID: currentID.uuidString)
 
         let isOffScreen = sourceFrame == nil
@@ -641,18 +641,16 @@ struct FCLMediaPreviewView: View {
         if let currentMessageID = allMedia[safe: currentIndex]?.messageID {
             let messageMedia = allMedia.filter { $0.messageID == currentMessageID }
             // Hand the live progress model to a dedicated subview so per-frame
-            // page-progress updates do not invalidate FCLMediaPreviewView's body.
-            // Strip sits 88 pt above the safe-area bottom edge as specified in PRD 19.
-            // The chrome VStack is laid out inside the full-screen container, so
-            // `.padding(.bottom, 88)` places the strip center at 88 pt from the
-            // bottom safe-area inset without hardcoding any screen dimensions.
+            // page-progress updates do not invalidate FCLChatMediaPreviewScreen's body.
+            // Strip sits 88 pt above the screen edge, adjusted for the safe-area bottom
+            // inset so the carousel clears the home indicator on notched devices.
             FCLBottomCarouselContainer(
                 allMedia: allMedia,
                 messageMedia: messageMedia,
                 selectedAttachmentID: $carouselSelectedID,
                 progressModel: progressModel
             )
-            .padding(.bottom, 88)
+            .padding(.bottom, FCLChatPreviewerLayout.carouselBottomSpacing(safeArea: lastSafeAreaInsets))
         }
     }
 
@@ -707,6 +705,12 @@ struct FCLMediaPreviewView: View {
     }
 }
 
+// MARK: - Backward Compatibility Typealias
+
+/// Transitional alias for call sites that still reference the previous view type name.
+/// Deprecated: use `FCLChatMediaPreviewScreen` directly.
+internal typealias FCLMediaPreviewView = FCLChatMediaPreviewScreen
+
 // MARK: - FCLBottomCarouselContainer
 
 /// Thin observer wrapper around `FCLPreviewThumbCarousel` that subscribes to
@@ -720,7 +724,7 @@ private struct FCLBottomCarouselContainer: View {
     @ObservedObject var progressModel: FCLPagerProgressModel
 
     var body: some View {
-        let localProgress = FCLMediaPreviewView.localPageProgress(
+        let localProgress = FCLChatMediaPreviewScreen.localPageProgress(
             global: progressModel.pageProgress,
             allMedia: allMedia,
             messageMedia: messageMedia,
@@ -909,11 +913,11 @@ private func fclPreviewAttachment(
     )
 }
 
-/// Preview-only stub conforming to ``FCLChatMediaPreviewDataSource`` so the
+/// Preview-only stub conforming to ``FCLChatMediaPreviewSourceDelegate`` so the
 /// previewer module's `#Preview` does not reach back into the chat module for a
 /// concrete presenter.
 @MainActor
-private final class FCLPreviewDataSourceStub: FCLChatMediaPreviewDataSource {
+private final class FCLPreviewDataSourceStub: FCLChatMediaPreviewSourceDelegate {
     var allConversationMedia: [(messageID: UUID, attachmentIndex: Int, attachment: FCLAttachment)]
 
     init(attachments: [FCLAttachment] = []) {
@@ -1000,8 +1004,8 @@ private struct FCLPreviewWrapperEmpty: View {
 
 /// Preview variant that simulates the off-screen-collapse dismiss path.
 ///
-/// `FCLPreviewDataSourceStub` always returns `nil` from `currentFrame(for:)` (via the
-/// default extension on `FCLChatMediaPreviewDataSource`), so closing the previewer from
+/// `FCLPreviewDataSourceStub` always returns `nil` from `currentFrame(forItemID:)` (via the
+/// default extension on `FCLChatMediaPreviewSourceDelegate`), so closing the previewer from
 /// this state triggers the easeIn 0.28 s collapse-to-zero-size animation rather than the
 /// spring zoom-back. Use this to inspect the collapse animation in Xcode Previews.
 private struct FCLPreviewWrapperOffScreenCollapse: View {
@@ -1019,6 +1023,30 @@ private struct FCLPreviewWrapperOffScreenCollapse: View {
             onDismiss: {}
         )
         .background(Color.black)
+    }
+}
+
+// MARK: - FCLChatPreviewerLayout
+
+/// Shared layout constants and helpers for the chat media previewer chrome.
+///
+/// Using a dedicated namespace keeps magic numbers out of call sites and makes
+/// the safe-area arithmetic auditable in one place.
+enum FCLChatPreviewerLayout {
+    /// The fixed visual clearance (in points) above the safe-area bottom edge
+    /// at which the carousel strip sits. This constant matches the PRD-19 spec.
+    static let carouselBaseSpacing: CGFloat = 88
+
+    /// Returns the total bottom padding to apply to the carousel strip so it
+    /// clears the home indicator on notched devices while maintaining the
+    /// spec-required 88 pt visual clearance above the safe-area edge.
+    ///
+    /// - Parameter safeArea: The current container safe-area insets, as
+    ///   reported by the enclosing `GeometryReader`.
+    /// - Returns: `88 + safeArea.bottom`, so the strip's bottom edge is
+    ///   always 88 pt above the system-defined bottom safe-area boundary.
+    static func carouselBottomSpacing(safeArea: EdgeInsets) -> CGFloat {
+        carouselBaseSpacing + safeArea.bottom
     }
 }
 

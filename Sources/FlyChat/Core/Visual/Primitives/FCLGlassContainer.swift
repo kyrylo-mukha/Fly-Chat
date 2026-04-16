@@ -16,9 +16,12 @@ public struct FCLGlassContainer<Content: View>: View {
     @Environment(\.fclDelegateVisualStyle) private var delegateStyle
     @Environment(\.fclDelegateVisualTint) private var delegateTint
     @Environment(\.fclReducedTransparencyBackground) private var reducedBackground
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
+    @Environment(\.fclPreviewReduceTransparency) private var previewReduceTransparency
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.legibilityWeight) private var legibilityWeight
+
+    private var reduceTransparency: Bool { previewReduceTransparency ?? systemReduceTransparency }
 
     public init(
         cornerRadius: CGFloat = 16,
@@ -119,5 +122,25 @@ public struct FCLGlassContainer<Content: View>: View {
     }
     .padding()
     .background(LinearGradient(colors: [.blue, .purple], startPoint: .top, endPoint: .bottom))
+}
+
+#Preview("Container — Reduced Transparency") {
+    FCLGlassContainer {
+        Text("Reduced transparency")
+            .padding()
+    }
+    .padding()
+    .background(Color.gray.opacity(0.2))
+    .fclPreviewReduceTransparency()
+}
+
+#Preview("Container — Reduced Motion") {
+    FCLGlassContainer {
+        Text("Reduced motion")
+            .padding()
+    }
+    .padding()
+    .background(Color.gray.opacity(0.2))
+    .fclPreviewReduceMotion()
 }
 #endif
