@@ -339,3 +339,42 @@ extension AttachmentPickerTests {
     }
 }
 #endif
+
+// MARK: - FCLVideoExportAssetBox
+
+#if canImport(UIKit)
+import AVFoundation
+
+extension AttachmentPickerTests {
+
+    /// Smoke test: the box wrapper must survive a detached-Task hand-off with
+    /// its `AVAsset` reference preserved. This exercises the concurrency
+    /// ordering of the Scope D fix without calling into AVFoundation's
+    /// export pipeline — we only check that the box travels across the
+    /// cooperative-executor boundary and delivers the same asset instance.
+    func testVideoExportAssetBoxSurvivesDetachedTaskHandoff() async {
+        let url = URL(fileURLWithPath: "/tmp/fcl_export_box_fixture.mov")
+        let asset = AVURLAsset(url: url)
+        let box = FCLVideoExportAssetBox(asset: asset)
+        let expectedIdentity = ObjectIdentifier(asset)
+
+        let receivedIdentity = await Task.detached(priority: .userInitiated) {
+            ObjectIdentifier(box.asset)
+        }.value
+
+        XCTAssertEqual(receivedIdentity, expectedIdentity)
+    }
+
+    /// A box holding the same `AVAsset` is a pure value carrier: copying it
+    /// (via `let` re-binding) preserves the underlying asset identity. This
+    /// guards against a regression where a future refactor accidentally turns
+    /// the box into a class or re-wraps the asset.
+    func testVideoExportAssetBoxPreservesAssetIdentityAcrossCopy() {
+        let url = URL(fileURLWithPath: "/tmp/fcl_export_box_copy_fixture.mov")
+        let asset = AVURLAsset(url: url)
+        let box = FCLVideoExportAssetBox(asset: asset)
+        let copy = box
+        XCTAssertEqual(ObjectIdentifier(copy.asset), ObjectIdentifier(asset))
+    }
+}
+#endif

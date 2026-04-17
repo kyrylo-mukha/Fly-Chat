@@ -4,7 +4,7 @@ This guide describes the end-to-end attachment flow: from opening the picker, th
 
 ## High-Level Flow
 
-1. **Open the picker.** The input bar's attachment button presents `FCLAttachmentPickerSheet` through a custom expand-from-button transition.
+1. **Open the picker.** The input bar's attachment button presents `FCLAttachmentPickerSheet` through a native SwiftUI `.sheet(isPresented:)` with `.presentationDetents([.medium, .large])`. A companion SwiftUI overlay layer animates a pill from the attach button to the sheet's top edge so the open reads as an expand-from-button morph without replacing standard sheet behaviour.
 2. **Resolve permission.** PhotoKit authorization is resolved asynchronously; denied and limited states have dedicated views inside the picker (see **Permission Flow** below).
 3. **Choose a source.** The user picks between the Gallery tab, the Files tab, any host-provided custom tab, or the inline camera cell on the gallery grid.
 4. **Pick an album (optional).** A pill control above the grid opens an album sheet that lists smart albums and user albums.
@@ -15,23 +15,15 @@ This guide describes the end-to-end attachment flow: from opening the picker, th
 
 ## Picker Expand / Collapse Transition
 
-The picker sheet does not use the system modal presentation. It is driven by a custom `FCLPickerTransition` (a `UIViewControllerAnimatedTransitioning`) that morphs the attach-button rect into the sheet's final frame.
+The picker sheet is presented as a native SwiftUI `.sheet(isPresented:)` with `.presentationDetents([.medium, .large], selection:)`, opening at `.medium` and allowing the user to pull up to `.large`. A companion SwiftUI overlay renders a pill snapshot that animates between the attach button and the sheet's top edge so the hand-off reads as "the button expanded into the sheet" without compromising any standard sheet behaviour.
 
-- **Source rect reporting.** `FCLPickerSourceRelay` captures the attach button's window frame when the button is tapped, and hands it to the transition animator.
-- **Presentation sizing (half-sheet).** `FCLPickerPresentationController` renders the picker as a bottom-anchored half-sheet rather than a full-screen cover, matching the pre-overhaul `.presentationDetents([.medium, .large])` footprint while keeping the custom morph animator. The sheet extends from the bottom of the container up to `max(safeAreaInsets.top + 10, 54)` pt — a small peek that leaves room for a translucent dim backdrop above and reads as a modal card. The top corners of the presented view are rounded at 16 pt and `masksToBounds = true` so the drag-handle capsule inside the sheet body sits flush against the rounded edge.
-- **Escape-gesture wrapper.** The custom `EscapeRelayView` installed by `FCLPickerPresentation.installEscapeGesture(on:)` carries `autoresizingMask = [.flexibleWidth, .flexibleHeight]` **and** propagates the same mask down to the nested hosting view. Without the inner mask, UIKit keeps the hosting view pinned to its pre-present bounds when the outer escape view stretches to the final sheet frame, which leaves SwiftUI laying out the entire picker inside a small top-left fragment. The autoresizing mask on the inner hosting view is what makes the sheet actually fill the sheet frame.
-- **Host layout.** The hosted SwiftUI content is the sheet itself. The morph animator snapshots the hosted view's top 40 pt pill and expects that strip to contain the sheet's drag handle, so the sheet is not wrapped in a SwiftUI-level dim region — the dim lives on the UIKit side.
-- **Morph timing.** The present animation runs 0.32s with a spring envelope of `response = 0.38` and `dampingFraction = 0.86`. Both values are converted into `UISpringTimingParameters(mass:stiffness:damping:initialVelocity:)` by a shared `springTimingParameters(response:dampingFraction:)` helper, so present and dismiss paths share a single spring shape that matches the spec's SwiftUI-equivalent feel rather than the UIKit default damping-only envelope.
-- **Interactive dismissal.** A swipe-down gesture is wired into the transition's interactive controller. Cancellation triggers below a 0.33 progress threshold; above it, the transition completes. The pan uses an `FCLPickerPanDelegate` that gates `shouldBegin` to the top 56 pt of the sheet and permits simultaneous recognition with inner scroll views, so the gallery collection view continues to scroll below the pill region. The `.began` handler routes through `FCLPickerSourceRelay.requestDismiss()` rather than calling `host.dismiss(_:)` directly so the keyboard-hide 0.15s lead runs on this path too.
-- **Keyboard sequencing.** When the picker is about to collapse, the keyboard is hidden 0.15s before the sheet contracts so the final frame calculation is stable.
-- **Four dismiss paths.** All four triggers route through `FCLPickerSourceRelay.requestDismiss()`:
-
-  | Trigger | Implementation |
-  |---|---|
-  | Close button | `FCLPickerCloseButton` tap → `sourceRelay.requestDismiss()`. |
-  | Swipe-down | `FCLPickerPresentation.Coordinator.handlePan(_:)` begins → `sourceRelay.requestDismiss()`. |
-  | Tap-outside | `FCLPickerPresentationController` installs a transparent dim view at the back of the container in `presentationTransitionWillBegin()`; a `UITapGestureRecognizer` on that view calls `sourceRelay.requestDismiss()`. |
-  | Accessibility escape | `EscapeRelayView.accessibilityPerformEscape()` returns `true` and calls `sourceRelay.requestDismiss()`. |
+- **Source and sheet anchors.** `FCLPickerSourceRelay` publishes two window-space rects: `sourceFrame` (attach button frame, written by a background `GeometryReader` on the button) and `sheetTopFrame` (the sheet's top 40 pt rect, written by a transparent `GeometryReader` pinned inside the sheet content's top edge). Both survive rotation, detent changes, and dynamic type.
+- **Morph overlay.** `FCLPickerMorphOverlay` is a SwiftUI view mounted via `.overlay(alignment: .bottomTrailing)` on the input bar. It renders a single rounded-rectangle pill and animates its frame + corner radius between `sourceFrame` and `sheetTopFrame` using a `.spring(response: 0.38, dampingFraction: 0.86)` envelope that matches `FCLPickerTransitionCurves.morphDuration` (0.32 s). An internal `FCLPickerMorphPhase` enum (`.idle` / `.expanding` / `.collapsing`) drives the direction, and the overlay auto-resets back to `.idle` after the morph window so it stops rendering.
+- **Layering.** SwiftUI sheets present at window level, above the input-bar overlay. On open the pill is visible at the button while the sheet slides up from below, progressively occluding the pill from bottom to top until only its terminal rect remains — coincident with the sheet's top edge. On close the pill is placed at the sheet-top rect and animates back to the button while the sheet slides down and reveals the pill underneath. A separate `UIWindow` is not required; the occlusion/reveal is the effect.
+- **Binding interception.** The input bar wraps the `isPresented` binding in a small custom `Binding<Bool>` whose setter watches for `true → false` transitions. When that happens, the wrapped binding flips `morphPhase = .collapsing` on the same UI tick as the underlying state change, so the overlay's collapse animation starts in parallel with the sheet's native slide-down regardless of which dismiss trigger fired (close button, tap-outside, swipe-below-medium, accessibility escape).
+- **Dismiss paths.** All of the native sheet's dismiss paths are preserved. `FCLPickerCloseButton` and the accessibility escape route through `FCLPickerSourceRelay.requestDismiss()`, whose handler flips the wrapped `isPresented` binding. Swipe-below-medium and tap-outside are handled entirely by the native sheet presentation; the binding intercept catches them without any custom UIKit code.
+- **Reduce motion.** When `accessibilityReduceMotion` is active, the overlay switches from the spring to `.linear(duration: morphDuration)` and the pill becomes a pure opacity cross-fade. The native sheet slide remains as the shared baseline motion in both modes.
+- **Keyboard sequencing.** First responder resignation runs synchronously on the same UI tick as the binding flip, so the keyboard dismiss, the sheet slide, and the pill morph all share a single animation transaction without needing a delay-based lead.
 
 ## Permission Flow
 
@@ -50,16 +42,20 @@ The coordinator also observes scene activation so returning from Settings refres
 
 ## Album / Collection Picker
 
-The gallery grid supports per-album browsing through a compact pill control (`Recents ▾`) above the asset grid. Tapping the pill opens `FCLCollectionSelectorView`, a sheet backed by `FCLAssetCollectionRegistry` that lists:
+The gallery grid supports per-album browsing through a compact pill control (`Recents ▾`) above the asset grid. Tapping the pill opens a floating SwiftUI popover (`.popover(isPresented:arrowEdge:.top)`) with `.presentationCompactAdaptation(.popover)` so the panel keeps its popover appearance on iPhone instead of adapting into a nested sheet. The popover uses `.presentationBackground(.thinMaterial)` for the Telegram-style translucent dark backdrop.
+
+The popover content is a vertical `ScrollView` of rows rather than a `List`, so there are no system separators and the material backdrop shows through the gaps. Each row is laid out as title + count on the leading side, a checkmark glyph on the currently-selected row, and a 44 × 44 pt thumbnail on the trailing side. Tapping any row assigns `registry.selectedCollectionID` and closes the popover.
+
+The list of collections is managed by `FCLAssetCollectionRegistry`:
 
 - **Smart albums** — curated via an explicit allow-list so noisy system subtypes do not appear. The allow-list covers Recents, Favorites, Videos, Panoramas, Screenshots, Portraits (`smartAlbumDepthEffect`), Live Photos, Selfies, Bursts, and Time-lapse. When the device does not expose `smartAlbumRecentlyAdded`, the registry leaves `selectedCollectionID` as `nil` so the data source falls back to the flat all-photos fetch instead of surfacing whichever album sorts first.
 - **User albums** — the user-created albums available to the app.
 
+Recents is always placed at index 0 when it is present in the device library, and the registry pre-selects it as the default collection on load. Returning to Recents from any other source is simply a matter of tapping the Recents row in the popover — no separate "Reset" control is needed.
+
 Each row renders a thumbnail generated through a shared `PHCachingImageManager`. Selecting an album updates `FCLGalleryDataSource.collectionID`; the grid reloads with the new fetch result while keeping the current multi-selection intact.
 
-The selector is visible only in the `.authorized` state. When the picker is in `.limited`, the user's selected assets remain the only source, and the album pill is hidden.
-
-The last-used album persists for the lifetime of the sheet session, so a user who switches tabs and comes back lands on the same album they were browsing.
+The selector is visible only in the `.authorized` state. When the picker is in `.limited`, the user's selected assets remain the only source, and the album pill is hidden. The last-used album persists for the lifetime of the sheet session, so a user who switches tabs and comes back lands on the same album they were browsing.
 
 ## Preview Screen
 

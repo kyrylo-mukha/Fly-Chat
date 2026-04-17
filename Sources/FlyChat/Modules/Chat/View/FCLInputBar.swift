@@ -49,9 +49,20 @@ struct FCLInputBar: View {
     @State private var textViewHeight: CGFloat = 40
     /// Whether the attachment picker sheet is presented.
     @State private var showAttachmentPicker = false
-    /// Shared source relay: publishes the attach button's window-space frame to
-    /// the picker morph animator and carries the dismiss hook every close path
-    /// routes through (tap-outside, swipe-down, close button, accessibility).
+    /// Current detent of the presented attachment picker sheet. The sheet starts
+    /// at `.medium`; the user can drag up to `.large` and back, or drag below
+    /// `.medium` to dismiss.
+    @State private var pickerDetent: PresentationDetent = .medium
+    /// Current phase of the pill morph overlay: `.idle` when no morph is
+    /// in-flight, `.expanding` on open, `.collapsing` on close. Flipped by the
+    /// attach button's action (open) and by the wrapped sheet binding's setter
+    /// (any close path).
+    @State private var morphPhase: FCLPickerMorphPhase = .idle
+    /// Shared source relay: publishes the attach button's window-space frame
+    /// and the sheet's top-edge rect to ``FCLPickerMorphOverlay``. Carries the
+    /// `dismissHandler` invoked by consumers inside the sheet (close button,
+    /// Voice Control escape) so every in-sheet dismiss flows through the
+    /// wrapped `isPresented` binding and therefore through the collapse morph.
     @State private var pickerSourceRelay = FCLPickerSourceRelay()
     /// Optional delegate providing tab configuration and compression settings for the attachment picker.
     private let delegate: (any FCLChatDelegate)?
@@ -156,7 +167,45 @@ struct FCLInputBar: View {
         return min(max(Int(height / 160), 4), 10)
     }
 
-    /// Builds the full input bar content with the input row and attachment picker sheet.
+    /// Wrapped binding that intercepts every `set(false)` on the sheet's
+    /// presentation state so the collapse morph fires on the same UI tick as
+    /// the native sheet slide-down.
+    ///
+    /// SwiftUI's `.sheet()` dismiss paths — swipe-below-`.medium`, tap-outside,
+    /// Voice Control escape, programmatic flip — all funnel through the
+    /// `isPresented` binding's setter. Wrapping it is the single authoritative
+    /// place to observe "sheet is about to dismiss". Ordering inside the
+    /// setter matters:
+    ///
+    /// 1. Detect the `true → false` transition.
+    /// 2. Flip `morphPhase = .collapsing` so the overlay reacts immediately.
+    /// 3. Resign first responder synchronously so the keyboard collapses in
+    ///    the same visual transaction (no asyncAfter lead).
+    /// 4. Assign `showAttachmentPicker = newValue` so SwiftUI begins the sheet
+    ///    slide-down.
+    ///
+    /// Both animations therefore start on the same UI tick and converge inside
+    /// ``FCLPickerTransitionCurves/morphDuration``.
+    private var sheetBinding: Binding<Bool> {
+        Binding(
+            get: { showAttachmentPicker },
+            set: { newValue in
+                if showAttachmentPicker, !newValue {
+                    morphPhase = .collapsing
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil,
+                        from: nil,
+                        for: nil
+                    )
+                }
+                showAttachmentPicker = newValue
+            }
+        )
+    }
+
+    /// Builds the full input bar content with the input row, the attachment
+    /// picker sheet, and the pill-morph overlay.
     ///
     /// Glass resolution: the container inherits the library-wide style from the
     /// `FCLVisualStyleDelegate` installed on ``FCLChatScreen``. The deprecated
@@ -178,16 +227,64 @@ struct FCLInputBar: View {
             }
         }
         .modifier(FCLInputBarLegacyLiquidGlassOverride(optedIn: liquidGlass))
-        .fclPickerPresentation(
-            isPresented: $showAttachmentPicker,
-            sourceRelay: pickerSourceRelay
-        ) {
+        .overlay(alignment: .bottomTrailing) {
+            FCLPickerMorphOverlay(
+                phase: $morphPhase,
+                buttonFrame: pickerSourceRelay.sourceFrame,
+                sheetTopFrame: pickerSourceRelay.sheetTopFrame
+            )
+        }
+        .sheet(isPresented: sheetBinding) {
             FCLAttachmentPickerHost(
                 chatPresenter: presenter,
                 delegate: delegate?.attachment,
                 sourceRelay: pickerSourceRelay,
                 onDismiss: { pickerSourceRelay.requestDismiss() }
             )
+            .presentationDetents([.medium, .large], selection: $pickerDetent)
+            .presentationDragIndicator(.hidden)
+            .presentationCornerRadius(16)
+            .presentationBackgroundInteraction(.disabled)
+            .interactiveDismissDisabled(false)
+            .background(
+                // Transparent geometry reader mounted at the sheet's top edge so
+                // the morph overlay has an exact window-space rect to land on.
+                // Using a top-aligned overlay rather than the sheet content's
+                // root frame keeps the measurement insensitive to interior
+                // layout changes (drag handle, close button, detent changes).
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear {
+                            let global = proxy.frame(in: .global)
+                            pickerSourceRelay.sheetTopFrame = CGRect(
+                                x: global.minX,
+                                y: global.minY,
+                                width: global.width,
+                                height: 40
+                            )
+                        }
+                        .onChange(of: proxy.frame(in: .global)) { _, newFrame in
+                            pickerSourceRelay.sheetTopFrame = CGRect(
+                                x: newFrame.minX,
+                                y: newFrame.minY,
+                                width: newFrame.width,
+                                height: 40
+                            )
+                        }
+                }
+                .frame(height: 0)
+                .allowsHitTesting(false),
+                alignment: .top
+            )
+        }
+        .onAppear {
+            // The close button inside the sheet and any Voice Control escape
+            // path both call `requestDismiss()` on the relay. Routing the
+            // handler through the wrapped binding guarantees the collapse
+            // morph fires on the same tick the sheet begins sliding away.
+            pickerSourceRelay.dismissHandler = {
+                sheetBinding.wrappedValue = false
+            }
         }
     }
 
@@ -246,7 +343,7 @@ struct FCLInputBar: View {
             FCLGlassIconButton(
                 systemImage: "paperclip",
                 size: 36,
-                action: { showAttachmentPicker = true }
+                action: { presentAttachmentPicker() }
             )
             .accessibilityLabel("Attach file")
             .background(
@@ -261,6 +358,21 @@ struct FCLInputBar: View {
                 }
             )
         }
+    }
+
+    /// Opens the attachment picker sheet: kicks off the expand-from-button
+    /// morph, resigns the draft-field keyboard synchronously, and flips the
+    /// presentation state. All three mutations land on the same UI tick so the
+    /// native slide-up, the keyboard dismiss, and the pill morph converge.
+    private func presentAttachmentPicker() {
+        morphPhase = .expanding
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+        showAttachmentPicker = true
     }
 
     /// Determines whether the send button should be enabled based on text length and attachments.
@@ -369,16 +481,12 @@ private struct FCLAttachmentPickerHost: View {
     }
 
     var body: some View {
-        // The picker sheet owns the full hosting container. The morph animator
-        // in ``FCLPickerTransitionAnimator`` snapshots the top 40 pt of the
-        // hosted view to interpolate from the attach button — that pill is
-        // the drag handle plus top bar of `FCLAttachmentPickerSheet`, which
-        // only works when the sheet is anchored at the top of the host. The
-        // previous layout wrapped the sheet in a VStack with a tap-to-dismiss
-        // `Color.clear` above it, producing a 50/50 split that both hid the
-        // sheet under the navigation bar and left the morph snapshotting an
-        // empty region. Dismissal still routes through the close button,
-        // swipe-down, and accessibility escape paths on the sheet itself.
+        // The picker sheet fills its native `.sheet()` hosting container. The
+        // pill-morph overlay renders at window level inside the parent chat
+        // hierarchy and sits behind the sheet — as the sheet slides up, it
+        // progressively occludes the pill; as the sheet slides down, it
+        // reveals the pill. The sheet content therefore does not need to
+        // coordinate its own morph layer.
         FCLAttachmentPickerSheet(
             presenter: presenter,
             galleryDataSource: galleryDataSource,
@@ -386,7 +494,6 @@ private struct FCLAttachmentPickerHost: View {
             sourceRelay: sourceRelay,
             onDismiss: onDismiss
         )
-        .ignoresSafeArea(edges: .bottom)
     }
 }
 

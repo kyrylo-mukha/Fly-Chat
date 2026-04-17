@@ -5,10 +5,11 @@ import SwiftUI
 // MARK: - FCLCollectionSelectorView
 
 /// A pill-shaped chip that shows the currently selected collection name and a
-/// chevron caret. Tapping it opens a system sheet listing all available collections.
+/// chevron caret. Tapping it opens a Telegram-style floating popover listing
+/// all available collections.
 ///
 /// Only shown in `.authorized` state. In `.limited` the selector is hidden and the
-/// "Manage" banner from scope 11 (`FCLPickerPermissionBanner`) is shown instead.
+/// "Manage" banner from `FCLPickerPermissionBanner` is shown instead.
 ///
 /// The component is state-less from the caller's perspective: it reads and writes
 /// through `FCLAssetCollectionRegistry.selectedCollectionID` which is the single
@@ -16,24 +17,27 @@ import SwiftUI
 struct FCLCollectionSelectorView: View {
     @ObservedObject var registry: FCLAssetCollectionRegistry
 
-    @State private var isSheetPresented = false
+    @State private var isPopoverPresented = false
 
     var body: some View {
         FCLGlassChip(
             title: currentTitle,
-            action: { isSheetPresented = true }
+            action: { isPopoverPresented = true }
         ) {
             Image(systemName: "chevron.down")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.primary)
         }
-        .sheet(isPresented: $isSheetPresented) {
-            FCLCollectionListSheet(
+        .popover(isPresented: $isPopoverPresented, arrowEdge: .top) {
+            FCLCollectionListPopover(
                 registry: registry,
-                isPresented: $isSheetPresented
+                onSelect: { id in
+                    registry.selectedCollectionID = id
+                    isPopoverPresented = false
+                }
             )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            .presentationCompactAdaptation(.popover)
+            .presentationBackground(.thinMaterial)
         }
     }
 
@@ -47,66 +51,93 @@ struct FCLCollectionSelectorView: View {
     }
 }
 
-// MARK: - FCLCollectionListSheet
+// MARK: - FCLCollectionListPopover
 
-/// The system-sheet content listing all collections with thumbnail, title, and count.
-private struct FCLCollectionListSheet: View {
+/// Telegram-style floating panel showing collections as rows with
+/// title + count on the leading side, an optional checkmark for the
+/// selected row, and a thumbnail on the trailing side.
+///
+/// Rendered inside a `ScrollView`+`VStack` — avoids List separators and
+/// lets the material background show through the gaps.
+private struct FCLCollectionListPopover: View {
     @ObservedObject var registry: FCLAssetCollectionRegistry
-    @Binding var isPresented: Bool
+    let onSelect: (String) -> Void
 
     var body: some View {
-        NavigationStack {
-            List(registry.collections) { collection in
-                collectionRow(collection)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        registry.selectedCollectionID = collection.id
-                        isPresented = false
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 0) {
+                ForEach(registry.collections) { collection in
+                    CollectionRow(
+                        collection: collection,
+                        isSelected: registry.selectedCollectionID == collection.id,
+                        thumbnail: registry.thumbnails[collection.id],
+                        onSelect: { onSelect(collection.id) }
+                    )
+
+                    if collection.id != registry.collections.last?.id {
+                        Divider()
+                            .padding(.leading, 16)
                     }
-            }
-            .listStyle(.plain)
-            .navigationTitle("Albums")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { isPresented = false }
                 }
             }
         }
+        .frame(minWidth: 240, idealWidth: 260)
+        .fixedSize(horizontal: false, vertical: true)
+        // Constrain height so the popover does not fill the whole screen on
+        // devices with many albums; allow the ScrollView to kick in above limit.
+        .frame(maxHeight: 400)
     }
+}
 
-    @ViewBuilder
-    private func collectionRow(_ collection: FCLAssetCollection) -> some View {
-        HStack(spacing: 12) {
-            // Thumbnail
-            thumbnailView(for: collection)
-                .frame(width: 52, height: 52)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+// MARK: - CollectionRow
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(collection.title)
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                Text("\(collection.assetCount)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+/// A single row inside `FCLCollectionListPopover`.
+///
+/// Layout: `HStack { title/count VStack — checkmark (if selected) — thumbnail }`
+/// Height: intrinsic (~56 pt via vertical padding + 44 pt thumbnail).
+private struct CollectionRow: View {
+    let collection: FCLAssetCollection
+    let isSelected: Bool
+    let thumbnail: UIImage?
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                // Leading: title + count
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(collection.title)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    Text("\(collection.assetCount)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                // Checkmark for the currently selected row
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.tint)
+                }
+
+                // Trailing: thumbnail
+                thumbnailView
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             }
-
-            Spacer(minLength: 0)
-
-            // Selection checkmark
-            if registry.selectedCollectionID == collection.id {
-                Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.blue)
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 4)
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
-    private func thumbnailView(for collection: FCLAssetCollection) -> some View {
-        if let image = registry.thumbnails[collection.id] {
+    private var thumbnailView: some View {
+        if let image = thumbnail {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
@@ -114,7 +145,7 @@ private struct FCLCollectionListSheet: View {
             Color(.tertiarySystemFill)
                 .overlay(
                     Image(systemName: "photo")
-                        .font(.title3)
+                        .font(.caption)
                         .foregroundStyle(Color(.secondaryLabel))
                 )
         }
@@ -125,20 +156,34 @@ private struct FCLCollectionListSheet: View {
 
 #if DEBUG
 
-#Preview("Selector Pill — Collapsed (Recents selected)") {
-    FCLCollectionSelectorPreviewWrapper(selectedIndex: 0, showSheet: false)
+#Preview("Selector Chip — Recents selected (default)") {
+    FCLCollectionSelectorPreviewWrapper(selectedIndex: 0)
 }
 
-#Preview("Selector Sheet — Collection List (populated)") {
-    FCLCollectionSelectorPreviewWrapper(selectedIndex: 0, showSheet: true)
+#Preview("Selector Chip — Non-default collection selected (checkmark)") {
+    FCLCollectionSelectorPreviewWrapper(selectedIndex: 2)
+}
+
+#Preview("Popover List — Recents selected") {
+    FCLCollectionPopoverPreviewWrapper(selectedIndex: 0)
+}
+
+#Preview("Popover List — Videos selected (checkmark on row 2)") {
+    FCLCollectionPopoverPreviewWrapper(selectedIndex: 1)
 }
 
 #Preview("Selector — Hidden in Limited mode") {
     FCLCollectionSelectorLimitedPreview()
 }
 
-#Preview("Gallery — Non-default collection selected") {
-    FCLCollectionSelectorPreviewWrapper(selectedIndex: 2, showSheet: false)
+#Preview("Popover List — Dark mode") {
+    FCLCollectionPopoverPreviewWrapper(selectedIndex: 0)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Popover List — Reduce Transparency fallback") {
+    FCLCollectionPopoverPreviewWrapper(selectedIndex: 0)
+        .fclPreviewReduceTransparency()
 }
 
 // MARK: - Preview Helpers
@@ -146,20 +191,11 @@ private struct FCLCollectionListSheet: View {
 @MainActor
 private struct FCLCollectionSelectorPreviewWrapper: View {
     let selectedIndex: Int
-    let showSheet: Bool
 
     @StateObject private var registry = FCLAssetCollectionRegistry()
-    @State private var isSheetPresented: Bool
-
-    init(selectedIndex: Int, showSheet: Bool) {
-        self.selectedIndex = selectedIndex
-        self.showSheet = showSheet
-        _isSheetPresented = State(initialValue: showSheet)
-    }
 
     var body: some View {
         ZStack {
-            // Simulated gallery background
             Color(.secondarySystemBackground).ignoresSafeArea()
             LinearGradient(
                 colors: [.blue.opacity(0.3), .purple.opacity(0.3)],
@@ -198,11 +234,34 @@ private struct FCLCollectionSelectorPreviewWrapper: View {
     }
 }
 
+/// Renders just the popover content directly (without tapping the chip) so
+/// the list is visible in canvas without interaction.
+@MainActor
+private struct FCLCollectionPopoverPreviewWrapper: View {
+    let selectedIndex: Int
+
+    @StateObject private var registry = FCLAssetCollectionRegistry()
+
+    var body: some View {
+        ZStack {
+            Color(.secondarySystemBackground).ignoresSafeArea()
+
+            FCLCollectionListPopover(registry: registry, onSelect: { _ in })
+                .background(Color(.systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .shadow(radius: 8)
+                .padding(16)
+        }
+        .onAppear {
+            registry.loadMockData(selecting: selectedIndex)
+        }
+    }
+}
+
 /// Simulates the `.limited` auth state — selector is hidden, only banner is shown.
 private struct FCLCollectionSelectorLimitedPreview: View {
     var body: some View {
         VStack(spacing: 0) {
-            // In limited mode the selector is NOT shown; banner is shown instead.
             HStack {
                 Text("You gave access to selected photos only.")
                     .font(.caption)
