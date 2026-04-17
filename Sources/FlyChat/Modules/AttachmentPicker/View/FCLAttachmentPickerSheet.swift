@@ -469,73 +469,76 @@ struct FCLAttachmentPickerSheet: View {
         }
     }
 
-    // MARK: - Load & Export Video
+    // MARK: - Export Video
 
-    /// Loads the `AVAsset` for a `PHAsset` inside a `FCLVideoExportAssetBox` so
-    /// the asset can cross the PhotoKit-callback-queue → cooperative-executor
-    /// boundary safely.
+    /// Exports a gallery video `PHAsset` to a temporary MP4 file using
+    /// `PHImageManager.requestExportSession(forVideo:options:exportPreset:resultHandler:)`.
     ///
-    /// The continuation is resumed from PhotoKit's arbitrary delivery queue,
-    /// but only the box — a value type — travels across the boundary. The
-    /// receiving `Task` owns the asset exclusively from the moment the
-    /// continuation resumes; PhotoKit never mutates it again.
-    private func loadAVAsset(for phAsset: PHAsset) async throws -> FCLVideoExportAssetBox {
-        try await withCheckedThrowingContinuation { continuation in
-            let options = PHVideoRequestOptions()
-            options.isNetworkAccessAllowed = true
-            options.deliveryMode = .highQualityFormat
-
-            PHImageManager.default().requestAVAsset(
-                forVideo: phAsset,
-                options: options
-            ) { avAsset, _, _ in
-                guard let avAsset else {
-                    continuation.resume(
-                        throwing: FCLCompressionError.exportSessionCreationFailed
-                    )
-                    return
-                }
-                continuation.resume(returning: FCLVideoExportAssetBox(asset: avAsset))
-            }
-        }
-    }
-
-    /// Loads the `AVAsset` for a `PHAsset` and exports it on a dedicated
-    /// cooperative-executor `Task.detached`, returning only the resulting
-    /// temp file URL (which is `Sendable`).
-    ///
-    /// Architecture:
-    ///
-    /// 1. `loadAVAsset` awaits the PhotoKit callback and resumes with a
-    ///    `FCLVideoExportAssetBox` (the only type allowed to cross the
-    ///    PhotoKit delivery queue → cooperative executor boundary).
-    /// 2. The box is immediately handed to a fresh `Task.detached` so that
-    ///    `AVAssetExportSession` is created, configured, and driven entirely
-    ///    on the cooperative executor — never on PhotoKit's delivery queue.
-    ///    This eliminates the `_dispatch_assert_queue_fail` crash that the
-    ///    previous orphan `Task { }` pattern triggered.
-    /// 3. The detached `Task` chooses the iOS 18 `export(to:as:)` API when
-    ///    available and falls back to the legacy property-setter flow on
-    ///    iOS 17. The `sending` parameter on `exportVideoV2` transfers the
-    ///    asset into the helper with compile-time ownership guarantees.
+    /// PhotoKit returns a pre-configured `AVAssetExportSession` that owns the
+    /// underlying `AVAsset` on its own queue. The session is never handed off to
+    /// a separate `Task`; every access to the session happens inside either the
+    /// PhotoKit result handler or AVFoundation's own `exportAsynchronously`
+    /// completion handler. This avoids the cross-queue `AVAsset` access pattern
+    /// that tripped `_dispatch_assert_queue_fail` when an asset fetched with
+    /// `requestAVAsset` was passed into a detached `AVAssetExportSession` init
+    /// on a different executor.
     private func exportVideo(
         for phAsset: PHAsset,
         preset: FCLVideoExportPreset
     ) async throws -> URL {
-        let box = try await loadAVAsset(for: phAsset)
-        return try await Task.detached(priority: .userInitiated) {
-            if #available(iOS 18, *) {
-                return try await FCLMediaCompressor.exportVideoV2(
-                    asset: box.asset,
-                    preset: preset
-                )
-            } else {
-                return try await FCLMediaCompressor.exportVideoLegacy(
-                    asset: box.asset,
-                    preset: preset
-                )
+        let presetName = FCLMediaCompressor.avPreset(for: preset)
+        let fileName = "fcl_\(UUID().uuidString.prefix(8)).mp4"
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(fileName)
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let options = PHVideoRequestOptions()
+            options.isNetworkAccessAllowed = true
+            options.deliveryMode = .highQualityFormat
+
+            PHImageManager.default().requestExportSession(
+                forVideo: phAsset,
+                options: options,
+                exportPreset: presetName
+            ) { session, info in
+                guard let session else {
+                    let underlying = (info?[PHImageErrorKey] as? Error)?.localizedDescription
+                    continuation.resume(
+                        throwing: FCLCompressionError.videoExportFailed(
+                            underlying ?? "Failed to create export session"
+                        )
+                    )
+                    return
+                }
+                session.outputURL = outputURL
+                session.outputFileType = .mp4
+                // `exportAsynchronously`'s completion is `@Sendable` on the
+                // iOS 18 SDK, so `AVAssetExportSession` (non-`Sendable`) cannot
+                // be captured directly. Wrap the session in `FCLUncheckedBox`
+                // so only a documented, single-owner reference crosses into the
+                // completion. Safe invariant: PhotoKit owns this session on its
+                // own queue, AVFoundation schedules the completion on its
+                // internal queue, and no FlyChat-side code touches the session
+                // concurrently from anywhere else.
+                let box = FCLUncheckedBox(session)
+                session.exportAsynchronously {
+                    switch box.value.status {
+                    case .completed:
+                        continuation.resume(returning: outputURL)
+                    case .cancelled:
+                        continuation.resume(
+                            throwing: FCLCompressionError.videoExportFailed("Export cancelled")
+                        )
+                    default:
+                        continuation.resume(
+                            throwing: FCLCompressionError.videoExportFailed(
+                                box.value.error?.localizedDescription ?? "Unknown error"
+                            )
+                        )
+                    }
+                }
             }
-        }.value
+        }
     }
 
     // MARK: - Camera Configuration
