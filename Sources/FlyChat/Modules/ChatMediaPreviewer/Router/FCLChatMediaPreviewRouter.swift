@@ -1,6 +1,4 @@
-#if canImport(UIKit)
 import Foundation
-import UIKit
 
 // MARK: - FCLChatMediaPreviewRouter
 
@@ -48,4 +46,3 @@ public final class FCLChatMediaPreviewRouter {
         presenter.dismiss()
     }
 }
-#endif

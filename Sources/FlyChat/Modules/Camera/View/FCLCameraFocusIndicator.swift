@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import SwiftUI
 
 /// Identifies a single tap-to-focus event. Changing the identifier restarts
@@ -112,4 +111,3 @@ struct FCLCameraFocusIndicator: View {
 }
 #endif
 
-#endif

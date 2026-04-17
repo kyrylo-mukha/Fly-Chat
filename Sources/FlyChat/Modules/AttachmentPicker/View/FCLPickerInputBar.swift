@@ -10,6 +10,10 @@ import SwiftUI
 /// circular send button. The send button is enabled only when `hasSelection` is `true`
 /// (i.e. at least one asset is selected). This view does not include an attachment button —
 /// attachment selection is handled by the gallery tab above.
+///
+/// Caption focus is owned by the enclosing sheet (``FCLAttachmentPickerSheet``) via a
+/// hoisted `@FocusState` binding so the sheet can dismiss the keyboard synchronously
+/// alongside the send animation.
 struct FCLPickerInputBar: View {
     /// Two-way binding to the caption string typed by the user.
     @Binding var captionText: String
@@ -19,6 +23,9 @@ struct FCLPickerInputBar: View {
     let fieldBackgroundColor: Color
     /// Corner radius applied to the text field container.
     let fieldCornerRadius: CGFloat
+    /// Focus binding hoisted from the enclosing sheet so the sheet can drop
+    /// caption focus immediately before invoking send.
+    let captionFocusBinding: FocusState<Bool>.Binding
     /// Callback invoked when the user taps the send button.
     let onSend: () -> Void
 
@@ -29,13 +36,14 @@ struct FCLPickerInputBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(.secondarySystemBackground))
+        .background(FCLPalette.secondarySystemBackground)
     }
 
     // MARK: - Private
 
     private var captionField: some View {
         TextField("Add a caption...", text: $captionText)
+            .focused(captionFocusBinding)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .background(fieldBackgroundColor)
@@ -48,7 +56,7 @@ struct FCLPickerInputBar: View {
             Image(systemName: "paperplane.fill")
                 .foregroundColor(.white)
                 .padding(9)
-                .background(hasSelection ? Color.blue : Color(.systemGray3))
+                .background(hasSelection ? Color.blue : FCLPalette.systemGray3)
                 .clipShape(Circle())
         }
         .disabled(!hasSelection)
@@ -88,13 +96,15 @@ struct FCLPickerInputBar_Previews: PreviewProvider {
 private struct FCLPickerInputBarPreviewWrapper: View {
     @State var captionText: String
     let hasSelection: Bool
+    @FocusState private var captionFocused: Bool
 
     var body: some View {
         FCLPickerInputBar(
             captionText: $captionText,
             hasSelection: hasSelection,
-            fieldBackgroundColor: Color(.tertiarySystemFill),
+            fieldBackgroundColor: FCLPalette.tertiarySystemFill,
             fieldCornerRadius: 18,
+            captionFocusBinding: $captionFocused,
             onSend: {}
         )
     }

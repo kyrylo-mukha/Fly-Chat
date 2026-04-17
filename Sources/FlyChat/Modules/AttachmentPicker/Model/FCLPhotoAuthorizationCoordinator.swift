@@ -1,4 +1,4 @@
-#if canImport(UIKit)
+#if os(iOS)
 import Photos
 import SwiftUI
 
@@ -104,7 +104,7 @@ private struct FCLPhotoAuthorizationCoordinatorPreviewView: View {
             // In production the coordinator reads from PHPhotoLibrary.
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+        .background(FCLPalette.systemGroupedBackground)
     }
 
     private var statusLabel: String {

@@ -1,5 +1,4 @@
-#if canImport(UIKit)
-import UIKit
+import CoreGraphics
 
 // MARK: - FCLChatMediaPreviewRelay
 
@@ -25,4 +24,3 @@ final class FCLChatMediaPreviewRelay: FCLMediaPreviewSource {
         frames[id]
     }
 }
-#endif

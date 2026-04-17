@@ -66,7 +66,6 @@ struct FCLAttachmentPreviewScreen: View {
 
     @State private var selectedAssetID: UUID
     @State private var pageProgress: CGFloat
-    @State private var captionHeight: CGFloat = 40
     @FocusState private var captionFocused: Bool
 
     /// In-place editor state machine. `.preview` shows the pager; `.editing`
@@ -306,10 +305,6 @@ struct FCLAttachmentPreviewScreen: View {
             chatMax: chatMaxLines,
             delta: inputDelegate?.attachmentInputLineCountDelta(chatMaxLines: chatMaxLines) ?? -3
         )
-        let font = UIFont.systemFont(ofSize: 16)
-        let lineHeight = font.lineHeight
-        // Max height = effectiveMax * line + vertical text container insets (20).
-        let maxHeight = CGFloat(effectiveMax) * lineHeight + 20
 
         return VStack(spacing: 6) {
             // "+" add-more sits above the text field, trailing. Only visible
@@ -329,26 +324,22 @@ struct FCLAttachmentPreviewScreen: View {
             }
 
             HStack(alignment: .bottom, spacing: 10) {
-                FCLExpandingTextView(
-                    text: $captionText,
-                    font: font,
-                    maxHeight: maxHeight,
-                    placeholder: "Add a caption…",
-                    fieldBackgroundColor: .clear,
-                    cornerRadius: 18,
-                    returnKeySends: false,
-                    onSend: {},
-                    height: $captionHeight
-                )
-                .frame(height: captionHeight)
-                .padding(.trailing, 48) // persistent reserved space for the glide send button
-                // Use 0.22 white when focused so the caption field reads
-                // against the dim overlay instead of dissolving into it;
-                // idle state stays at 0.14 to match the unfocused chrome
-                // weight.
-                .background(Color.white.opacity(captionFocused ? 0.22 : 0.14))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .focused($captionFocused)
+                TextField("Add a caption…", text: $captionText, axis: .vertical)
+                    .lineLimit(1...effectiveMax)
+                    .font(.system(size: 16))
+                    .focused($captionFocused)
+                    .submitLabel(.return)
+                    .foregroundStyle(.white)
+                    .tint(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .padding(.trailing, 48) // persistent reserved space for the glide send button
+                    // Use 0.22 white when focused so the caption field reads
+                    // against the dim overlay instead of dissolving into it;
+                    // idle state stays at 0.14 to match the unfocused chrome
+                    // weight.
+                    .background(Color.white.opacity(captionFocused ? 0.22 : 0.14))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

@@ -8,11 +8,11 @@ import UIKit
 /// coordinates) and coordinates the pulse-highlight played on the cell when
 /// the camera closes back to it.
 ///
-/// Mirrors the role of ``FCLPickerSourceRelay`` for the standalone Camera
-/// module. The gallery camera cell writes its frame here on appear and on
-/// scroll; the custom camera transition (``FCLCameraTransition``) reads the
-/// frame at the start of every `animateTransition(using:)` so rotation or
-/// scrolling mid-transition is handled without stale geometry.
+/// Hosts the source frame for the standalone Camera module. The gallery
+/// camera cell writes its frame here on appear and on scroll; the custom
+/// camera transition (``FCLCameraTransition``) reads the frame at the start
+/// of every `animateTransition(using:)` so rotation or scrolling
+/// mid-transition is handled without stale geometry.
 ///
 /// The relay also carries a lightweight `isTransitioning` flag. When set to
 /// `true`, the camera screen defers `AVCaptureSession` teardown (normally

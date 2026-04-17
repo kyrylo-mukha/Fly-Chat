@@ -142,11 +142,11 @@ private struct CollectionRow: View {
                 .resizable()
                 .scaledToFill()
         } else {
-            Color(.tertiarySystemFill)
+            FCLPalette.tertiarySystemFill
                 .overlay(
                     Image(systemName: "photo")
                         .font(.caption)
-                        .foregroundStyle(Color(.secondaryLabel))
+                        .foregroundStyle(FCLPalette.secondaryLabel)
                 )
         }
     }
@@ -196,7 +196,7 @@ private struct FCLCollectionSelectorPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            Color(.secondarySystemBackground).ignoresSafeArea()
+            FCLPalette.secondarySystemBackground.ignoresSafeArea()
             LinearGradient(
                 colors: [.blue.opacity(0.3), .purple.opacity(0.3)],
                 startPoint: .topLeading,
@@ -210,7 +210,7 @@ private struct FCLCollectionSelectorPreviewWrapper: View {
                     Spacer()
                 }
                 .padding(.vertical, 8)
-                .background(Color(.systemBackground).opacity(0.9))
+                .background(FCLPalette.systemBackground.opacity(0.9))
 
                 mockGalleryGrid
             }
@@ -244,10 +244,10 @@ private struct FCLCollectionPopoverPreviewWrapper: View {
 
     var body: some View {
         ZStack {
-            Color(.secondarySystemBackground).ignoresSafeArea()
+            FCLPalette.secondarySystemBackground.ignoresSafeArea()
 
             FCLCollectionListPopover(registry: registry, onSelect: { _ in })
-                .background(Color(.systemBackground))
+                .background(FCLPalette.systemBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .shadow(radius: 8)
                 .padding(16)
@@ -265,17 +265,17 @@ private struct FCLCollectionSelectorLimitedPreview: View {
             HStack {
                 Text("You gave access to selected photos only.")
                     .font(.caption)
-                    .foregroundStyle(Color(.secondaryLabel))
+                    .foregroundStyle(FCLPalette.secondaryLabel)
                 Spacer()
                 Text("Manage")
                     .font(.caption.weight(.semibold))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Capsule().fill(Color(.secondarySystemFill)))
+                    .background(Capsule().fill(FCLPalette.secondarySystemFill))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color(.secondarySystemBackground))
+            .background(FCLPalette.secondarySystemBackground)
 
             let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
             let colors: [Color] = [.blue, .orange, .green, .purple, .red, .teal]
@@ -287,7 +287,7 @@ private struct FCLCollectionSelectorLimitedPreview: View {
                 }
             }
         }
-        .background(Color(.systemBackground))
+        .background(FCLPalette.systemBackground)
     }
 }
 #endif

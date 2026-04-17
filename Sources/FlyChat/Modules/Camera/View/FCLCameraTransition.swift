@@ -7,9 +7,9 @@ import UIKit
 /// Canonical curve constants for the camera open/close morph. Centralized so
 /// the animator and the pulse overlay stay in lockstep.
 enum FCLCameraTransitionCurves {
-    /// Total morph duration for open and close animations. Matches the 0.32s
-    /// feel of ``FCLPickerTransitionCurves/morphDuration`` so the camera
-    /// morph and the picker morph read as the same visual family.
+    /// Total morph duration for open and close animations. Tuned to a 0.32s
+    /// feel that matches the system sheet presentation cadence so the camera
+    /// morph stays in the same visual family as the picker presentation.
     static let morphDuration: TimeInterval = 0.32
     /// Cross-dissolve duration between camera and previewer. Defaults to
     /// PRD-08's 0.25s ease-in-out, in sympathy with scope 06's zoom-ramp
@@ -295,7 +295,7 @@ private struct FCLCameraTransitionPreviewHost: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Color(.systemBackground).ignoresSafeArea()
+            FCLPalette.systemBackground.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 12) {
                 Text("Camera transition preview")
                     .font(.headline)

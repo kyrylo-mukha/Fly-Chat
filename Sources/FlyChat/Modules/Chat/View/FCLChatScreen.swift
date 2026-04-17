@@ -115,6 +115,11 @@ public struct FCLChatScreen: View {
     @State private var screenHeight: CGFloat = 700
     /// Tracks the current container width for dynamic max-bubble-width calculations.
     @State private var screenWidth: CGFloat = 375
+    /// Composer-field focus state, hoisted from ``FCLInputBar`` so the chat
+    /// timeline tap and drag handlers can dismiss the keyboard declaratively
+    /// via SwiftUI's `@FocusState` instead of a UIKit `resignFirstResponder`
+    /// call.
+    @FocusState private var isComposerFocused: Bool
     /// One-shot guard preventing the global `UITableView.appearance()` configuration from
     /// re-running on every `onAppear` (which also fires on `fullScreenCover` dismissals and
     /// scene-phase transitions). The appearance proxy only needs to be set once per process
@@ -436,6 +441,7 @@ public struct FCLChatScreen: View {
                 font: messageFont,
                 minimumTextLength: inputMinimumTextLength,
                 availableHeight: screenHeight,
+                composerFocusBinding: $isComposerFocused,
                 onSend: presenter.sendDraft
             )
             #else
@@ -471,9 +477,15 @@ public struct FCLChatScreen: View {
     #endif
 
     /// Dismisses the keyboard (iOS) or resigns first responder (macOS).
+    ///
+    /// On iOS the composer field's focus is hoisted into ``isComposerFocused``
+    /// so dismissal flows through SwiftUI's `@FocusState` rather than a UIKit
+    /// `UIApplication.sendAction(...resignFirstResponder)` call. On macOS the
+    /// fallback composer is a plain `TextField` outside the focus binding;
+    /// AppKit's `keyWindow.makeFirstResponder(nil)` covers that path.
     private func dismissKeyboard() {
         #if canImport(UIKit)
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        isComposerFocused = false
         #elseif canImport(AppKit)
         NSApp.keyWindow?.makeFirstResponder(nil)
         #endif

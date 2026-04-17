@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import SwiftUI
 
 /// Top overlay bar with close (X) and flash controls.
@@ -116,4 +115,3 @@ struct FCLCameraTopBar: View {
 }
 #endif
 
-#endif

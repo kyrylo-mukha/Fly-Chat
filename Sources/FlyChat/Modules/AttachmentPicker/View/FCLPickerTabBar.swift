@@ -174,7 +174,7 @@ struct FCLPickerTabBar_Previews: PreviewProvider {
     static var previews: some View {
         // 2 tabs — Gallery selected (disabled state, opacity 0.4)
         ZStack {
-            Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
+            FCLPalette.systemGroupedBackground.ignoresSafeArea()
             VStack {
                 Spacer()
                 FCLPickerTabBar(
@@ -191,7 +191,7 @@ struct FCLPickerTabBar_Previews: PreviewProvider {
 
         // 2 tabs — File selected (enabled)
         ZStack {
-            Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
+            FCLPalette.systemGroupedBackground.ignoresSafeArea()
             VStack {
                 Spacer()
                 FCLPickerTabBar(
@@ -208,7 +208,7 @@ struct FCLPickerTabBar_Previews: PreviewProvider {
 
         // 5 tabs — horizontally scrollable, Gallery selected
         ZStack {
-            Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
+            FCLPalette.systemGroupedBackground.ignoresSafeArea()
             VStack {
                 Spacer()
                 FCLPickerTabBar(
@@ -225,7 +225,7 @@ struct FCLPickerTabBar_Previews: PreviewProvider {
 
         // Reduce-transparency fallback — shows opaque background behind selected tab
         ZStack {
-            Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
+            FCLPalette.systemGroupedBackground.ignoresSafeArea()
             VStack {
                 Spacer()
                 FCLPickerTabBar(
@@ -243,7 +243,7 @@ struct FCLPickerTabBar_Previews: PreviewProvider {
 
         // Reduce-motion — press animation uses linear cross-fade instead of spring
         ZStack {
-            Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
+            FCLPalette.systemGroupedBackground.ignoresSafeArea()
             VStack {
                 Spacer()
                 FCLPickerTabBar(

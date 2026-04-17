@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import SwiftUI
 
 /// Zoom preset ring shown above the shutter — mirrors the iOS Camera
@@ -201,4 +200,3 @@ struct FCLCameraZoomPresetRing: View {
 }
 #endif
 
-#endif

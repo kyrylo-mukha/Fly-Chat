@@ -1,6 +1,5 @@
 #if canImport(UIKit)
 import SwiftUI
-import UIKit
 
 /// The built-in message input bar displayed at the bottom of the chat screen on iOS.
 ///
@@ -45,25 +44,22 @@ struct FCLInputBar: View {
     private let minimumTextLength: Int
     /// Callback invoked when the user taps the send button or presses Return (if `returnKeySends` is true).
     private let onSend: () -> Void
-    /// The current measured height of the expanding text view.
-    @State private var textViewHeight: CGFloat = 40
     /// Whether the attachment picker sheet is presented.
     @State private var showAttachmentPicker = false
     /// Current detent of the presented attachment picker sheet. The sheet starts
     /// at `.medium`; the user can drag up to `.large` and back, or drag below
     /// `.medium` to dismiss.
     @State private var pickerDetent: PresentationDetent = .medium
-    /// Current phase of the pill morph overlay: `.idle` when no morph is
-    /// in-flight, `.expanding` on open, `.collapsing` on close. Flipped by the
-    /// attach button's action (open) and by the wrapped sheet binding's setter
-    /// (any close path).
-    @State private var morphPhase: FCLPickerMorphPhase = .idle
-    /// Shared source relay: publishes the attach button's window-space frame
-    /// and the sheet's top-edge rect to ``FCLPickerMorphOverlay``. Carries the
-    /// `dismissHandler` invoked by consumers inside the sheet (close button,
-    /// Voice Control escape) so every in-sheet dismiss flows through the
-    /// wrapped `isPresented` binding and therefore through the collapse morph.
-    @State private var pickerSourceRelay = FCLPickerSourceRelay()
+    /// Focus binding for the composer text field, hoisted from
+    /// ``FCLChatScreen`` so the chat timeline tap and drag handlers can
+    /// dismiss the keyboard declaratively via SwiftUI's `@FocusState` instead
+    /// of a UIKit `resignFirstResponder` call.
+    private let composerFocusBinding: FocusState<Bool>.Binding
+    /// Shared namespace for the source-anchored zoom transition (iOS 18+).
+    /// Pairs the attach button (source) with the picker sheet (destination)
+    /// through the matching `sourceID`. On iOS 17 the namespace is unused —
+    /// the modifiers no-op and the sheet uses a plain slide-up.
+    @Namespace private var pickerNamespace
     /// Optional delegate providing tab configuration and compression settings for the attachment picker.
     private let delegate: (any FCLChatDelegate)?
     /// The chat presenter used to route attachment sends.
@@ -94,6 +90,9 @@ struct FCLInputBar: View {
     ///   - font: Font configuration for the input text.
     ///   - minimumTextLength: Minimum character count to enable the send button.
     ///   - availableHeight: Total screen height for auto row calculation.
+    ///   - composerFocusBinding: Focus binding hoisted from ``FCLChatScreen`` so
+    ///     timeline tap and drag handlers can dismiss the composer keyboard
+    ///     declaratively via SwiftUI's `@FocusState`.
     ///   - onSend: Callback invoked on send action.
     init(
         draftText: Binding<String>,
@@ -115,6 +114,7 @@ struct FCLInputBar: View {
         font: FCLChatMessageFontConfiguration = FCLAppearanceDefaults.messageFont,
         minimumTextLength: Int = FCLInputDefaults.minimumTextLength,
         availableHeight: CGFloat,
+        composerFocusBinding: FocusState<Bool>.Binding,
         onSend: @escaping () -> Void
     ) {
         self._draftText = draftText
@@ -136,16 +136,13 @@ struct FCLInputBar: View {
         self.font = font
         self.minimumTextLength = minimumTextLength
         self.availableHeight = availableHeight
+        self.composerFocusBinding = composerFocusBinding
         self.onSend = onSend
     }
 
     public var body: some View {
         let resolvedMaxRows = resolveMaxRows(forAvailableHeight: availableHeight)
-        let uiFont = resolvedUIFont
-        let rowHeight = lineHeight ?? uiFont.lineHeight
-        let maxTextHeight = rowHeight * CGFloat(resolvedMaxRows) + 20 // 20 = textContainerInset top+bottom
-
-        inputBarContent(maxTextHeight: maxTextHeight, uiFont: uiFont)
+        inputBarContent(resolvedMaxRows: resolvedMaxRows)
     }
 
     /// Auto-calculate max rows from available screen height.
@@ -167,45 +164,8 @@ struct FCLInputBar: View {
         return min(max(Int(height / 160), 4), 10)
     }
 
-    /// Wrapped binding that intercepts every `set(false)` on the sheet's
-    /// presentation state so the collapse morph fires on the same UI tick as
-    /// the native sheet slide-down.
-    ///
-    /// SwiftUI's `.sheet()` dismiss paths — swipe-below-`.medium`, tap-outside,
-    /// Voice Control escape, programmatic flip — all funnel through the
-    /// `isPresented` binding's setter. Wrapping it is the single authoritative
-    /// place to observe "sheet is about to dismiss". Ordering inside the
-    /// setter matters:
-    ///
-    /// 1. Detect the `true → false` transition.
-    /// 2. Flip `morphPhase = .collapsing` so the overlay reacts immediately.
-    /// 3. Resign first responder synchronously so the keyboard collapses in
-    ///    the same visual transaction (no asyncAfter lead).
-    /// 4. Assign `showAttachmentPicker = newValue` so SwiftUI begins the sheet
-    ///    slide-down.
-    ///
-    /// Both animations therefore start on the same UI tick and converge inside
-    /// ``FCLPickerTransitionCurves/morphDuration``.
-    private var sheetBinding: Binding<Bool> {
-        Binding(
-            get: { showAttachmentPicker },
-            set: { newValue in
-                if showAttachmentPicker, !newValue {
-                    morphPhase = .collapsing
-                    UIApplication.shared.sendAction(
-                        #selector(UIResponder.resignFirstResponder),
-                        to: nil,
-                        from: nil,
-                        for: nil
-                    )
-                }
-                showAttachmentPicker = newValue
-            }
-        )
-    }
-
-    /// Builds the full input bar content with the input row, the attachment
-    /// picker sheet, and the pill-morph overlay.
+    /// Builds the full input bar content with the input row and the attachment
+    /// picker sheet.
     ///
     /// Glass resolution: the container inherits the library-wide style from the
     /// `FCLVisualStyleDelegate` installed on ``FCLChatScreen``. The deprecated
@@ -219,83 +179,37 @@ struct FCLInputBar: View {
     /// reduce-transparency) falls back to the delegate-provided background
     /// through ``FCLGlassContainer``'s own opaque branch.
     @ViewBuilder
-    private func inputBarContent(maxTextHeight: CGFloat, uiFont: UIFont) -> some View {
+    private func inputBarContent(resolvedMaxRows: Int) -> some View {
         FCLGlassContainer(cornerRadius: 0, tint: nil) {
             VStack(spacing: 0) {
-                inputRow(maxTextHeight: maxTextHeight, uiFont: uiFont)
+                inputRow(resolvedMaxRows: resolvedMaxRows)
                     .padding(contentInsets.edgeInsets)
             }
         }
         .modifier(FCLInputBarLegacyLiquidGlassOverride(optedIn: liquidGlass))
-        .overlay(alignment: .bottomTrailing) {
-            FCLPickerMorphOverlay(
-                phase: $morphPhase,
-                buttonFrame: pickerSourceRelay.sourceFrame,
-                sheetTopFrame: pickerSourceRelay.sheetTopFrame
-            )
-        }
-        .sheet(isPresented: sheetBinding) {
+        .sheet(isPresented: $showAttachmentPicker) {
             FCLAttachmentPickerHost(
                 chatPresenter: presenter,
                 delegate: delegate?.attachment,
-                sourceRelay: pickerSourceRelay,
-                onDismiss: { pickerSourceRelay.requestDismiss() }
+                onDismiss: { showAttachmentPicker = false },
+                zoomNamespace: pickerNamespace
             )
             .presentationDetents([.medium, .large], selection: $pickerDetent)
             .presentationDragIndicator(.hidden)
             .presentationCornerRadius(16)
             .presentationBackgroundInteraction(.disabled)
             .interactiveDismissDisabled(false)
-            .background(
-                // Transparent geometry reader mounted at the sheet's top edge so
-                // the morph overlay has an exact window-space rect to land on.
-                // Using a top-aligned overlay rather than the sheet content's
-                // root frame keeps the measurement insensitive to interior
-                // layout changes (drag handle, close button, detent changes).
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear {
-                            let global = proxy.frame(in: .global)
-                            pickerSourceRelay.sheetTopFrame = CGRect(
-                                x: global.minX,
-                                y: global.minY,
-                                width: global.width,
-                                height: 40
-                            )
-                        }
-                        .onChange(of: proxy.frame(in: .global)) { _, newFrame in
-                            pickerSourceRelay.sheetTopFrame = CGRect(
-                                x: newFrame.minX,
-                                y: newFrame.minY,
-                                width: newFrame.width,
-                                height: 40
-                            )
-                        }
-                }
-                .frame(height: 0)
-                .allowsHitTesting(false),
-                alignment: .top
-            )
-        }
-        .onAppear {
-            // The close button inside the sheet and any Voice Control escape
-            // path both call `requestDismiss()` on the relay. Routing the
-            // handler through the wrapped binding guarantees the collapse
-            // morph fires on the same tick the sheet begins sliding away.
-            pickerSourceRelay.dismissHandler = {
-                sheetBinding.wrappedValue = false
-            }
         }
     }
 
     /// Lays out the attach button, expanding text field, and send button according to the container mode.
     @ViewBuilder
-    private func inputRow(maxTextHeight: CGFloat, uiFont: UIFont) -> some View {
+    private func inputRow(resolvedMaxRows: Int) -> some View {
         switch containerMode {
         case .allInRounded(let insets):
             HStack(alignment: .bottom, spacing: elementSpacing) {
                 attachButtonIfNeeded
-                expandingField(maxTextHeight: maxTextHeight, uiFont: uiFont)
+                composerField(resolvedMaxRows: resolvedMaxRows)
                 sendButton
             }
             .padding(insets.edgeInsets)
@@ -305,7 +219,7 @@ struct FCLInputBar: View {
         case .fieldOnlyRounded:
             HStack(alignment: .bottom, spacing: elementSpacing) {
                 attachButtonIfNeeded
-                expandingField(maxTextHeight: maxTextHeight, uiFont: uiFont)
+                composerField(resolvedMaxRows: resolvedMaxRows)
                     .background(fieldBackgroundColor.color)
                     .cornerRadius(fieldCornerRadius)
                 sendButton
@@ -314,26 +228,27 @@ struct FCLInputBar: View {
         case .custom:
             HStack(alignment: .bottom, spacing: elementSpacing) {
                 attachButtonIfNeeded
-                expandingField(maxTextHeight: maxTextHeight, uiFont: uiFont)
+                composerField(resolvedMaxRows: resolvedMaxRows)
                 sendButton
             }
         }
     }
 
-    /// Creates the expanding text view with the resolved font and max height.
-    private func expandingField(maxTextHeight: CGFloat, uiFont: UIFont) -> some View {
-        FCLExpandingTextView(
-            text: $draftText,
-            font: uiFont,
-            maxHeight: maxTextHeight,
-            placeholder: placeholderText,
-            fieldBackgroundColor: UIColor(fieldBackgroundColor.color),
-            cornerRadius: fieldCornerRadius,
-            returnKeySends: returnKeySends,
-            onSend: onSend,
-            height: $textViewHeight
-        )
-        .frame(height: textViewHeight)
+    /// Native SwiftUI multi-line composer that grows vertically with content
+    /// and clamps at `resolvedMaxRows`. Replaces the prior `UITextView`
+    /// wrapper. Focus is bound to the hoisted ``composerFocusBinding`` so the
+    /// keyboard can be dismissed declaratively from anywhere on the chat
+    /// screen (timeline tap, drag, picker open).
+    @ViewBuilder
+    private func composerField(resolvedMaxRows: Int) -> some View {
+        TextField(placeholderText, text: $draftText, axis: .vertical)
+            .lineLimit(1...resolvedMaxRows)
+            .font(font.font)
+            .focused(composerFocusBinding)
+            .submitLabel(returnKeySends ? .send : .return)
+            .onSubmit { if returnKeySends { onSend() } }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
     }
 
     /// Conditionally renders the paperclip attachment button.
@@ -346,32 +261,20 @@ struct FCLInputBar: View {
                 action: { presentAttachmentPicker() }
             )
             .accessibilityLabel("Attach file")
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear {
-                            pickerSourceRelay.sourceFrame = proxy.frame(in: .global)
-                        }
-                        .onChange(of: proxy.frame(in: .global)) { _, newFrame in
-                            pickerSourceRelay.sourceFrame = newFrame
-                        }
-                }
-            )
+            .modifier(FCLPickerZoomSource(
+                sourceID: "FCLAttachmentPicker",
+                namespace: pickerNamespace
+            ))
         }
     }
 
-    /// Opens the attachment picker sheet: kicks off the expand-from-button
-    /// morph, resigns the draft-field keyboard synchronously, and flips the
-    /// presentation state. All three mutations land on the same UI tick so the
-    /// native slide-up, the keyboard dismiss, and the pill morph converge.
+    /// Opens the attachment picker sheet: dismisses the composer keyboard
+    /// declaratively via the hoisted focus binding, then flips the
+    /// presentation state. On iOS 18+ the matched-source zoom morph is driven
+    /// by the system once the sheet presents; on iOS 17 the sheet uses a
+    /// plain slide-up.
     private func presentAttachmentPicker() {
-        morphPhase = .expanding
-        UIApplication.shared.sendAction(
-            #selector(UIResponder.resignFirstResponder),
-            to: nil,
-            from: nil,
-            for: nil
-        )
+        composerFocusBinding.wrappedValue = false
         showAttachmentPicker = true
     }
 
@@ -404,14 +307,6 @@ struct FCLInputBar: View {
         .animation(.easeInOut(duration: 0.2), value: enabled)
         .accessibilityLabel("Send message")
     }
-
-    /// Resolves the `UIFont` from the font configuration, falling back to system font.
-    private var resolvedUIFont: UIFont {
-        if let family = font.familyName, !family.isEmpty {
-            return UIFont(name: family, size: font.size) ?? UIFont.systemFont(ofSize: font.size)
-        }
-        return UIFont.systemFont(ofSize: font.size, weight: font.weight.uiFontWeight)
-    }
 }
 
 // MARK: - Legacy Liquid Glass Override
@@ -441,18 +336,21 @@ private struct FCLInputBarLegacyLiquidGlassOverride: ViewModifier {
 /// as `@StateObject` so their identity persists across `FCLInputBar` body re-evaluations.
 /// Without this, the picker presenter would be re-instantiated on every parent render,
 /// losing `selectedAssets` state after the first selection.
+///
+/// The host applies the `FCLPickerZoomDestination` modifier to its body so the iOS 18+
+/// system-driven zoom transition can morph from the matching attach-button source.
 private struct FCLAttachmentPickerHost: View {
     @StateObject private var presenter: FCLAttachmentPickerPresenter
     @StateObject private var galleryDataSource: FCLGalleryDataSource
     private let delegate: (any FCLAttachmentDelegate)?
-    private let sourceRelay: FCLPickerSourceRelay
     private let onDismiss: () -> Void
+    private let zoomNamespace: Namespace.ID
 
     init(
         chatPresenter: FCLChatPresenter,
         delegate: (any FCLAttachmentDelegate)?,
-        sourceRelay: FCLPickerSourceRelay,
-        onDismiss: @escaping () -> Void
+        onDismiss: @escaping () -> Void,
+        zoomNamespace: Namespace.ID
     ) {
         _presenter = StateObject(wrappedValue: FCLAttachmentPickerPresenter(
             delegate: delegate,
@@ -476,28 +374,23 @@ private struct FCLAttachmentPickerHost: View {
             isVideoEnabled: delegate?.isVideoEnabled ?? true
         ))
         self.delegate = delegate
-        self.sourceRelay = sourceRelay
         self.onDismiss = onDismiss
+        self.zoomNamespace = zoomNamespace
     }
 
     var body: some View {
-        // The picker sheet fills its native `.sheet()` hosting container. The
-        // pill-morph overlay renders at window level inside the parent chat
-        // hierarchy and sits behind the sheet — as the sheet slides up, it
-        // progressively occludes the pill; as the sheet slides down, it
-        // reveals the pill. The sheet content therefore does not need to
-        // coordinate its own morph layer.
         FCLAttachmentPickerSheet(
             presenter: presenter,
             galleryDataSource: galleryDataSource,
             delegate: delegate,
-            sourceRelay: sourceRelay,
             onDismiss: onDismiss
         )
+        .modifier(FCLPickerZoomDestination(
+            sourceID: "FCLAttachmentPicker",
+            namespace: zoomNamespace
+        ))
     }
 }
-
-// MARK: - UIFont Weight Bridge
 
 // MARK: - Previews
 
@@ -524,6 +417,7 @@ private struct FCLInputBarPreviewWrapper: View {
         messages: [],
         currentUser: FCLChatMessageSender(id: "preview", displayName: "Preview")
     )
+    @FocusState private var composerFocused: Bool
 
     var body: some View {
         FCLInputBar(
@@ -531,27 +425,11 @@ private struct FCLInputBarPreviewWrapper: View {
             delegate: nil,
             presenter: presenter,
             availableHeight: 700,
+            composerFocusBinding: $composerFocused,
             onSend: {}
         )
     }
 }
 #endif
 
-/// Bridge from ``FCLChatFontWeight`` to `UIFont.Weight` for UIKit text view usage.
-extension FCLChatFontWeight {
-    /// The corresponding `UIFont.Weight` value.
-    var uiFontWeight: UIFont.Weight {
-        switch self {
-        case .ultraLight: return .ultraLight
-        case .thin: return .thin
-        case .light: return .light
-        case .regular: return .regular
-        case .medium: return .medium
-        case .semibold: return .semibold
-        case .bold: return .bold
-        case .heavy: return .heavy
-        case .black: return .black
-        }
-    }
-}
 #endif

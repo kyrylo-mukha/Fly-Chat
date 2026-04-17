@@ -1,6 +1,5 @@
-#if canImport(UIKit)
 import Foundation
-import UIKit
+import CoreGraphics
 
 // MARK: - FCLChatMediaPreviewSourceDelegate
 
@@ -89,4 +88,3 @@ public struct FCLChatMediaPreviewItem: Identifiable {
         self.sourceFrame = sourceFrame
     }
 }
-#endif

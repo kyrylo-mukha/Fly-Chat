@@ -91,14 +91,14 @@ struct FCLFileTabView: View {
                 Spacer()
                 if !recentFiles.isEmpty {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(Color(.secondaryLabel))
+                        .foregroundColor(FCLPalette.secondaryLabel)
                 }
             }
 
             if recentFiles.isEmpty {
                 Text("No recent files")
                     .font(.subheadline)
-                    .foregroundColor(Color(.tertiaryLabel))
+                    .foregroundColor(FCLPalette.tertiaryLabel)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 8)
             } else {
@@ -142,18 +142,18 @@ struct FCLFileTabView: View {
                     .font(.subheadline)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .foregroundColor(Color(.label))
+                    .foregroundColor(FCLPalette.label)
 
                 HStack(spacing: 6) {
                     if let sizeText = FCLFileSizeFormatter.format(bytes: file.fileSize) {
                         Text(sizeText)
                             .font(.caption)
-                            .foregroundColor(Color(.secondaryLabel))
+                            .foregroundColor(FCLPalette.secondaryLabel)
                     }
                     if let date = file.date {
                         Text(date, style: .date)
                             .font(.caption)
-                            .foregroundColor(Color(.tertiaryLabel))
+                            .foregroundColor(FCLPalette.tertiaryLabel)
                     }
                 }
             }

@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import SwiftUI
 
 /// Large shutter button at the center of the bottom bar.
@@ -88,6 +87,4 @@ struct FCLCameraShutterButton: View {
         .padding(40)
         .background(Color.black)
 }
-#endif
-
 #endif

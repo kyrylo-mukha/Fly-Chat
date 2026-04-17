@@ -70,6 +70,7 @@ Fly-Chat/
 |       |   |   +-- FCLEdgeInsets.swift
 |       |   |   +-- FCLInputBarContainerMode.swift
 |       |   +-- Visual/
+|       |       +-- FCLPalette.swift
 |       |       +-- FCLVisualStyle.swift
 |       |       +-- Primitives/
 |       |           +-- FCLGlassButton.swift
@@ -100,6 +101,7 @@ Fly-Chat/
 |           |       +-- FCLGalleryTabView.swift
 |           |       +-- FCLPickerInputBar.swift
 |           |       +-- FCLPickerTabBar.swift
+|           |       +-- FCLPickerZoomTransition.swift
 |           |       +-- Editors/
 |           |           +-- FCLRotateCropEditor.swift
 |           |           +-- FCLMarkupEditor.swift
@@ -130,7 +132,6 @@ Fly-Chat/
 |           |   |   +-- FCLChatBubbleShape.swift
 |           |   |   +-- FCLChatScreen.swift
 |           |   |   +-- FCLChatStyleConfiguration.swift
-|           |   |   +-- FCLExpandingTextView.swift
 |           |   |   +-- FCLFileRowView.swift
 |           |   |   +-- FCLInputBar.swift
 |           |   |   +-- FCLMediaPreviewView.swift
@@ -212,6 +213,7 @@ The `Visual` namespace holds the visual-style system that drives every chrome su
 
 | File | Type | Purpose |
 |---|---|---|
+| `FCLPalette.swift` | `FCLPalette` (enum) | Centralized namespace for system semantic colors (e.g. `FCLPalette.systemBackground`, `FCLPalette.secondarySystemBackground`, `FCLPalette.tertiaryLabel`). Bridges `UIColor` semantic colors to SwiftUI `Color` under `#if canImport(UIKit)`, with fixed-value fallbacks on non-UIKit platforms. All call sites across the package use `FCLPalette` rather than `Color(uiColor:)` or `Color(.systemBackground)` directly. |
 | `FCLVisualStyle.swift` | `FCLVisualStyle` (enum), `FCLVisualStyleResolver` (value type), environment / view modifier | Public style enum (`.liquidGlass`, `.default`, `.system`), plus the resolver that applies the explicit > delegate > default precedence. Exposes the `.fclVisualStyle(_:)` view modifier for per-view overrides. |
 | `Primitives/FCLGlassContainer.swift` | `FCLGlassContainer` | Base rounded glass container used as a background for toolbars and bars. |
 | `Primitives/FCLGlassButton.swift` | `FCLGlassButton` | Text / label button with glass silhouette. |
@@ -232,11 +234,13 @@ The `Media` namespace holds shared capture models that live outside any single m
 
 ### Removed Types
 
-The following chrome types were replaced by the shared Visual primitives and no longer exist:
+The following types have been removed and are no longer part of the package:
 
 - `FCLInputBarBackground` — input bar now composes `FCLGlassContainer` directly.
 - `FCLCameraBottomBar` — replaced by `FCLCameraShutterRow` and `FCLCameraModeSwitcherRow`.
 - `FCLCameraStackCounter` — the capture count is now surfaced through the Done chip on the shutter row; the standalone counter view is gone.
+- `FCLExpandingTextView` — the auto-expanding `UITextView` wrapper has been replaced by the native SwiftUI `TextField(axis: .vertical)` with `lineLimit`, which provides the same auto-grow behavior without a UIKit dependency.
+- `FCLPickerMorphOverlay` — the SwiftUI pill-morph overlay and its associated `FCLPickerSourceRelay` / `FCLPickerTransitionCurves` types have been removed. The picker's open/close animation is now handled by the system zoom transition (`FCLPickerZoomSource` / `FCLPickerZoomDestination`) on iOS 18+, with the standard sheet slide-up as the iOS 17 fallback.
 
 ---
 
@@ -275,6 +279,7 @@ The camera capture screen lives in the standalone Camera module (`Sources/FlyCha
 | `FCLGalleryTabView.swift` | `FCLGalleryTabView` | Gallery tab displaying a photo library grid with camera cell, selection circles, and video duration badges. |
 | `FCLPickerInputBar.swift` | `FCLPickerInputBar` | Caption input bar shown when gallery assets are selected. Pure SwiftUI, iOS-only (`#if os(iOS)`). |
 | `FCLPickerTabBar.swift` | `FCLPickerTabBar` + `FCLPickerTabDisplayItem` | Horizontally scrollable tab bar for the picker sheet. Pure SwiftUI, iOS-only (`#if os(iOS)`). |
+| `FCLPickerZoomTransition.swift` | `FCLPickerZoomSource` + `FCLPickerZoomDestination` | `ViewModifier` pair that installs the native zoom transition for the attachment picker. `FCLPickerZoomSource` applies `.matchedTransitionSource(id:in:)` to the attach button on iOS 18+. `FCLPickerZoomDestination` applies `.navigationTransition(.zoom(sourceID:in:))` to the picker sheet root on iOS 18+ (unavailable on macOS). Both modifiers are no-ops on iOS 17 so the sheet falls back to the standard slide-up. |
 
 ---
 
@@ -308,8 +313,7 @@ The main conversation screen. Located at `Sources/FlyChat/Modules/Chat/`.
 | `FCLChatScreen.swift` | `FCLChatScreen` (struct) | Main conversation view. Composes a reversed `List` (flipped via rotation for bottom-anchored scrolling) and an input bar section. Resolves all appearance/input/avatar delegate values. Supports a `@ViewBuilder customInputBar` override on UIKit. Configures `UITableView` appearance on appear/disappear. Includes tap and drag gestures for keyboard dismissal. Contains the private `FCLChatMessageRow` and `FCLBottomAnchoredChatModifier` types. |
 | `FCLChatBubbleShape.swift` | `FCLChatBubbleShape` (struct) | SwiftUI `Shape` conformance. Draws a rounded rectangle with configurable per-corner radii. Supports three tail styles: `.none` (uniform 17pt radius), `.edged(.bottom)` (reduced 6pt radius on the tail-side bottom corner), `.edged(.top)` (reduced radius on the tail-side top corner). Uses `animatableData` for smooth transitions between styles. Also defines `FCLChatBubbleSide`, `FCLBubbleTailEdge`, and `FCLBubbleTailStyle` enums. |
 | `FCLChatStyleConfiguration.swift` | (multiple types) | Defines `FCLChatColorToken` (RGBA color wrapper with clamped values and `.color` conversion), `FCLChatFontWeight` (enum mapping to `Font.Weight`), and `FCLChatMessageFontConfiguration` (font family, size, weight with `.font` computed property). |
-| `FCLInputBar.swift` | `FCLInputBar` | UIKit-only. The message compose bar with text field, send button, optional attach button, and attachment preview strip. Accepts all input delegate values as parameters. |
-| `FCLExpandingTextView.swift` | `FCLExpandingTextView` | UIKit-only. Auto-expanding `UITextView` wrapper that grows with content up to a configurable max row count. |
+| `FCLInputBar.swift` | `FCLInputBar` | UIKit-only. The message compose bar with text field, send button, optional attach button, and attachment preview strip. The text field is a native SwiftUI `TextField(axis: .vertical)` with `lineLimit`, which grows with content up to the configured row maximum without requiring a `UITextView` wrapper. Accepts all input delegate values as parameters. |
 | `FCLAvatarView.swift` | `FCLAvatarView` | UIKit-only. Circular avatar that loads images asynchronously via `FCLAvatarDelegate.avatarURL(for:)`, caches them through `FCLAvatarCacheDelegate`, and falls back to an initial-letter placeholder or a default image source. |
 | `FCLAttachmentGridView.swift` | `FCLAttachmentGridView` + `FCLAttachmentGridLayout` | UIKit-only (grid view); layout utility is platform-independent. Renders a grid of image/video attachment thumbnails within a message bubble. Uses `FCLAttachmentGridLayout` for aspect-ratio-aware row height calculation and `FCLAsyncThumbnailLoader` for off-main-actor thumbnail loading. The grid is clipped to the bubble shape so rounded corners align. For media-only messages (no text), the timestamp renders as a translucent pill overlay in the bottom-trailing corner. |
 | `FCLAsyncThumbnailLoader.swift` | `FCLAsyncThumbnailLoader` (actor) | UIKit-only. `actor`-isolated, process-wide singleton that loads and downscales attachment thumbnails from `attachment.url` off the main actor. Results are cached by attachment ID and target size in an `NSCache`. Used by `FCLAttachmentGridView` to display real asset previews. |
@@ -459,7 +463,7 @@ Presenters use `public private(set)` for published state properties, meaning hos
 | **Main actor isolation** | All presenters, delegates, views, and UIKit bridge methods are `@MainActor` |
 | **Sendable conformance** | All model types (`FCLChatMessage`, `FCLAttachment`, `FCLChatSummary`, etc.) are `Sendable` |
 | **Actor usage** | `FCLAvatarImageCache` is a Swift `actor` for thread-safe image caching |
-| **Conditional compilation** | `#if canImport(UIKit)` gates UIKit wrappers (UIViewRepresentable bridges, UIImage usage, avatar view, input bar) and the UIKit bridge. `#if os(iOS)` gates iOS-only features that are pure SwiftUI (picker tab bar, picker input bar, file row view). `#if canImport(AppKit)` provides a minimal macOS composer fallback. |
+| **Conditional compilation** | `#if canImport(UIKit)` gates code that directly uses UIKit symbols: `UIViewControllerRepresentable` bridges (camera, custom tabs, editor tools), `UIImage` usage (`FCLAvatarImageCache`, `FCLAttachment` convenience APIs, thumbnail loaders), the entire Camera module, picker presenters and data sources, and the UIKit integration factory. `FCLPalette` is the single file that bridges `UIColor` semantic colors to SwiftUI `Color`; all other files access system colors through `FCLPalette` and stay UIKit-import-free. `#if os(iOS)` gates iOS-only pure-SwiftUI views (picker tab bar, picker input bar, file row view). `#if canImport(AppKit)` provides a minimal macOS composer fallback. |
 
 ---
 

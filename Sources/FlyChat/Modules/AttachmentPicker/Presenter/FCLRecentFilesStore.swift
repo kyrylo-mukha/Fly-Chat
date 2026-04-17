@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import Foundation
 
 /// A small persistent store for files recently dispatched through the FlyChat
@@ -78,4 +77,3 @@ public actor FCLRecentFilesStore {
         UserDefaults.standard.set(data, forKey: defaultsKey)
     }
 }
-#endif

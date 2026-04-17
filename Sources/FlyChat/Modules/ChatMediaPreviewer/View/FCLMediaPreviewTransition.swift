@@ -1,5 +1,4 @@
-#if canImport(UIKit)
-import UIKit
+import CoreGraphics
 
 // MARK: - FCLMediaPreviewSource
 
@@ -68,4 +67,3 @@ func fclMediaPreviewAspectFit(aspectRatio: CGFloat, in bounds: CGRect) -> CGRect
     )
     return CGRect(origin: origin, size: size)
 }
-#endif

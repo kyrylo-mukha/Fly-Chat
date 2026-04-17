@@ -1,24 +1,24 @@
-#if canImport(UIKit)
 import SwiftUI
 
 // MARK: - FCLPickerCloseButton
 
-/// A 44 × 44 pt glass close button placed top-trailing inside the attachment picker.
+/// A 44 × 44 pt glass close button placed top-trailing inside the attachment
+/// picker.
 ///
-/// Tapping the button triggers the scope-10 collapse transition by calling
-/// ``FCLPickerSourceRelay/requestDismiss()``, routing through the same morph
-/// animator used by all other dismiss paths (swipe-down, tap-outside,
-/// accessibility escape).
+/// Tapping the button dismisses the enclosing sheet through SwiftUI's
+/// `DismissAction`, routing through the same path used by swipe-down,
+/// tap-outside, and accessibility escape — which on iOS 18+ drives the system
+/// zoom-collapse back into the source view, and on iOS 17 runs the standard
+/// sheet slide-down.
 ///
 /// Built on ``FCLGlassIconButton`` so it inherits the visual style environment
 /// (glass fallback, opaque, iOS 26 native glass) without extra wiring.
 struct FCLPickerCloseButton: View {
-    /// The relay that owns the dismiss hook for the picker's morph animator.
-    let sourceRelay: FCLPickerSourceRelay
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         FCLGlassIconButton(systemImage: "xmark", size: 44) {
-            sourceRelay.requestDismiss()
+            dismiss()
         }
         .accessibilityLabel("Close")
     }
@@ -29,8 +29,8 @@ struct FCLPickerCloseButton: View {
 #if DEBUG
 #Preview("CloseButton — liquidGlass (default)") {
     ZStack(alignment: .topTrailing) {
-        Color(.secondarySystemBackground).ignoresSafeArea()
-        FCLPickerCloseButton(sourceRelay: FCLPickerSourceRelay())
+        FCLPalette.secondarySystemBackground.ignoresSafeArea()
+        FCLPickerCloseButton()
             .padding(12)
     }
 }
@@ -38,10 +38,9 @@ struct FCLPickerCloseButton: View {
 #Preview("CloseButton — opaque (.default style)") {
     ZStack(alignment: .topTrailing) {
         Color.gray.ignoresSafeArea()
-        FCLPickerCloseButton(sourceRelay: FCLPickerSourceRelay())
+        FCLPickerCloseButton()
             .fclVisualStyle(.default)
             .padding(12)
     }
 }
-#endif
 #endif

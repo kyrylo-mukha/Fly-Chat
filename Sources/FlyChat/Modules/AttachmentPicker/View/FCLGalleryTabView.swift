@@ -308,7 +308,7 @@ private struct FCLAssetThumbnailView: View {
     @State private var image: UIImage?
 
     var body: some View {
-        Color(.tertiarySystemFill)
+        FCLPalette.tertiarySystemFill
             .aspectRatio(1, contentMode: .fit)
             .overlay(
                 Group {
@@ -371,10 +371,10 @@ private struct FCLGalleryTabMockPreview: View {
             LazyVGrid(columns: columns, spacing: 2) {
                 // Camera cell
                 ZStack {
-                    Color(.tertiarySystemFill)
+                    FCLPalette.tertiarySystemFill
                     Image(systemName: "camera.fill")
                         .font(.system(size: 24))
-                        .foregroundColor(Color(.secondaryLabel))
+                        .foregroundColor(FCLPalette.secondaryLabel)
                 }
                 .aspectRatio(1, contentMode: .fit)
 

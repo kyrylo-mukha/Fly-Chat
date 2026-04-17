@@ -1,6 +1,4 @@
-#if canImport(UIKit)
 import SwiftUI
-import UIKit
 
 // MARK: - FCLAttachmentEditToolbar
 
@@ -140,5 +138,4 @@ struct FCLAttachmentEditToolbar<ToolControls: View>: View {
         }
     }
 }
-#endif
 #endif

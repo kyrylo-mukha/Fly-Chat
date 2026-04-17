@@ -299,7 +299,7 @@ private struct FCLAssetCollectionRegistryPreview: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 } else {
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(.tertiarySystemFill))
+                        .fill(FCLPalette.tertiarySystemFill)
                         .frame(width: 48, height: 48)
                 }
                 VStack(alignment: .leading, spacing: 2) {

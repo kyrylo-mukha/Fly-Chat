@@ -35,8 +35,9 @@ private enum FCLPickerModal: Identifiable {
 ///
 /// The bottom bar transition is animated with an ease-in-out curve.
 ///
-/// A ``FCLPickerCloseButton`` is overlaid top-trailing and triggers the scope-10
-/// collapse transition via the supplied ``FCLPickerSourceRelay``.
+/// A ``FCLPickerCloseButton`` is overlaid top-trailing and dismisses the sheet
+/// through SwiftUI's `DismissAction`, routing through the same path used by
+/// swipe-down and tap-outside.
 struct FCLAttachmentPickerSheet: View {
     /// The presenter that drives picker state, selected assets, and caption text.
     @ObservedObject var presenter: FCLAttachmentPickerPresenter
@@ -47,14 +48,15 @@ struct FCLAttachmentPickerSheet: View {
     /// The attachment delegate supplying tab configuration, custom tabs, and compression settings.
     let delegate: (any FCLAttachmentDelegate)?
 
-    /// Relay that owns the dismiss hook for the shared morph animator (scope 10).
-    /// When `nil` the close button is omitted (e.g. in standalone previews).
-    let sourceRelay: FCLPickerSourceRelay?
-
     /// Callback invoked when the sheet should be dismissed (e.g. after send or cancel).
     let onDismiss: () -> Void
 
     @State private var modal: FCLPickerModal?
+
+    /// Focus state for the caption text field hosted by ``FCLPickerInputBar``.
+    /// Hoisted to the sheet so the synchronized send path can dismiss the
+    /// keyboard immediately before invoking the dismiss animation.
+    @FocusState private var isCaptionFocused: Bool
 
     // MARK: Camera-flow ZStack state
     //
@@ -96,26 +98,25 @@ struct FCLAttachmentPickerSheet: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             VStack(spacing: 0) {
-                // Drag handle. The shared picker transition drives dismissal on
-                // downward drags; this capsule is purely a visual affordance.
+                // Drag handle. The system sheet drives dismissal on downward
+                // drags; this capsule is purely a visual affordance.
                 Capsule()
-                    .fill(Color(.tertiaryLabel))
+                    .fill(FCLPalette.tertiaryLabel)
                     .frame(width: 36, height: 5)
                     .padding(.top, 8)
                     .padding(.bottom, 4)
                 tabContentArea
                 bottomBar
             }
-            .background(Color(.systemBackground))
+            .background(FCLPalette.systemBackground)
 
-            // Close button (top-trailing, 44pt hit target). Routes through the
-            // source relay so the shared morph animator (scope 10) drives the
-            // collapse — no direct SwiftUI binding flip here.
-            if let relay = sourceRelay {
-                FCLPickerCloseButton(sourceRelay: relay)
-                    .padding(.top, 8)
-                    .padding(.trailing, 8)
-            }
+            // Close button (top-trailing, 44pt hit target). Reads the dismiss
+            // action from the environment so it routes through the same path
+            // as swipe-down and tap-outside — on iOS 18+ that path drives the
+            // system zoom-collapse back into the source view.
+            FCLPickerCloseButton()
+                .padding(.top, 8)
+                .padding(.trailing, 8)
         }
         .onDisappear {
             // Ensure the presenter's per-asset edit dictionaries do not
@@ -298,7 +299,7 @@ struct FCLAttachmentPickerSheet: View {
         } else {
             Text("Unknown Tab")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .foregroundColor(Color(.secondaryLabel))
+                .foregroundColor(FCLPalette.secondaryLabel)
         }
     }
 
@@ -318,8 +319,9 @@ struct FCLAttachmentPickerSheet: View {
                 FCLPickerInputBar(
                     captionText: $presenter.captionText,
                     hasSelection: !presenter.selectedAssets.isEmpty && !isSendDisabled,
-                    fieldBackgroundColor: Color(.tertiarySystemFill),
+                    fieldBackgroundColor: FCLPalette.tertiarySystemFill,
                     fieldCornerRadius: 18,
+                    captionFocusBinding: $isCaptionFocused,
                     onSend: {
                         performSynchronizedSend {
                             compressAndSendGallery()
@@ -363,15 +365,10 @@ struct FCLAttachmentPickerSheet: View {
         guard !isSendInFlight else { return }
         isSendInFlight = true
 
-        // Drop the keyboard synchronously — UIKit sendAction returns before the
-        // animation frame commits, so it runs in the same visual transaction as
-        // the binding flip below.
-        UIApplication.shared.sendAction(
-            #selector(UIResponder.resignFirstResponder),
-            to: nil,
-            from: nil,
-            for: nil
-        )
+        // Drop the keyboard synchronously via the hoisted focus state so the
+        // composer keyboard collapses in the same visual transaction as the
+        // dismiss animation below.
+        isCaptionFocused = false
 
         action()
 
@@ -987,7 +984,6 @@ private struct FCLAttachmentPickerSheetPreviewWrapper: View {
             presenter: presenter,
             galleryDataSource: galleryDataSource,
             delegate: nil,
-            sourceRelay: nil,
             onDismiss: {}
         )
             .onAppear {

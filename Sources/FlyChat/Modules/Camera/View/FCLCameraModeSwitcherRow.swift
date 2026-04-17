@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import SwiftUI
 
 /// Horizontal row containing the flip-camera button and a photo/video segmented chip group.
@@ -106,4 +105,3 @@ struct FCLCameraModeSwitcherRow: View {
 }
 #endif
 
-#endif

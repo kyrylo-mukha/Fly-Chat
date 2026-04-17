@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(UIKit)
-import UIKit
-#endif
 
 /// Protocol defining routing callbacks for chat message lifecycle events.
 ///

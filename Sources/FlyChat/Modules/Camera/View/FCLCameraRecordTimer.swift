@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import SwiftUI
 
 /// Compact elapsed-time pill shown while recording video.
@@ -74,4 +73,3 @@ struct FCLCameraRecordTimer: View {
 }
 #endif
 
-#endif

@@ -36,7 +36,7 @@ struct FCLPickerPermissionBanner: View {
         HStack {
             Text(bannerText)
                 .font(.caption)
-                .foregroundStyle(Color(.secondaryLabel))
+                .foregroundStyle(FCLPalette.secondaryLabel)
             Spacer()
             FCLGlassButton(action: { isShowingLimitedPicker = true }) {
                 Text("Manage")
@@ -45,7 +45,7 @@ struct FCLPickerPermissionBanner: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color(.secondarySystemBackground))
+        .background(FCLPalette.secondarySystemBackground)
         .background(
             FCLLimitedLibraryPickerBridge(isPresented: $isShowingLimitedPicker)
                 .frame(width: 0, height: 0)
@@ -72,11 +72,11 @@ struct FCLPickerDeniedView: View {
         VStack(spacing: 16) {
             Image(systemName: "photo.badge.exclamationmark")
                 .font(.system(size: 44))
-                .foregroundStyle(Color(.secondaryLabel))
+                .foregroundStyle(FCLPalette.secondaryLabel)
 
             Text("Photo access is required to select images.")
                 .font(.subheadline)
-                .foregroundStyle(Color(.secondaryLabel))
+                .foregroundStyle(FCLPalette.secondaryLabel)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
 
@@ -190,7 +190,7 @@ private struct FCLPickerPermissionPreviewContainer: View {
                     Spacer()
                     Text("Waiting for authorization…")
                         .font(.subheadline)
-                        .foregroundStyle(Color(.secondaryLabel))
+                        .foregroundStyle(FCLPalette.secondaryLabel)
                     Spacer()
                 }
 
@@ -201,7 +201,7 @@ private struct FCLPickerPermissionPreviewContainer: View {
                 EmptyView()
             }
         }
-        .background(Color(.systemBackground))
+        .background(FCLPalette.systemBackground)
     }
 
     private var mockGallery: some View {

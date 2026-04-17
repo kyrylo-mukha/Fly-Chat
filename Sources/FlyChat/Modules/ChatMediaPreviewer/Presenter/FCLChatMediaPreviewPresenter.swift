@@ -1,6 +1,4 @@
-#if canImport(UIKit)
 import Foundation
-import UIKit
 
 // MARK: - FCLChatMediaPreviewPresenter
 
@@ -30,4 +28,3 @@ public final class FCLChatMediaPreviewPresenter: ObservableObject {
         activeAttachmentID = nil
     }
 }
-#endif
