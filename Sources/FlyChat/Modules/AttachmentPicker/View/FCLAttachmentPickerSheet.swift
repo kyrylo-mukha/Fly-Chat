@@ -35,9 +35,9 @@ private enum FCLPickerModal: Identifiable {
 ///
 /// The bottom bar transition is animated with an ease-in-out curve.
 ///
-/// A ``FCLPickerCloseButton`` is overlaid top-trailing and dismisses the sheet
-/// through SwiftUI's `DismissAction`, routing through the same path used by
-/// swipe-down and tap-outside.
+/// A ``FCLPickerCloseButton`` lives inside ``FCLPickerTopToolbar``'s leading slot
+/// and dismisses the sheet through SwiftUI's `DismissAction`, routing through the
+/// same path used by swipe-down and tap-outside.
 struct FCLAttachmentPickerSheet: View {
     /// The presenter that drives picker state, selected assets, and caption text.
     @ObservedObject var presenter: FCLAttachmentPickerPresenter
@@ -88,6 +88,19 @@ struct FCLAttachmentPickerSheet: View {
     /// sends stay responsive.
     @State private var isSendInFlight: Bool = false
 
+    /// Hoisted from ``FCLGalleryTabView`` so the top toolbar (source pill) and
+    /// permission surface share the same identity across tab switches.
+    @StateObject private var authCoordinator = FCLPhotoAuthorizationCoordinator()
+    /// Hoisted from ``FCLGalleryTabView`` so the top toolbar's collection
+    /// selector pill binds to the same registry that scopes the grid.
+    @StateObject private var collectionRegistry = FCLAssetCollectionRegistry()
+
+    private var galleryAuthorizationStatus: PHAuthorizationStatus { authCoordinator.status }
+
+    private var galleryAssetCount: Int { galleryDataSource.assets.count }
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     /// Whether any send button is currently disabled. Send buttons are
     /// disabled while a send is in-flight (local guard) or while the presenter
     /// is in the `.sending` state (remote confirmation).
@@ -96,27 +109,37 @@ struct FCLAttachmentPickerSheet: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(spacing: 0) {
-                // Drag handle. The system sheet drives dismissal on downward
-                // drags; this capsule is purely a visual affordance.
-                Capsule()
-                    .fill(FCLPalette.tertiaryLabel)
-                    .frame(width: 36, height: 5)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-                tabContentArea
-                bottomBar
-            }
-            .background(FCLPalette.systemBackground)
-
-            // Close button (top-trailing, 44pt hit target). Reads the dismiss
-            // action from the environment so it routes through the same path
-            // as swipe-down and tap-outside — on iOS 18+ that path drives the
-            // system zoom-collapse back into the source view.
-            FCLPickerCloseButton()
+        VStack(spacing: 0) {
+            // Drag handle. The system sheet drives dismissal on downward
+            // drags; this capsule is purely a visual affordance.
+            Capsule()
+                .fill(FCLPalette.tertiaryLabel)
+                .frame(width: 36, height: 5)
                 .padding(.top, 8)
-                .padding(.trailing, 8)
+                .padding(.bottom, 4)
+            FCLPickerTopToolbar(
+                presenter: presenter,
+                collectionRegistry: collectionRegistry
+            )
+            FCLPickerPermissionSurface(
+                status: galleryAuthorizationStatus,
+                selectedCount: presenter.selectedAssets.count,
+                totalCount: galleryAssetCount,
+                isPresentationComplete: presenter.isPresentationComplete
+            )
+            tabContentZStack
+            bottomBar
+        }
+        .background(FCLPalette.systemBackground)
+        .onAppear {
+            // Apple does not provide an "onPresent" / presentation-complete
+            // callback on `.sheet`. 0.55s matches typical iOS sheet present
+            // animation duration so the permission request and asset fetch
+            // run after the sheet is visually in place. See
+            // docs/superpowers/knowledge/2026-04-17-picker-chrome-overhaul.md (Q3).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                presenter.markPresentationComplete()
+            }
         }
         .onDisappear {
             // Ensure the presenter's per-asset edit dictionaries do not
@@ -242,13 +265,76 @@ struct FCLAttachmentPickerSheet: View {
         }
     }
 
-    // MARK: - Tab Content Area
+    // MARK: - Tab Content ZStack
+
+    /// All tab views live in a `ZStack` so switching between them preserves
+    /// state (scroll position, loaded thumbnails, search text) and does not
+    /// re-fire `.task` side effects. The visible tab is offset to x=0 and all
+    /// others are offset by ± the container width; on `.crossfade` the offset
+    /// stays 0 and opacity drives visibility instead.
+    @ViewBuilder
+    private var tabContentZStack: some View {
+        let transition = delegate?.tabTransition ?? FCLAttachmentDefaults.tabTransition
+        let tabs = presenter.availableTabs
+        let selectedIndex = tabs.firstIndex(of: presenter.selectedTab) ?? 0
+
+        GeometryReader { geo in
+            ZStack {
+                ForEach(Array(tabs.enumerated()), id: \.element) { index, tab in
+                    tabView(for: tab)
+                        .offset(x: offsetFor(
+                            index: index,
+                            selectedIndex: selectedIndex,
+                            width: geo.size.width,
+                            transition: transition
+                        ))
+                        .opacity(opacityFor(
+                            index: index,
+                            selectedIndex: selectedIndex,
+                            transition: transition
+                        ))
+                        .allowsHitTesting(index == selectedIndex)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .animation(tabAnimation(for: transition), value: selectedIndex)
+        }
+    }
+
+    private func offsetFor(
+        index: Int,
+        selectedIndex: Int,
+        width: CGFloat,
+        transition: FCLPickerTabTransition
+    ) -> CGFloat {
+        guard transition == .slide else { return 0 }
+        return CGFloat(index - selectedIndex) * width
+    }
+
+    private func opacityFor(
+        index: Int,
+        selectedIndex: Int,
+        transition: FCLPickerTabTransition
+    ) -> Double {
+        guard transition == .crossfade else { return 1 }
+        return index == selectedIndex ? 1 : 0
+    }
+
+    private func tabAnimation(for transition: FCLPickerTabTransition) -> Animation {
+        if reduceMotion { return .linear(duration: 0.12) }
+        switch transition {
+        case .slide: return .spring(response: 0.32, dampingFraction: 0.85)
+        case .crossfade: return .easeInOut(duration: 0.28)
+        }
+    }
 
     @ViewBuilder
-    private var tabContentArea: some View {
-        switch presenter.selectedTab {
+    private func tabView(for tab: FCLPickerTab) -> some View {
+        switch tab {
         case .gallery:
             FCLGalleryTabView(
+                authCoordinator: authCoordinator,
+                collectionRegistry: collectionRegistry,
                 presenter: presenter,
                 galleryDataSource: galleryDataSource,
                 onCameraCapture: {
@@ -263,9 +349,9 @@ struct FCLAttachmentPickerSheet: View {
                 },
                 cameraSourceRelay: cameraSourceRelay
             )
-
         case .file:
             FCLFileTabView(
+                presenter: presenter,
                 delegateRecentFiles: delegate?.recentFiles ?? FCLAttachmentDefaults.recentFiles,
                 onSendFile: { attachment in
                     performSynchronizedSend {
@@ -273,7 +359,6 @@ struct FCLAttachmentPickerSheet: View {
                     }
                 }
             )
-
         case .custom(let id):
             customTabContent(id: id)
         }

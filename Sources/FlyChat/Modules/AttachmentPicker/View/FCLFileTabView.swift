@@ -14,21 +14,27 @@ import UniformTypeIdentifiers
 /// that list instead. This gives a Telegram-like "recents" experience for apps that do
 /// not supply their own list.
 struct FCLFileTabView: View {
+    /// Presenter driving the in-sheet search state.
+    @ObservedObject var presenter: FCLAttachmentPickerPresenter
+
     /// Recent files provided by the delegate for quick re-send.
     let delegateRecentFiles: [FCLRecentFile]
 
     /// Called when a file attachment is ready to send.
     let onSendFile: (FCLAttachment) -> Void
 
-    @State private var searchText = ""
     @State private var showPhotoPicker = false
     @State private var showDocumentPicker = false
     @State private var showScanner = false
     @State private var storeRecentFiles: [FCLRecentFile] = []
 
     // The effective list: delegate takes precedence; store is the fallback.
+    // When search is active, the list is filtered by the presenter's search text.
     private var recentFiles: [FCLRecentFile] {
-        delegateRecentFiles.isEmpty ? storeRecentFiles : delegateRecentFiles
+        let source = delegateRecentFiles.isEmpty ? storeRecentFiles : delegateRecentFiles
+        let query = presenter.fileSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard presenter.fileSearchState == .open, !query.isEmpty else { return source }
+        return source.filter { $0.fileName.localizedCaseInsensitiveContains(query) }
     }
 
     var body: some View {
@@ -83,7 +89,6 @@ struct FCLFileTabView: View {
 
     @ViewBuilder
     private var recentFilesSection: some View {
-        let filtered = filteredRecentFiles
         Section {
             HStack {
                 Text("Recent Files")
@@ -102,10 +107,7 @@ struct FCLFileTabView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 8)
             } else {
-                TextField("Search files...", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-
-                ForEach(filtered) { file in
+                ForEach(recentFiles) { file in
                     Button {
                         let attachment = FCLAttachment(
                             type: .file,
@@ -120,13 +122,6 @@ struct FCLFileTabView: View {
                     .buttonStyle(.plain)
                 }
             }
-        }
-    }
-
-    private var filteredRecentFiles: [FCLRecentFile] {
-        if searchText.isEmpty { return recentFiles }
-        return recentFiles.filter {
-            $0.fileName.localizedCaseInsensitiveContains(searchText)
         }
     }
 
@@ -380,42 +375,56 @@ struct FCLDocumentScannerBridge: UIViewControllerRepresentable {
 // MARK: - Previews
 
 #if DEBUG
-struct FCLFileTabView_Previews: PreviewProvider {
-    static var previews: some View {
-        FCLFileTabView(
-            delegateRecentFiles: [
-                FCLRecentFile(
-                    id: "1",
-                    url: URL(string: "file:///tmp/report.pdf")!,
-                    fileName: "report.pdf",
-                    fileSize: 2_457_600,
-                    date: Date().addingTimeInterval(-86400)
-                ),
-                FCLRecentFile(
-                    id: "2",
-                    url: URL(string: "file:///tmp/photo.jpg")!,
-                    fileName: "vacation_photo.jpg",
-                    fileSize: 5_242_880,
-                    date: Date().addingTimeInterval(-172_800)
-                ),
-                FCLRecentFile(
-                    id: "3",
-                    url: URL(string: "file:///tmp/spreadsheet.xlsx")!,
-                    fileName: "quarterly_results_2026.xlsx",
-                    fileSize: 1_048_576,
-                    date: Date().addingTimeInterval(-604_800)
-                ),
-            ],
-            onSendFile: { _ in }
-        )
-        .previewDisplayName("File Tab — With Delegate Recent Files")
 
+private let _previewRecentFiles: [FCLRecentFile] = [
+    FCLRecentFile(
+        id: "1",
+        url: URL(string: "file:///tmp/report.pdf")!,
+        fileName: "report.pdf",
+        fileSize: 2_457_600,
+        date: Date().addingTimeInterval(-86400)
+    ),
+    FCLRecentFile(
+        id: "2",
+        url: URL(string: "file:///tmp/photo.jpg")!,
+        fileName: "vacation_photo.jpg",
+        fileSize: 5_242_880,
+        date: Date().addingTimeInterval(-172_800)
+    ),
+    FCLRecentFile(
+        id: "3",
+        url: URL(string: "file:///tmp/spreadsheet.xlsx")!,
+        fileName: "quarterly_results_2026.xlsx",
+        fileSize: 1_048_576,
+        date: Date().addingTimeInterval(-604_800)
+    ),
+]
+
+@MainActor
+private struct FCLFileTabViewPreviewHost: View {
+    let delegateRecentFiles: [FCLRecentFile]
+
+    @StateObject private var presenter = FCLAttachmentPickerPresenter(
+        delegate: nil,
+        onSend: { _, _ in }
+    )
+
+    var body: some View {
         FCLFileTabView(
-            delegateRecentFiles: [],
+            presenter: presenter,
+            delegateRecentFiles: delegateRecentFiles,
             onSendFile: { _ in }
         )
-        .previewDisplayName("File Tab — Empty Delegate (store fallback)")
     }
 }
+
+#Preview("File Tab — With Delegate Recent Files") {
+    FCLFileTabViewPreviewHost(delegateRecentFiles: _previewRecentFiles)
+}
+
+#Preview("File Tab — Empty Delegate (store fallback)") {
+    FCLFileTabViewPreviewHost(delegateRecentFiles: [])
+}
+
 #endif
 #endif

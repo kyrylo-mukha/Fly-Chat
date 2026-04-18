@@ -3,90 +3,199 @@ import Photos
 import SwiftUI
 import UIKit
 
-// MARK: - FCLPickerPermissionBanner
+// MARK: - FCLPickerPermissionSurface
 
-/// A compact banner rendered above the gallery grid when the user has granted
-/// limited photo access (`.limited`).
+/// Unified permission surface rendered under the picker's top toolbar.
 ///
-/// The leading label prefers the `"\(selectedCount) of \(totalCount) selected"`
-/// format when counts are supplied by the caller; when counts are `nil` the
-/// banner falls back to the generic `"You gave access to selected photos only."`
-/// sentence so the component stays usable in contexts that don't know the
-/// numbers yet.
+/// Shown whenever ``PHAuthorizationStatus`` is not `.authorized`. Renders:
+/// - a slim banner at the top (always when visible), and
+/// - a full empty state beneath it for ``.denied`` and ``.restricted``.
 ///
-/// "Manage" opens the system limited-library picker via
-/// ``FCLLimitedLibraryPickerBridge`` so the user can adjust which assets are
-/// visible without leaving the app.
-struct FCLPickerPermissionBanner: View {
-    /// Number of assets currently selected inside the picker's staging list,
-    /// or `nil` when the caller does not have the count to hand.
+/// The color palette uses ``FCLPalette`` system semantic colors so the surface
+/// stays legible across light, dark, and high-contrast traits (see HIG). Status
+/// is indicated by a small leading dot: info-blue for limited, neutral for
+/// not-determined (with a spinner), warning-orange for denied/restricted.
+///
+/// The surface observes ``presenter.isPresentationComplete`` to decide whether
+/// `.notDetermined` should appear "pending" (spinner) or blank — before the
+/// sheet animation has finished, it stays blank to avoid competing with the
+/// presentation.
+struct FCLPickerPermissionSurface: View {
+    let status: PHAuthorizationStatus
     let selectedCount: Int?
-    /// Total number of assets the user granted access to (the limited set
-    /// size), or `nil` when it is not yet available.
     let totalCount: Int?
+    let isPresentationComplete: Bool
 
     @State private var isShowingLimitedPicker = false
 
-    init(selectedCount: Int? = nil, totalCount: Int? = nil) {
-        self.selectedCount = selectedCount
-        self.totalCount = totalCount
-    }
-
     var body: some View {
-        HStack {
-            Text(bannerText)
-                .font(.caption)
-                .foregroundStyle(FCLPalette.secondaryLabel)
-            Spacer()
-            FCLGlassButton(action: { isShowingLimitedPicker = true }) {
-                Text("Manage")
-                    .font(.caption.weight(.semibold))
+        VStack(spacing: 12) {
+            if shouldShowBanner {
+                banner
+            }
+            if shouldShowFullEmptyState {
+                fullEmptyState
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+    }
+
+    private var shouldShowBanner: Bool {
+        switch status {
+        case .authorized: return false
+        case .limited, .denied, .restricted: return true
+        case .notDetermined: return isPresentationComplete
+        @unknown default: return false
+        }
+    }
+
+    private var shouldShowFullEmptyState: Bool {
+        switch status {
+        case .denied, .restricted: return true
+        default: return false
+        }
+    }
+
+    // MARK: - Banner
+
+    @ViewBuilder
+    private var banner: some View {
+        HStack(spacing: 10) {
+            statusDot
+            VStack(alignment: .leading, spacing: 1) {
+                Text(bannerHeadline)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(FCLPalette.label)
+                Text(bannerSubtitle)
+                    .font(.caption2)
+                    .foregroundStyle(FCLPalette.secondaryLabel)
+            }
+            Spacer(minLength: 8)
+            trailingControl
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .background(FCLPalette.secondarySystemBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.top, 4)
         .background(
             FCLLimitedLibraryPickerBridge(isPresented: $isShowingLimitedPicker)
                 .frame(width: 0, height: 0)
         )
     }
 
-    private var bannerText: String {
-        if let selectedCount, let totalCount {
-            return "\(selectedCount) of \(totalCount) selected"
+    @ViewBuilder
+    private var statusDot: some View {
+        ZStack {
+            Circle()
+                .fill(statusDotColor)
+                .frame(width: 18, height: 18)
+            Text(statusDotGlyph)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white)
         }
-        return "You gave access to selected photos only."
     }
-}
 
-// MARK: - FCLPickerDeniedView
+    private var statusDotColor: Color {
+        switch status {
+        case .limited: return FCLChatColorToken(red: 0.0, green: 0.48, blue: 1.0).color
+        case .notDetermined: return FCLChatColorToken(red: 0.47, green: 0.47, blue: 0.50).color
+        case .denied, .restricted: return FCLChatColorToken(red: 1.0, green: 0.58, blue: 0.0).color
+        default: return Color.clear
+        }
+    }
 
-/// Full-area prompt shown when photo access is `.denied` or `.restricted`.
-///
-/// An "Open Settings" button routes the user to the iOS Settings app so they
-/// can change the permission. The button uses ``FCLGlassButton`` to match the
-/// rest of the picker's visual language.
-struct FCLPickerDeniedView: View {
-    var body: some View {
-        VStack(spacing: 16) {
+    private var statusDotGlyph: String {
+        switch status {
+        case .limited: return "i"
+        case .notDetermined: return "•"
+        case .denied, .restricted: return "!"
+        default: return ""
+        }
+    }
+
+    private var bannerHeadline: String {
+        switch status {
+        case .limited:
+            if let selectedCount, let totalCount {
+                return "\(selectedCount) of \(totalCount) photos accessible"
+            }
+            return "Limited photo access"
+        case .notDetermined: return "Requesting photo access…"
+        case .denied, .restricted: return "Photo access is off"
+        default: return ""
+        }
+    }
+
+    private var bannerSubtitle: String {
+        switch status {
+        case .limited: return "Manage which photos FlyChat can see."
+        case .notDetermined: return "Respond to the system dialog to continue."
+        case .denied, .restricted: return "FlyChat can't show your library until you allow access."
+        default: return ""
+        }
+    }
+
+    @ViewBuilder
+    private var trailingControl: some View {
+        switch status {
+        case .limited:
+            Button(action: { isShowingLimitedPicker = true }) {
+                Text("Manage")
+                    .font(.footnote.weight(.semibold))
+            }
+            .buttonStyle(FCLPickerBannerCTAStyle())
+            .accessibilityLabel("Manage photo library access")
+
+        case .notDetermined:
+            ProgressView()
+                .controlSize(.small)
+                .padding(.trailing, 2)
+
+        case .denied, .restricted:
+            Button(action: openSettings) {
+                Text("Settings")
+                    .font(.footnote.weight(.semibold))
+            }
+            .buttonStyle(FCLPickerBannerCTAStyle())
+            .accessibilityLabel("Open Settings")
+
+        default:
+            EmptyView()
+        }
+    }
+
+    // MARK: - Full empty state (denied/restricted only)
+
+    @ViewBuilder
+    private var fullEmptyState: some View {
+        VStack(spacing: 14) {
             Image(systemName: "photo.badge.exclamationmark")
-                .font(.system(size: 44))
+                .font(.system(size: 44, weight: .regular))
                 .foregroundStyle(FCLPalette.secondaryLabel)
 
-            Text("Photo access is required to select images.")
+            Text("Grant photo access to select\nmedia from your library.")
                 .font(.subheadline)
-                .foregroundStyle(FCLPalette.secondaryLabel)
+                .foregroundStyle(FCLPalette.label)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
 
-            FCLGlassButton(action: openSettings) {
+            Button(action: openSettings) {
                 Text("Open Settings")
                     .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 10)
             }
+            .buttonStyle(FCLPickerPrimaryFilledButtonStyle())
+            .accessibilityLabel("Open Settings")
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .padding(.horizontal, 32)
     }
+
+    // MARK: - Actions
 
     private func openSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
@@ -94,7 +203,37 @@ struct FCLPickerDeniedView: View {
     }
 }
 
-// MARK: - FCLLimitedLibraryPickerBridge
+// MARK: - Button styles
+
+private struct FCLPickerBannerCTAStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(FCLChatColorToken(red: 0.0, green: 0.48, blue: 1.0).color.opacity(0.14))
+            )
+            .foregroundStyle(FCLChatColorToken(red: 0.0, green: 0.48, blue: 1.0).color)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.spring(response: 0.24, dampingFraction: 0.82), value: configuration.isPressed)
+    }
+}
+
+private struct FCLPickerPrimaryFilledButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(.white)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(FCLChatColorToken(red: 0.0, green: 0.48, blue: 1.0).color)
+            )
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.spring(response: 0.24, dampingFraction: 0.82), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Limited library bridge (unchanged from previous file)
 
 /// A zero-size `UIViewControllerRepresentable` that presents the system
 /// limited-library picker via `PHPhotoLibrary.shared().presentLimitedLibraryPicker(from:)`
@@ -102,9 +241,7 @@ struct FCLPickerDeniedView: View {
 ///
 /// The representable hosts a transparent `UIViewController` and presents the
 /// system picker on top of it. Dismissal resets `isPresented` to `false` via
-/// the `Coordinator`, which conforms to `PHPhotoLibraryChangeObserver` so the
-/// caller's gallery data source refreshes automatically after the user selects
-/// new photos.
+/// the `Coordinator`.
 struct FCLLimitedLibraryPickerBridge: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
 
@@ -119,8 +256,6 @@ struct FCLLimitedLibraryPickerBridge: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        // Keep the coordinator's binding reference current every update pass so
-        // the completion callback always writes to the latest binding.
         context.coordinator.isPresentedBinding = $isPresented
 
         if isPresented, uiViewController.presentedViewController == nil {
@@ -133,12 +268,8 @@ struct FCLLimitedLibraryPickerBridge: UIViewControllerRepresentable {
         }
     }
 
-    // MARK: Coordinator
-
     @MainActor
     final class Coordinator {
-        /// Kept up-to-date by `updateUIViewController` so the callback always
-        /// writes to the current binding (handles SwiftUI identity changes).
         var isPresentedBinding: Binding<Bool>?
     }
 }
@@ -147,72 +278,52 @@ struct FCLLimitedLibraryPickerBridge: UIViewControllerRepresentable {
 
 #if DEBUG
 
-#Preview("Permission — notDetermined") {
-    FCLPickerPermissionPreviewContainer(state: .notDetermined)
+#Preview("Permission — authorized (no surface)") {
+    FCLPickerPermissionSurfacePreviewHost(status: .authorized, isPresentationComplete: true)
 }
 
-#Preview("Permission — authorized") {
-    FCLPickerPermissionPreviewContainer(state: .authorized)
+#Preview("Permission — limited (banner only)") {
+    FCLPickerPermissionSurfacePreviewHost(
+        status: .limited,
+        selectedCount: 3,
+        totalCount: 12,
+        isPresentationComplete: true
+    )
 }
 
-#Preview("Permission — limited") {
-    FCLPickerPermissionPreviewContainer(state: .limited)
+#Preview("Permission — notDetermined (banner + spinner)") {
+    FCLPickerPermissionSurfacePreviewHost(status: .notDetermined, isPresentationComplete: true)
 }
 
-#Preview("Permission — limited (counted)") {
-    FCLPickerPermissionPreviewContainer(state: .limited, selectedCount: 2, totalCount: 8)
+#Preview("Permission — notDetermined (pre-presentation blank)") {
+    FCLPickerPermissionSurfacePreviewHost(status: .notDetermined, isPresentationComplete: false)
 }
 
-#Preview("Permission — denied") {
-    FCLPickerPermissionPreviewContainer(state: .denied)
+#Preview("Permission — denied (banner + full empty state)") {
+    FCLPickerPermissionSurfacePreviewHost(status: .denied, isPresentationComplete: true)
 }
 
-private struct FCLPickerPermissionPreviewContainer: View {
-    let state: PHAuthorizationStatus
+#Preview("Permission — restricted (banner + full empty state)") {
+    FCLPickerPermissionSurfacePreviewHost(status: .restricted, isPresentationComplete: true)
+}
+
+private struct FCLPickerPermissionSurfacePreviewHost: View {
+    let status: PHAuthorizationStatus
     var selectedCount: Int? = nil
     var totalCount: Int? = nil
+    let isPresentationComplete: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            switch state {
-            case .limited:
-                FCLPickerPermissionBanner(
+        ZStack {
+            FCLPalette.systemBackground.ignoresSafeArea()
+            VStack(spacing: 0) {
+                FCLPickerPermissionSurface(
+                    status: status,
                     selectedCount: selectedCount,
-                    totalCount: totalCount
+                    totalCount: totalCount,
+                    isPresentationComplete: isPresentationComplete
                 )
-                mockGallery
-
-            case .denied, .restricted:
-                FCLPickerDeniedView()
-
-            case .notDetermined:
-                VStack {
-                    Spacer()
-                    Text("Waiting for authorization…")
-                        .font(.subheadline)
-                        .foregroundStyle(FCLPalette.secondaryLabel)
-                    Spacer()
-                }
-
-            case .authorized:
-                mockGallery
-
-            @unknown default:
-                EmptyView()
-            }
-        }
-        .background(FCLPalette.systemBackground)
-    }
-
-    private var mockGallery: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
-        let colors: [Color] = [.blue, .orange, .green, .purple, .red, .teal, .indigo, .brown, .pink, .cyan, .mint, .yellow]
-        return ScrollView {
-            LazyVGrid(columns: columns, spacing: 2) {
-                ForEach(0..<12, id: \.self) { i in
-                    colors[i % colors.count]
-                        .aspectRatio(1, contentMode: .fit)
-                }
+                Spacer()
             }
         }
     }

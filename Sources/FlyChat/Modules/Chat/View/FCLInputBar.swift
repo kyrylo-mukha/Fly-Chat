@@ -261,10 +261,20 @@ struct FCLInputBar: View {
                 action: { presentAttachmentPicker() }
             )
             .accessibilityLabel("Attach file")
-            .modifier(FCLPickerZoomSource(
-                sourceID: "FCLAttachmentPicker",
-                namespace: pickerNamespace
-            ))
+            // Attach the matched-transition source to an invisible 36×36 Circle
+            // so the zoom originates from the paperclip's visual bounds rather
+            // than from `.buttonStyle(.glass)`'s padded outer frame on iOS 26.
+            // See docs/superpowers/knowledge/2026-04-17-picker-chrome-overhaul.md (Q1).
+            .background(
+                Circle()
+                    .fill(Color.clear)
+                    .frame(width: 36, height: 36)
+                    .allowsHitTesting(false)
+                    .modifier(FCLPickerZoomSource(
+                        sourceID: "FCLAttachmentPicker",
+                        namespace: pickerNamespace
+                    ))
+            )
         }
     }
 

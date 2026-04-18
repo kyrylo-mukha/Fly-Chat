@@ -178,5 +178,8 @@ enum FCLAttachmentDefaults {
 
     /// Default camera video recording availability: `true`.
     static let isCameraVideoEnabled = true
+
+    /// Default tab transition animation style: ``FCLPickerTabTransition/slide``.
+    static let tabTransition: FCLPickerTabTransition = .slide
 }
 #endif

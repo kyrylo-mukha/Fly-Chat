@@ -7,24 +7,23 @@ import SwiftUI
 /// Displays a photo library grid with a camera cell, selection circles, and video duration badges.
 ///
 /// Authorization is driven by ``FCLPhotoAuthorizationCoordinator``, which handles
-/// the initial access request and live status refresh on scene-active return. The
-/// gallery handles four states:
-/// - `.authorized`: shows the full asset grid.
-/// - `.limited`: shows a "Manage selected photos" banner above the grid (via
-///   ``FCLPickerPermissionBanner``) so the user can adjust access without leaving.
-/// - `.denied` / `.restricted`: shows ``FCLPickerDeniedView`` with an "Open Settings"
-///   button.
-/// - `.notDetermined`: access is requested on appear via the coordinator.
+/// the permission request (deferred until the sheet finishes presenting) and live
+/// status refresh on scene-active return. The gallery renders the asset grid only
+/// when access is `.authorized` or `.limited`; permission banners and denied states
+/// are rendered by the enclosing sheet via ``FCLPickerPermissionSurface``.
 struct FCLGalleryTabView: View {
-    @ObservedObject var presenter: FCLAttachmentPickerPresenter
-    @ObservedObject var galleryDataSource: FCLGalleryDataSource
-
     /// Authorization coordinator that owns the permission state and refresh logic.
-    @StateObject private var authCoordinator = FCLPhotoAuthorizationCoordinator()
+    /// Hoisted into ``FCLAttachmentPickerSheet`` so the top toolbar and permission
+    /// surface share the same identity across tab switches.
+    @ObservedObject var authCoordinator: FCLPhotoAuthorizationCoordinator
 
     /// Registry that discovers and orders photo collections.
-    /// Only loaded in `.authorized` state per PRD item 5.
-    @StateObject private var collectionRegistry = FCLAssetCollectionRegistry()
+    /// Hoisted into ``FCLAttachmentPickerSheet`` so the top toolbar's collection
+    /// selector pill binds to the same registry that scopes the grid.
+    @ObservedObject var collectionRegistry: FCLAssetCollectionRegistry
+
+    @ObservedObject var presenter: FCLAttachmentPickerPresenter
+    @ObservedObject var galleryDataSource: FCLGalleryDataSource
 
     /// Scene phase, observed to refresh authorization when the user returns from Settings.
     @Environment(\.scenePhase) private var scenePhase
@@ -44,13 +43,14 @@ struct FCLGalleryTabView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            permissionContent
+            contentForStatus
         }
-        .task {
-            await authCoordinator.requestAccessIfNeeded()
-            // After the coordinator obtains or confirms access, sync the gallery
-            // data source so it fetches assets using the up-to-date status.
-            syncDataSourceAfterAuth()
+        .onChange(of: presenter.isPresentationComplete, initial: false) { _, isComplete in
+            guard isComplete else { return }
+            Task {
+                await authCoordinator.requestAccessIfNeeded()
+                syncDataSourceAfterAuth()
+            }
         }
         // iOS 17+ two-argument onChange: fires when scenePhase transitions to
         // .active so any permission change made in Settings is picked up immediately.
@@ -65,53 +65,24 @@ struct FCLGalleryTabView: View {
         }
     }
 
-    // MARK: - Permission Content
+    // MARK: - Content by status
 
+    /// Content rendered inside the gallery tab area for the current
+    /// ``FCLPhotoAuthorizationCoordinator/status``. The top toolbar's source-pill
+    /// (collection selector) and the permission surface live *outside* this view —
+    /// see ``FCLPickerTopToolbar`` and ``FCLPickerPermissionSurface``.
     @ViewBuilder
-    private var permissionContent: some View {
+    private var contentForStatus: some View {
         switch authCoordinator.status {
-        case .authorized:
-            // In full-access mode show the collection selector pill above the grid.
-            VStack(spacing: 0) {
-                collectionSelectorBar
-                assetContent
-            }
-
-        case .limited:
-            VStack(spacing: 0) {
-                // Thread the current staged selection count and the total
-                // assets the user granted access to into the banner so the
-                // label reads "N of M selected" when both counts are known.
-                FCLPickerPermissionBanner(
-                    selectedCount: presenter.selectedAssets.count,
-                    totalCount: galleryDataSource.assets.count
-                )
-                assetContent
-            }
-
-        case .denied, .restricted:
-            FCLPickerDeniedView()
-
-        case .notDetermined:
-            // Blank while the request dialog is in flight; the .task modifier
-            // fires the request so we never stay here long.
+        case .authorized, .limited:
+            assetContent
+        case .denied, .restricted, .notDetermined:
+            // The permission surface renders the banner + full empty state
+            // above this area; the grid stays hidden until access is granted.
             Color.clear
-
         @unknown default:
             Color.clear
         }
-    }
-
-    // MARK: - Collection Selector Bar
-
-    /// The "Recents ▾" pill chip shown only in `.authorized` state.
-    private var collectionSelectorBar: some View {
-        HStack {
-            Spacer()
-            FCLCollectionSelectorView(registry: collectionRegistry)
-            Spacer()
-        }
-        .padding(.vertical, 8)
     }
 
     // MARK: - Asset Content

@@ -31,6 +31,29 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
     @Published private(set) var cameraCaptures: [FCLAttachment] = []
     @Published var captionText: String = ""
 
+    // MARK: - Scope A state (file search + presentation completion)
+
+    /// Whether the Files-tab search morph is open. When `.open`, the top toolbar
+    /// swaps to a search text field + Cancel button and the Files tab filters
+    /// its recent-files list by ``fileSearchText``.
+    @Published private(set) var fileSearchState: FileSearchState = .closed
+
+    /// Current query text bound by the search text field when
+    /// ``fileSearchState`` is `.open`. Always empty when the search is closed.
+    @Published var fileSearchText: String = ""
+
+    /// Set to `true` after the sheet's presentation animation has finished.
+    /// Downstream side effects that would block the animation (notably the
+    /// `PHPhotoLibrary` authorization request and the initial PHAsset fetch)
+    /// wait for this flag before running.
+    @Published private(set) var isPresentationComplete: Bool = false
+
+    /// States for the in-sheet Files search morph.
+    public enum FileSearchState: Sendable, Hashable {
+        case closed
+        case open
+    }
+
     // MARK: - Per-asset edit state
 
     @Published private(set) var editedImageByAssetID: [String: UIImage] = [:]
@@ -81,6 +104,27 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
     func selectTab(_ tab: FCLPickerTab) {
         guard state == .browsing else { return }
         selectedTab = tab
+    }
+
+    // MARK: - Scope A actions
+
+    /// Opens the Files-tab search morph. Keeps any existing ``fileSearchText``.
+    func beginFileSearch() {
+        fileSearchState = .open
+    }
+
+    /// Closes the Files-tab search morph and clears the query.
+    func cancelFileSearch() {
+        fileSearchState = .closed
+        fileSearchText = ""
+    }
+
+    /// Signals that the sheet's presentation animation has finished. Gated downstream
+    /// side effects (permission request, initial asset fetch) may now run. The call
+    /// is idempotent — repeated invocations are no-ops.
+    func markPresentationComplete() {
+        guard !isPresentationComplete else { return }
+        isPresentationComplete = true
     }
 
     func toggleAssetSelection(_ assetID: String) {

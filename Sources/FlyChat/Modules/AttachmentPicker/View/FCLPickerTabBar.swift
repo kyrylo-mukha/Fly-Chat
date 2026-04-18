@@ -19,15 +19,14 @@ extension FCLImageSource {
 
 /// A horizontally scrollable tab bar for the attachment picker sheet.
 ///
-/// When there are two or fewer tabs the content is centered within the available
-/// width. When there are three or more tabs the row overflows naturally, allowing
-/// horizontal scroll.
+/// The selected tab is indicated by a single Capsule pill that morphs between
+/// positions via ``matchedGeometryEffect`` so selection feels continuous rather
+/// than appearing/disappearing. On iOS 26 the pill is rendered with
+/// ``glassEffect`` for a true Liquid Glass highlight; on iOS 17/18 a
+/// translucent white-fill fallback produces an identical morph shape.
 ///
-/// Each tab renders as a vertical stack: SF Symbol icon above a short label. The
-/// selected tab is highlighted with a solid rounded-capsule background using the
-/// library tint color. The entire bar is disabled (non-interactive, dimmed) when
-/// `isEnabled` is `false`, which is the case during the `.gallerySelected` state
-/// while the picker input bar is shown.
+/// When ``isEnabled`` is `false` (during the `.gallerySelected` state while the
+/// picker input bar is shown) the bar is dimmed and non-interactive.
 struct FCLPickerTabBar: View {
     /// The ordered list of display descriptors for each tab.
     let tabs: [FCLPickerTabDisplayItem]
@@ -38,6 +37,18 @@ struct FCLPickerTabBar: View {
     /// Callback invoked when the user taps a tab.
     let onTabSelected: (FCLPickerTab) -> Void
 
+    @Namespace private var pillNamespace
+
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.fclPreviewReduceMotion) private var previewReduceMotion
+
+    private var reduceMotion: Bool { previewReduceMotion ?? systemReduceMotion }
+
+    private var pillAnimation: Animation {
+        if reduceMotion { return .linear(duration: 0.14) }
+        return .spring(response: 0.40, dampingFraction: 0.88)
+    }
+
     var body: some View {
         FCLGlassToolbar(placement: .bottom) {
             GeometryReader { geo in
@@ -47,12 +58,14 @@ struct FCLPickerTabBar: View {
                             FCLPickerTabItem(
                                 item: item,
                                 isSelected: item.tab == selectedTab,
+                                pillNamespace: pillNamespace,
                                 onTap: { onTabSelected(item.tab) }
                             )
                         }
                     }
                     .padding(.horizontal, 4)
                     .frame(minWidth: geo.size.width, alignment: .center)
+                    .animation(pillAnimation, value: selectedTab)
                 }
             }
             .frame(height: 52)
@@ -65,20 +78,16 @@ struct FCLPickerTabBar: View {
 
 // MARK: - FCLPickerTabItem
 
-/// Internal view that renders a single tab: icon above label, with an active-state
-/// solid capsule background behind the content when selected.
+/// Internal view that renders a single tab: icon above label, with the shared
+/// morphing selection pill behind the content when selected.
 ///
-/// The foreground color adapts to the resolved visual style:
-/// - Selected: always white (legible against the solid tint capsule).
-/// - Unselected on iOS 26+ native glass path: `.primary` (system adapts to glass backdrop).
-/// - Unselected on iOS 17/18 fallback or opaque path: `.secondary` (softer, matches
-///   the fallback material).
-///
-/// Tap animation uses `FCLChipPressStyle` (0.95 scale + spring), matching the
-/// library-wide interactive chip behaviour.
+/// Foreground color adapts to the resolved visual style:
+/// - Selected: `.primary` (works over both native glass and translucent fallback pill).
+/// - Unselected: `.secondary` (muted so the selected tab reads as the focus).
 private struct FCLPickerTabItem: View {
     let item: FCLPickerTabDisplayItem
     let isSelected: Bool
+    let pillNamespace: Namespace.ID
     let onTap: () -> Void
 
     @Environment(\.fclExplicitVisualStyle) private var explicitStyle
@@ -90,9 +99,6 @@ private struct FCLPickerTabItem: View {
 
     private var reduceTransparency: Bool { previewReduceTransparency ?? systemReduceTransparency }
     private var reduceMotion: Bool { previewReduceMotion ?? systemReduceMotion }
-
-    /// The solid tint applied to the selected-state capsule background.
-    private let activeTint = FCLChatColorToken(red: 0.0, green: 0.48, blue: 1.0)
 
     var body: some View {
         let resolved = FCLVisualStyleResolver.resolve(
@@ -110,34 +116,43 @@ private struct FCLPickerTabItem: View {
             }
             .padding(6)
             .frame(minWidth: 60, minHeight: 52)
-            .foregroundStyle(foregroundStyle(for: resolved))
+            .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .background {
                 if isSelected {
-                    Capsule(style: .continuous).fill(activeTint.color)
+                    selectedPillBackground(for: resolved)
+                        .matchedGeometryEffect(id: "pill", in: pillNamespace)
                 }
             }
-            .animation(.spring(response: 0.24, dampingFraction: 0.82), value: isSelected)
         }
         .buttonStyle(FCLChipPressStyle(reduceMotion: reduceMotion))
         .accessibilityLabel(item.title)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
-    /// Returns the foreground color appropriate for the resolved style and selection state.
-    ///
-    /// Selected items always use white to contrast against the solid tint capsule.
-    /// Unselected items use `.primary` on the native glass path (where the glass backdrop
-    /// provides sufficient contrast) and `.secondary` on the fallback/opaque path.
-    private func foregroundStyle(for resolved: FCLResolvedVisualStyle) -> AnyShapeStyle {
-        if isSelected {
-            return AnyShapeStyle(.white)
-        }
+    /// Returns the selected-pill background for the current resolved visual style.
+    @ViewBuilder
+    private func selectedPillBackground(for resolved: FCLResolvedVisualStyle) -> some View {
+        let shape = Capsule(style: .continuous)
         switch resolved {
         case .liquidGlassNative:
-            return AnyShapeStyle(.primary)
+            #if os(iOS)
+            if #available(iOS 26, *) {
+                shape.glassEffect(.regular, in: shape)
+            } else {
+                fallbackPill(shape: shape)
+            }
+            #else
+            fallbackPill(shape: shape)
+            #endif
         case .liquidGlassFallback, .opaque:
-            return AnyShapeStyle(.secondary)
+            fallbackPill(shape: shape)
         }
+    }
+
+    private func fallbackPill(shape: Capsule) -> some View {
+        shape
+            .fill(Color.white.opacity(0.22))
+            .overlay(shape.strokeBorder(Color.white.opacity(0.30), lineWidth: 0.5))
     }
 }
 

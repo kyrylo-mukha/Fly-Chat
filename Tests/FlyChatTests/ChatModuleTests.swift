@@ -1,3 +1,4 @@
+import Testing
 import XCTest
 @testable import FlyChat
 
@@ -465,3 +466,51 @@ final class FCLChatModuleTests: XCTestCase {
     }
     #endif
 }
+
+#if canImport(UIKit)
+// MARK: - FCLAttachmentPickerPresenter — Scope A state
+
+@Suite("Picker Chrome — presenter state")
+@MainActor
+struct FCLAttachmentPickerScopeATests {
+    @Test("File search starts closed with empty text")
+    func fileSearchInitialState() {
+        let presenter = FCLAttachmentPickerPresenter(
+            delegate: nil,
+            onSend: { _, _ in }
+        )
+        #expect(presenter.fileSearchState == .closed)
+        #expect(presenter.fileSearchText.isEmpty)
+    }
+
+    @Test("beginFileSearch opens the search; cancelFileSearch resets state and text")
+    func fileSearchTransitions() {
+        let presenter = FCLAttachmentPickerPresenter(
+            delegate: nil,
+            onSend: { _, _ in }
+        )
+        presenter.fileSearchText = "report"
+        presenter.beginFileSearch()
+        #expect(presenter.fileSearchState == .open)
+        #expect(presenter.fileSearchText == "report")
+
+        presenter.cancelFileSearch()
+        #expect(presenter.fileSearchState == .closed)
+        #expect(presenter.fileSearchText.isEmpty)
+    }
+
+    @Test("markPresentationComplete flips the flag and is idempotent")
+    func markPresentationCompleteIdempotent() {
+        let presenter = FCLAttachmentPickerPresenter(
+            delegate: nil,
+            onSend: { _, _ in }
+        )
+        #expect(presenter.isPresentationComplete == false)
+        presenter.markPresentationComplete()
+        #expect(presenter.isPresentationComplete == true)
+        // Second call must not revert the flag and must not crash.
+        presenter.markPresentationComplete()
+        #expect(presenter.isPresentationComplete == true)
+    }
+}
+#endif
