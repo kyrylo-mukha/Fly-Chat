@@ -28,6 +28,13 @@ public protocol FCLChatDelegate: AnyObject {
     /// Return `nil` to use the library's default input bar configuration.
     var input: (any FCLInputDelegate)? { get }
 
+    /// Delegate that controls the library-wide visual style (Liquid Glass toggle,
+    /// default tint, opaque fallback background for reduced-transparency mode).
+    ///
+    /// Return `nil` to use the library's default visual style
+    /// (``FCLVisualStyle/liquidGlass``).
+    var visualStyle: (any FCLVisualStyleDelegate)? { get }
+
     #if canImport(UIKit)
     /// Delegate that controls the attachment picker's capabilities and data sources.
     ///
@@ -41,6 +48,7 @@ public extension FCLChatDelegate {
     var avatar: (any FCLAvatarDelegate)? { nil }
     var layout: (any FCLLayoutDelegate)? { nil }
     var input: (any FCLInputDelegate)? { nil }
+    var visualStyle: (any FCLVisualStyleDelegate)? { nil }
 
     #if canImport(UIKit)
     var attachment: (any FCLAttachmentDelegate)? { nil }

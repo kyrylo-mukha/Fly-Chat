@@ -33,6 +33,14 @@ public protocol FCLLayoutDelegate: AnyObject {
     ///
     /// Default: `12`.
     var interGroupSpacing: CGFloat { get }
+
+    /// Whether to render the delivery status indicator on outgoing messages.
+    ///
+    /// When `false`, the status glyph and its width reservation are suppressed for outgoing
+    /// messages regardless of `FCLChatMessage.status`. There is no equivalent toggle for
+    /// incoming messages — the status indicator is always hidden on incoming messages.
+    /// Default: `true`.
+    var showsStatusForOutgoing: Bool { get }
 }
 
 public extension FCLLayoutDelegate {
@@ -41,4 +49,5 @@ public extension FCLLayoutDelegate {
     var maxBubbleWidthRatio: CGFloat { FCLLayoutDefaults.maxBubbleWidthRatio }
     var intraGroupSpacing: CGFloat { FCLLayoutDefaults.intraGroupSpacing }
     var interGroupSpacing: CGFloat { FCLLayoutDefaults.interGroupSpacing }
+    var showsStatusForOutgoing: Bool { FCLLayoutDefaults.showsStatusForOutgoing }
 }

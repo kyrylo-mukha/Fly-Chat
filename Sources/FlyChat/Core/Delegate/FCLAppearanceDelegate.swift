@@ -1,4 +1,5 @@
 import CoreGraphics
+import SwiftUI
 
 /// Delegate protocol for customizing the visual appearance of chat bubbles and message text.
 ///
@@ -43,6 +44,31 @@ public protocol FCLAppearanceDelegate: AnyObject {
     /// Ensures that very short messages still render a comfortably tappable bubble.
     /// Default: `40`.
     var minimumBubbleHeight: CGFloat { get }
+
+    /// Edge insets applied around the attachment image grid inside a bubble, in points.
+    ///
+    /// - Important: Deprecated. The attachment inset is now fixed at 1pt on all sides
+    ///   (`FCLChatLayout.attachmentInset`). Any value returned by this property is ignored
+    ///   by the library. The property remains in the protocol for source compatibility only.
+    @available(*, deprecated, message: "Attachment inset is now fixed at 1pt; value is ignored. Use FCLChatLayout.attachmentInset.")
+    var attachmentInsets: FCLEdgeInsets { get }
+
+    /// Spacing between individual attachment cells within the image grid, in points.
+    ///
+    /// Default: `1`.
+    var attachmentItemSpacing: CGFloat { get }
+
+    /// Custom icons for the three message delivery status states.
+    ///
+    /// Each slot is optional; a `nil` value in a slot causes the library to use its built-in
+    /// glyph for that state (SF Symbol for `.created` / `.sent`; a custom path for `.read`).
+    /// Default: `FCLChatStatusIcons()` (all slots `nil` — all built-in glyphs used).
+    var statusIcons: FCLChatStatusIcons { get }
+
+    /// Color tokens applied to the delivery status glyph for each state.
+    ///
+    /// Default: muted white for `.created` and `.sent`; vivid green accent for `.read`.
+    var statusColors: FCLChatStatusColors { get }
 }
 
 public extension FCLAppearanceDelegate {
@@ -53,4 +79,9 @@ public extension FCLAppearanceDelegate {
     var messageFont: FCLChatMessageFontConfiguration { FCLAppearanceDefaults.messageFont }
     var tailStyle: FCLBubbleTailStyle { FCLAppearanceDefaults.tailStyle }
     var minimumBubbleHeight: CGFloat { FCLAppearanceDefaults.minimumBubbleHeight }
+    @available(*, deprecated, message: "Attachment inset is now fixed at 1pt; value is ignored. Use FCLChatLayout.attachmentInset.")
+    var attachmentInsets: FCLEdgeInsets { FCLAppearanceDefaults.attachmentInsets }
+    var attachmentItemSpacing: CGFloat { FCLAppearanceDefaults.attachmentItemSpacing }
+    var statusIcons: FCLChatStatusIcons { FCLAppearanceDefaults.statusIcons }
+    var statusColors: FCLChatStatusColors { FCLAppearanceDefaults.statusColors }
 }

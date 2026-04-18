@@ -59,6 +59,16 @@ final class TestAttachmentDelegate: FCLAttachmentDelegate {
 }
 #endif
 
+/// An `FCLAppearanceDelegate` that relies entirely on protocol defaults, used to verify
+/// that the default property values match the expected constants.
+@MainActor
+final class TestAppearanceDelegateDefault: FCLAppearanceDelegate {}
+
+/// An `FCLLayoutDelegate` that relies entirely on protocol defaults, used to verify
+/// that the default property values match the expected constants.
+@MainActor
+final class TestLayoutDelegateDefault: FCLLayoutDelegate {}
+
 @MainActor
 final class FCLContextMenuDelegateSpy: FCLContextMenuDelegate {
     var returnedActions: [FCLContextMenuAction] = []

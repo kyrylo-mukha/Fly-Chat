@@ -24,18 +24,20 @@ public protocol FCLChatDelegate: AnyObject {
     var layout: (any FCLLayoutDelegate)? { get }
     var input: (any FCLInputDelegate)? { get }
     var attachment: (any FCLAttachmentDelegate)? { get }  // iOS only
+    var visualStyle: (any FCLVisualStyleDelegate)? { get }
 }
 ```
 
-All five properties default to `nil` via a protocol extension. When a sub-delegate is `nil`, the presenter falls back to the built-in defaults defined in `FCLDelegateDefaults.swift`.
+All six properties default to `nil` via a protocol extension. When a sub-delegate is `nil`, the presenter falls back to the built-in defaults defined in `FCLDelegateDefaults.swift`.
 
 | Property | Type | Default | Domain |
 |---|---|---|---|
-| `appearance` | `(any FCLAppearanceDelegate)?` | `nil` | Bubble colors, text colors, font, tail style, minimum bubble height |
+| `appearance` | `(any FCLAppearanceDelegate)?` | `nil` | Bubble colors, text colors, font, tail style, minimum bubble height, status icons and colors |
 | `avatar` | `(any FCLAvatarDelegate)?` | `nil` | Avatar size, visibility, URL loading, caching |
-| `layout` | `(any FCLLayoutDelegate)?` | `nil` | Bubble side placement, max width, spacing |
+| `layout` | `(any FCLLayoutDelegate)?` | `nil` | Bubble side placement, max width, spacing, outgoing status visibility |
 | `input` | `(any FCLInputDelegate)?` | `nil` | Input bar text, rows, buttons, colors, layout |
 | `attachment` | `(any FCLAttachmentDelegate)?` | `nil` | Attachment picker capabilities, compression, recent files, custom tabs (iOS only) |
+| `visualStyle` | `(any FCLVisualStyleDelegate)?` | `nil` | Liquid Glass visual style applied to every chrome surface. See [../VisualStyle.md](../VisualStyle.md). |
 
 ---
 
@@ -55,6 +57,9 @@ public protocol FCLAppearanceDelegate: AnyObject {
     var messageFont: FCLChatMessageFontConfiguration { get }
     var tailStyle: FCLBubbleTailStyle { get }
     var minimumBubbleHeight: CGFloat { get }
+    var attachmentItemSpacing: CGFloat { get }       // iOS only
+    var statusIcons: FCLChatStatusIcons { get }
+    var statusColors: FCLChatStatusColors { get }
 }
 ```
 
@@ -69,6 +74,11 @@ public protocol FCLAppearanceDelegate: AnyObject {
 | `messageFont` | `FCLChatMessageFontConfiguration` | `FCLChatMessageFontConfiguration()` -- system font, size 17, weight `.regular` | Font used for message body text. See **Supporting Types** below. |
 | `tailStyle` | `FCLBubbleTailStyle` | `.edged(.bottom)` | Bubble corner tail style. See **Supporting Types** below. |
 | `minimumBubbleHeight` | `CGFloat` | `40` | Minimum height (in points) for any message bubble. Prevents short messages from collapsing too small. |
+| `attachmentItemSpacing` | `CGFloat` | `1` | Spacing (in points) between adjacent cells in the attachment grid. iOS only. |
+| `statusIcons` | `FCLChatStatusIcons` | All defaults | Per-status icon override: `created`, `sent`, `read`. `nil` per case keeps the default glyph. See [../MessageStatus.md](../MessageStatus.md). |
+| `statusColors` | `FCLChatStatusColors` | All defaults | Per-status color tokens. Applied as tint to default glyphs and to template-rendered custom icons. |
+
+> **Deprecated:** `attachmentInsets` has been removed from `FCLAppearanceDelegate`. The chat bubble layout now reserves a fixed 1-point inset via `FCLChatLayout.attachmentInset` and derives attachment-container corners from the bubble shape via `FCLAttachmentMaskShape`. Existing integrations that assigned `attachmentInsets` continue to compile through the deprecation shim but the value is ignored.
 
 ### Supporting Types
 
@@ -208,6 +218,7 @@ public protocol FCLLayoutDelegate: AnyObject {
     var maxBubbleWidthRatio: CGFloat { get }
     var intraGroupSpacing: CGFloat { get }
     var interGroupSpacing: CGFloat { get }
+    var showsStatusForOutgoing: Bool { get }
 }
 ```
 
@@ -220,6 +231,7 @@ public protocol FCLLayoutDelegate: AnyObject {
 | `maxBubbleWidthRatio` | `CGFloat` | `0.78` | Maximum fraction of screen width a bubble may occupy. **Clamped at runtime to `0.55...0.9`** (see below). |
 | `intraGroupSpacing` | `CGFloat` | `4` | Vertical spacing (in points) between consecutive messages from the same sender within a group. |
 | `interGroupSpacing` | `CGFloat` | `12` | Vertical spacing (in points) between message groups (when sender changes or a time gap occurs). |
+| `showsStatusForOutgoing` | `Bool` | `true` | Whether the status glyph is drawn next to the timestamp on outgoing bubbles. Incoming bubbles never show a status regardless of this flag. See [../MessageStatus.md](../MessageStatus.md). |
 
 ### `FCLChatBubbleSide`
 
@@ -285,7 +297,7 @@ public protocol FCLInputDelegate: AnyObject {
 | `maxRows` | `Int?` | `nil` | Maximum visible text rows before scrolling. When `nil`, auto-calculated from available height (see below). |
 | `showAttachButton` | `Bool` | `true` | Whether the attachment (paperclip) button is visible. |
 | `containerMode` | `FCLInputBarContainerMode` | `.fieldOnlyRounded` | Container rounding mode for the input bar. See below. |
-| `liquidGlass` | `Bool` | `false` | Enables the iOS 26+ Liquid Glass material on the input bar background. |
+| `liquidGlass` | `Bool` | `false` | **Deprecated.** Kept functional for backward compatibility; bridges into `FCLVisualStyleDelegate`. New code should set `visualStyle` on `FCLChatDelegate` instead. See [../VisualStyle.md](../VisualStyle.md). |
 | `backgroundColor` | `FCLChatColorToken` | `(r: 0.93, g: 0.94, b: 0.96, a: 1)` -- light gray | Background color of the entire input bar container. |
 | `fieldBackgroundColor` | `FCLChatColorToken` | `(r: 1, g: 1, b: 1, a: 1)` -- white | Background color of the text input field itself. |
 | `fieldCornerRadius` | `CGFloat` | `18` | Corner radius of the text input field. |
@@ -356,7 +368,7 @@ private func resolveMaxRows(forAvailableHeight height: CGFloat) -> Int {
 
 **Platform:** iOS only (`#if canImport(UIKit)`)
 
-Controls the tabbed attachment picker sheet: media compression settings, the "Recents" section, additional custom tabs, and feature toggles for video and the Files tab.
+Controls the tabbed attachment picker sheet: media compression settings, the "Recents" section, additional custom tabs, and feature toggles for video, camera video, and the Files tab. The in-app camera is the standalone Camera module (`AVCaptureSession`-backed, presented via `FCLCameraRouter`); this delegate does not replace or configure the camera UI itself, but `isCameraVideoEnabled` toggles the `.video` mode availability in `FCLCameraConfiguration.allowsVideo`.
 
 ```swift
 @MainActor
@@ -366,6 +378,7 @@ public protocol FCLAttachmentDelegate: AnyObject {
     var customTabs: [any FCLCustomAttachmentTab] { get }
     var isVideoEnabled: Bool { get }
     var isFileTabEnabled: Bool { get }
+    var isCameraVideoEnabled: Bool { get }
 }
 ```
 
@@ -374,16 +387,19 @@ public protocol FCLAttachmentDelegate: AnyObject {
 | Property | Type | Default Value | Description |
 |---|---|---|---|
 | `mediaCompression` | `FCLMediaCompression` | `.default` (`maxDimension: 1920`, `jpegQuality: 0.7`, `.mediumQuality`) | Compression settings applied to images and videos before attaching. |
-| `recentFiles` | `[FCLRecentFile]` | `[]` | Files shown in the "Recents" section of the picker. Empty array hides the section. |
+| `recentFiles` | `[FCLRecentFile]` | `[]` | Files shown in the "Recents" section of the picker. Host-app provided — see note below. |
 | `customTabs` | `[any FCLCustomAttachmentTab]` | `[]` | Additional tabs injected after Gallery and Files. Empty array shows only built-in tabs. |
 | `isVideoEnabled` | `Bool` | `true` | Whether video selection is available in the Gallery tab. |
 | `isFileTabEnabled` | `Bool` | `true` | Whether the Files tab is shown in the picker. |
+| `isCameraVideoEnabled` | `Bool` | `true` | Whether the in-app Camera module exposes the Video mode. When `false`, `FCLCameraConfiguration.allowsVideo` is forced off and the Photo / Video mode switch hides `.video`. |
+
+> **Recent Files:** iOS does not provide a system API for accessing the user's recent file history. The `recentFiles` array is entirely host-app managed — populate it with files your app has recently handled (e.g., sent attachments, downloaded documents). When the array is empty, the Files tab shows a "No recent files" placeholder.
 
 ### Supporting Types
 
 #### `FCLMediaCompression`
 
-**File:** `Sources/FlyChat/Modules/Chat/AttachmentPicker/Model/FCLMediaCompression.swift`
+**File:** `Sources/FlyChat/Modules/AttachmentPicker/Model/FCLMediaCompression.swift`
 
 ```swift
 public struct FCLMediaCompression: Sendable, Equatable {
@@ -404,7 +420,7 @@ public enum FCLVideoExportPreset: String, Sendable, Equatable {
 
 #### `FCLRecentFile`
 
-**File:** `Sources/FlyChat/Modules/Chat/AttachmentPicker/Model/FCLRecentFile.swift`
+**File:** `Sources/FlyChat/Modules/AttachmentPicker/Model/FCLRecentFile.swift`
 
 ```swift
 public struct FCLRecentFile: Identifiable, Sendable {
@@ -434,6 +450,35 @@ public protocol FCLCustomAttachmentTab: AnyObject, Sendable {
 Implement this protocol to inject a fully custom view controller as a tab in the picker sheet. The library calls `makeViewController(onSelect:)` once when the tab is first displayed. Call `onSelect` with the chosen `FCLAttachment`; the sheet dismisses automatically.
 
 > For full usage examples — compression overrides, recent files, custom tabs, and feature toggles — see [../AdvancedUsage.md#3-attachment-delegate](../AdvancedUsage.md#3-attachment-delegate).
+
+---
+
+## FCLVisualStyleDelegate
+
+**File:** `Sources/FlyChat/Core/Delegate/FCLVisualStyleDelegate.swift`
+
+Controls the visual-style pipeline that drives every chrome surface in the package (input bar, camera bars, picker tab bar, attachment preview bars, previewer carousel).
+
+```swift
+@MainActor
+public protocol FCLVisualStyleDelegate: AnyObject {
+    var visualStyle: FCLVisualStyle { get }
+}
+```
+
+| Property | Type | Default Value | Description |
+|---|---|---|---|
+| `visualStyle` | `FCLVisualStyle` | `.liquidGlass` | Style applied to every chrome surface. Resolver precedence is explicit view modifier > delegate > default. |
+
+Values:
+
+- `.liquidGlass` — iOS 26+ native `.glassEffect`, with a layered material fallback on iOS 17 / 18.
+- `.default` — opaque surface drawn from `FCLAppearanceDelegate` color tokens.
+- `.system` — adaptive system materials based on the active color scheme.
+
+> Accessibility: the resolver honors `accessibilityReduceTransparency` (degrades glass to opaque surfaces) and `accessibilityReduceMotion` (disables parallax inside glass surfaces). See [../VisualStyle.md](../VisualStyle.md).
+>
+> **Related deprecation:** `FCLInputDelegate.liquidGlass` is kept for backward compatibility but is deprecated; it bridges into `FCLVisualStyleDelegate`. Prefer setting `visualStyle` on `FCLChatDelegate` for new integrations.
 
 ---
 
@@ -530,6 +575,7 @@ The defaults enums are defined in `Sources/FlyChat/Core/Delegate/FCLDelegateDefa
 - `FCLAvatarDefaults`
 - `FCLInputDefaults`
 - `FCLAttachmentDefaults`
+- `FCLVisualStyleDefaults`
 
 ---
 
@@ -539,3 +585,5 @@ The defaults enums are defined in `Sources/FlyChat/Core/Delegate/FCLDelegateDefa
 - **[../AvatarSystem/AdvancedUsage.md](../AvatarSystem/AdvancedUsage.md)** -- Custom cache implementations, external avatar URL loading, and avatar visibility customization.
 - **[AdvancedPatterns.md](AdvancedPatterns.md)** -- Advanced patterns for appearance, layout, and input delegate customization.
 - **[../AdvancedUsage.md](../AdvancedUsage.md)** -- Context menus, custom input bars, attachment system, and Info.plist requirements.
+- **[../VisualStyle.md](../VisualStyle.md)** -- Visual-style enum, resolver precedence, primitives, and accessibility behavior.
+- **[../MessageStatus.md](../MessageStatus.md)** -- Status indicator semantics, icons, colors, and layout toggle.

@@ -37,6 +37,7 @@ public protocol FCLInputDelegate: AnyObject {
     /// Whether to apply the Liquid Glass visual effect (iOS 26+) to the input bar.
     ///
     /// Default: `false`.
+    @available(*, deprecated, message: "Use FCLVisualStyleDelegate via FCLChatDelegate.visualStyle")
     var liquidGlass: Bool { get }
 
     /// The background color of the entire input bar container area.
@@ -87,6 +88,7 @@ public extension FCLInputDelegate {
     var maxRows: Int? { FCLInputDefaults.maxRows }
     var showAttachButton: Bool { FCLInputDefaults.showAttachButton }
     var containerMode: FCLInputBarContainerMode { FCLInputDefaults.containerMode }
+    @available(*, deprecated, message: "Use FCLVisualStyleDelegate via FCLChatDelegate.visualStyle")
     var liquidGlass: Bool { FCLInputDefaults.liquidGlass }
     var backgroundColor: FCLChatColorToken { FCLInputDefaults.backgroundColor }
     var fieldBackgroundColor: FCLChatColorToken { FCLInputDefaults.fieldBackgroundColor }

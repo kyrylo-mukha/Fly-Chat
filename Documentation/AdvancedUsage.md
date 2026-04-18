@@ -11,7 +11,8 @@ This guide covers advanced customization patterns for FlyChat. Every delegate pr
 1. [Context Menu Delegate](#1-context-menu-delegate)
 2. [Custom Input Bar](#2-custom-input-bar)
 3. [Attachment Delegate](#3-attachment-delegate)
-4. [Info.plist Requirements](#4-infoplist-requirements)
+4. [Full-Screen Media Preview](#4-full-screen-media-preview)
+5. [Info.plist Requirements](#5-infoplist-requirements)
 
 > **Moved:** Custom Appearance Delegate, Custom Layout Delegate, and Custom Input Delegate content has moved to [DelegateSystem/AdvancedPatterns.md](DelegateSystem/AdvancedPatterns.md).
 
@@ -224,6 +225,9 @@ public protocol FCLAttachmentDelegate: AnyObject {
 
     /// Whether the Files tab is shown in the picker.
     var isFileTabEnabled: Bool { get }
+
+    /// Whether the in-app camera allows video recording in addition to photos.
+    var isCameraVideoEnabled: Bool { get }
 }
 ```
 
@@ -264,7 +268,11 @@ final class MyAttachmentDelegate: FCLAttachmentDelegate {
 
 ### Recent Files
 
-Return an array of `FCLRecentFile` values to populate a "Recents" section at the top of the picker. When the array is empty (the default), the section is hidden.
+Return an array of `FCLRecentFile` values to populate a "Recents" section in the Files tab. When the array is empty (the default), the section shows a "No recent files" placeholder.
+
+> **Note:** iOS does not provide a system API for accessing the user's recent file history. The `recentFiles` array is entirely host-app managed. Populate it with files your app has recently handled (e.g., sent attachments, downloaded documents, cached files).
+>
+> **Built-in fallback:** When `recentFiles` is empty (the default), FlyChat automatically tracks the last 20 files sent through any picker pipeline and displays them in the Files tab's Recents section. This built-in tracking requires no configuration. Call `FCLRecentFilesStore.shared.clear()` to reset it if needed (for example, on sign-out).
 
 ```swift
 public struct FCLRecentFile: Identifiable, Sendable {
@@ -344,12 +352,13 @@ final class MyAttachmentDelegate: FCLAttachmentDelegate {
 
 ### Feature Toggles
 
-Disable video selection or the Files tab entirely if they are not relevant to your use case:
+Disable video selection, the Files tab, or camera video recording if they are not relevant to your use case:
 
 ```swift
 final class MyAttachmentDelegate: FCLAttachmentDelegate {
-    var isVideoEnabled: Bool { false }    // Gallery shows images only
-    var isFileTabEnabled: Bool { false }  // Files tab hidden
+    var isVideoEnabled: Bool { false }        // Gallery shows images only
+    var isFileTabEnabled: Bool { false }       // Files tab hidden
+    var isCameraVideoEnabled: Bool { false }   // Native camera restricted to photos only (no video recording)
 }
 ```
 
@@ -375,17 +384,50 @@ FCLUIKitBridge.makeChatViewController(
 )
 ```
 
+### Camera Capture Flow
+
+Tapping the in-gallery camera cell presents the standalone Camera module via `FCLCameraRouter`. The screen is built directly on `AVCaptureSession` and shows a live `AVCaptureVideoPreviewLayer`-backed preview with a system-Camera-app fidelity UI: shutter button, flash pill (Auto / On / Off), flip button with 3D rotation animation and a mid-flip blur, Photo / Video mode switch, record timer pill, pinch-to-zoom, a 0.5× / 1× / 2× zoom preset ring, and a tap-to-focus reticle.
+
+After each capture the library accumulates results into the shared multi-capture stack on `FCLAttachmentPickerPresenter` (`cameraCaptures`). From the preview that follows, the user can:
+
+- Review thumbnails of all captured items.
+- Remove individual captures.
+- Tap **Add another** to re-open the camera and capture additional items.
+- Add an optional caption.
+- Tap **Send** to dispatch all accumulated captures in a single batched message.
+
+Whether video recording is available is controlled by `isCameraVideoEnabled` on `FCLAttachmentDelegate` (default: `true`). When `isCameraVideoEnabled` is `false`, the camera module's `FCLCameraConfiguration.allowsVideo` is forced off and the Photo / Video mode switch hides `.video`. See [CameraModule.md](CameraModule.md) for the full module reference.
+
 ### In-Bubble Rendering
 
 Once a message is sent with attachments, they render inside the bubble:
 
-- **Images and videos** are displayed in a compact grid that fills the bubble width.
+- **Images and videos** are displayed in an aspect-ratio-aware grid. Each row's height is derived from the combined aspect ratios of its cells, so portrait and landscape thumbnails in the same row scale naturally. Thumbnails are loaded asynchronously from the attachment's file URL by an internal loader; gallery attachments display real asset previews rather than gray placeholders. `thumbnailData` is used as a loading-state fallback for camera captures that carry JPEG data directly.
 - **Files** are displayed as individual rows below the grid, each showing the file icon and name.
-- If the message has **only attachments** (no text), the timestamp appears as a floating overlay badge with a semi-transparent background.
+- **Media-only messages** (no text): the image grid covers the full bubble area and the timestamp renders as a translucent pill overlay in the bottom-trailing corner over the last image.
+- **Messages with both media and text**: the grid appears above the text, and the timestamp is inline as usual.
 
 ---
 
-## 4. Info.plist Requirements
+## 4. Full-Screen Media Preview
+
+When the user taps an attachment thumbnail in a chat bubble, `FCLMediaPreviewView` opens as a full-screen cover. No delegate configuration is required — the preview is handled entirely by the library.
+
+### Features
+
+| Feature | Description |
+|---|---|
+| **Conversation-wide swipe** | Swiping left/right navigates across all media in the conversation, not only the current message. |
+| **Message-scoped carousel** | A bottom thumbnail strip shows all media from the current message. The focused item updates automatically as the user swipes across message boundaries. Tapping a carousel thumbnail jumps to that asset. |
+| **Chrome toggle** | A single tap anywhere on the media hides or reveals the close button and the carousel. |
+| **Swipe-to-dismiss** | Dragging the media downward dismisses the preview. The gesture is vertical-only — horizontal movement is ignored, so left/right swipes continue to navigate between media items. When the originating grid cell is still visible on screen, a hero animation returns the image to its bubble position. When the cell is off-screen, the preview fades out. |
+| **Transparent backdrop** | The preview opens with a transparent background, so the chat timeline remains visible behind the media during the drag-to-dismiss animation. |
+
+The `FCLChatScreen` wires these interactions automatically. No host-app code is required to enable full-screen preview.
+
+---
+
+## 5. Info.plist Requirements
 
 The built-in attachment pickers access system-protected resources. Your host app must include the following keys in `Info.plist`:
 
@@ -394,12 +436,16 @@ The built-in attachment pickers access system-protected resources. Your host app
 <key>NSPhotoLibraryUsageDescription</key>
 <string>$(PRODUCT_NAME) needs access to your photo library to send images and videos.</string>
 
-<!-- Required for Camera picker -->
+<!-- Required for Camera picker (photo and video capture) -->
 <key>NSCameraUsageDescription</key>
 <string>$(PRODUCT_NAME) needs access to the camera to take photos and videos.</string>
+
+<!-- Required when isCameraVideoEnabled is true (the default) -->
+<key>NSMicrophoneUsageDescription</key>
+<string>$(PRODUCT_NAME) needs access to the microphone to record video with audio.</string>
 ```
 
-If these keys are missing, the system will crash or silently refuse to present the picker. The Files picker (`UIDocumentPickerViewController`) does not require an additional Info.plist entry.
+If these keys are missing, the system will crash or silently refuse to present the picker. The Files picker (`UIDocumentPickerViewController`) does not require an additional Info.plist entry. The microphone key is only needed when `isCameraVideoEnabled` is `true` (the default).
 
 > **Note:** If your `FCLAttachmentDelegate` disables the Gallery tab (`isVideoEnabled: false` with no photo selection) or uses only the Files tab, you may not need the photo library or camera keys. The built-in Gallery picker always requires them when photo or video access is enabled.
 
@@ -411,3 +457,4 @@ If these keys are missing, the system will crash or silently refuse to present t
 - **[DelegateSystem/AdvancedPatterns.md](DelegateSystem/AdvancedPatterns.md)** -- Custom appearance, layout, and input delegate patterns (moved from this file).
 - **[AvatarSystem/Overview.md](AvatarSystem/Overview.md)** -- `FCLAvatarDelegate`, `FCLAvatarCacheDelegate`, avatar sizing, visibility, and URL resolution.
 - **[AvatarSystem/AdvancedUsage.md](AvatarSystem/AdvancedUsage.md)** -- Custom cache implementations, external avatar URL loading, and avatar visibility customization.
+- **[Architecture.md](Architecture.md)** -- Module layout, file structure, and type responsibilities.

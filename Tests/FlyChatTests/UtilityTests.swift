@@ -121,4 +121,68 @@ final class FCLUtilityTests: XCTestCase {
     }
     #endif
 
+    // MARK: - Asset Collection Registry
+
+    #if canImport(UIKit)
+    @MainActor
+    func testLoadMockDataPlacesRecentsAtIndexZero() {
+        let registry = FCLAssetCollectionRegistry()
+        registry.loadMockData(selecting: 0)
+        XCTAssertFalse(registry.collections.isEmpty, "Registry must be populated after loadMockData")
+        let first = registry.collections[0]
+        XCTAssertEqual(first.subtype, .smartAlbumRecentlyAdded,
+                       "Recents (smartAlbumRecentlyAdded) must always be at index 0")
+    }
+
+    @MainActor
+    func testLoadMockDataPlacesRecentsAtIndexZeroWhenNonDefaultSelected() {
+        let registry = FCLAssetCollectionRegistry()
+        // Select a non-Recents album (index 2 = Selfies in mock data)
+        registry.loadMockData(selecting: 2)
+        XCTAssertFalse(registry.collections.isEmpty, "Registry must be populated after loadMockData")
+        let first = registry.collections[0]
+        XCTAssertEqual(first.subtype, .smartAlbumRecentlyAdded,
+                       "Recents must remain at index 0 regardless of which collection is pre-selected")
+        // The selected ID should be for Selfies (index 2), not Recents
+        let selectedID = registry.selectedCollectionID
+        XCTAssertNotNil(selectedID, "A collection should be selected")
+        XCTAssertNotEqual(selectedID, first.id,
+                          "When selecting index 2, the selected ID must differ from the Recents row")
+    }
+
+    @MainActor
+    func testLoadMockDataSelectedCollectionMatchesRequestedIndex() {
+        let registry = FCLAssetCollectionRegistry()
+        registry.loadMockData(selecting: 1)
+        guard registry.collections.count > 1 else {
+            XCTFail("Registry must contain at least 2 collections for this test")
+            return
+        }
+        XCTAssertEqual(registry.selectedCollectionID, registry.collections[1].id,
+                       "selectedCollectionID must match the collection at the requested index")
+    }
+    #endif
+
+    // MARK: - Attachment Input Line Count Clamp
+
+    func testAttachmentInputDefaultDeltaChatMax10() {
+        XCTAssertEqual(fclAttachmentInputEffectiveLines(chatMax: 10, delta: -3), 7)
+    }
+
+    func testAttachmentInputDefaultDeltaClampsToTwo() {
+        XCTAssertEqual(fclAttachmentInputEffectiveLines(chatMax: 4, delta: -3), 2)
+    }
+
+    func testAttachmentInputChatMaxOneOverrides() {
+        XCTAssertEqual(fclAttachmentInputEffectiveLines(chatMax: 1, delta: 0), 1)
+    }
+
+    func testAttachmentInputSentinelForcesSingleLine() {
+        XCTAssertEqual(fclAttachmentInputEffectiveLines(chatMax: 10, delta: .min), 1)
+    }
+
+    func testAttachmentInputLargeNegativeDeltaClamps() {
+        XCTAssertEqual(fclAttachmentInputEffectiveLines(chatMax: 10, delta: -100), 2)
+    }
+
 }

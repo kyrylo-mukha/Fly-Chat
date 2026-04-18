@@ -31,6 +31,18 @@ public protocol FCLAttachmentDelegate: AnyObject {
     ///
     /// Defaults to `true`.
     var isFileTabEnabled: Bool { get }
+
+    /// Whether the in-app camera allows video recording in addition to photos.
+    ///
+    /// When `true`, the camera UI includes a video recording toggle.
+    /// Defaults to `true`.
+    var isCameraVideoEnabled: Bool { get }
+
+    /// Animation style used when switching between picker tabs.
+    ///
+    /// Return `nil` (the default) to use the library default (``FCLPickerTabTransition/slide``).
+    /// Override to `.crossfade` for a softer, non-directional switch.
+    var tabTransition: FCLPickerTabTransition? { get }
 }
 
 public extension FCLAttachmentDelegate {
@@ -39,5 +51,7 @@ public extension FCLAttachmentDelegate {
     var customTabs: [any FCLCustomAttachmentTab] { FCLAttachmentDefaults.customTabs }
     var isVideoEnabled: Bool { FCLAttachmentDefaults.isVideoEnabled }
     var isFileTabEnabled: Bool { FCLAttachmentDefaults.isFileTabEnabled }
+    var isCameraVideoEnabled: Bool { FCLAttachmentDefaults.isCameraVideoEnabled }
+    var tabTransition: FCLPickerTabTransition? { nil }
 }
 #endif

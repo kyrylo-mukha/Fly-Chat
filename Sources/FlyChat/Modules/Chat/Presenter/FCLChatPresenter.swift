@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 
 /// The main presenter for the chat module, managing message state, draft composition,
 /// layout resolution, and user actions (send, delete, copy).
@@ -11,6 +12,12 @@ public final class FCLChatPresenter: ObservableObject {
     @Published public private(set) var messages: [FCLChatMessage]
     /// The text currently being composed by the user.
     @Published public var draftText: String
+    /// The most recent send-path error surfaced to the chat UI, or `nil` when no error is active.
+    ///
+    /// Populated via ``reportSendError(_:)`` from any component that detects a failure
+    /// during send (e.g. attachment compression failing after the picker sheet has been
+    /// dismissed). The chat screen observes this and renders a lightweight toast.
+    @Published public var lastSendError: String?
 
     /// The sender identity representing the current (local) user.
     public let currentUser: FCLChatMessageSender
@@ -21,6 +28,15 @@ public final class FCLChatPresenter: ObservableObject {
     /// Optional delegate that supplies context menu actions for individual messages.
     public private(set) weak var contextMenuDelegate: (any FCLContextMenuDelegate)?
     private let router: (any FCLChatRouting)?
+
+    // MARK: - Frame Provider (UIKit)
+
+    #if canImport(UIKit)
+    /// Backing storage for `frameProvider`. Internal so only the chat screen
+    /// (same module) can assign it; the `frameProvider` computed property in
+    /// the extension exposes a `public` read/write surface for the extension body.
+    var _frameProvider: ((UUID) -> CGRect?)?
+    #endif
 
     // MARK: - Resolved Layout Helpers
 
@@ -48,6 +64,20 @@ public final class FCLChatPresenter: ObservableObject {
     /// The resolved vertical spacing between message groups from different senders.
     public var resolvedInterGroupSpacing: CGFloat {
         delegate?.layout?.interGroupSpacing ?? FCLLayoutDefaults.interGroupSpacing
+    }
+
+    /// The resolved edge insets for the in-bubble attachment image grid.
+    ///
+    /// - Important: Deprecated. The inset is now fixed at ``FCLChatLayout/attachmentInset`` (1pt).
+    ///   This property is retained for source compatibility only; the library ignores its value.
+    @available(*, deprecated, message: "Attachment inset is now fixed at 1pt (FCLChatLayout.attachmentInset). This property is no longer used by the library.")
+    public var resolvedAttachmentInsets: FCLEdgeInsets {
+        delegate?.appearance?.attachmentInsets ?? FCLAppearanceDefaults.attachmentInsets
+    }
+
+    /// The resolved inter-cell spacing for the in-bubble attachment image grid.
+    public var resolvedAttachmentItemSpacing: CGFloat {
+        delegate?.appearance?.attachmentItemSpacing ?? FCLAppearanceDefaults.attachmentItemSpacing
     }
 
     #if canImport(UIKit)
@@ -267,10 +297,106 @@ public final class FCLChatPresenter: ObservableObject {
         router?.didSendMessage(message)
     }
 
+    /// Handles attachments by inserting the outgoing message synchronously.
+    ///
+    /// The outgoing bubble is appended to `messages` inside a
+    /// `withAnimation(.easeOut(duration: 0.25))` block on the same UI tick the
+    /// caller fires its own dismissal. Both the modal dismiss and the bubble
+    /// slide-in start simultaneously; the bubble animates in on top of the
+    /// chat as it is revealed, producing a single synchronized transition
+    /// rather than a chained sleep-based handoff.
+    ///
+    /// - Parameters:
+    ///   - attachments: Attachments to attach to the outgoing message.
+    ///   - caption: Optional caption text applied to the message body.
+    public func handleAttachmentsDeferred(
+        _ attachments: [FCLAttachment],
+        caption: String?
+    ) {
+        let text = caption ?? ""
+        let message = FCLChatMessage(
+            text: text,
+            direction: .outgoing,
+            attachments: attachments,
+            sender: currentUser
+        )
+        withAnimation(.easeOut(duration: 0.25)) {
+            messages.append(message)
+        }
+        router?.didSendMessage(message)
+    }
+
+    /// Reports a send-path error to the chat UI.
+    ///
+    /// Used when an asynchronous send operation fails after its originating modal
+    /// (e.g. the attachment picker sheet) has been dismissed — the originating
+    /// surface is gone, so the error must travel through the chat screen instead.
+    /// The chat screen observes ``lastSendError`` and presents a toast. The caller
+    /// does not need to clear the value; the toast clears it on auto-dismiss.
+    ///
+    /// - Parameter message: Localized description of the error to surface.
+    public func reportSendError(_ message: String) {
+        lastSendError = message
+    }
+
     /// Deletes a message from the conversation and notifies the router.
     /// - Parameter message: The message to remove.
     public func deleteMessage(_ message: FCLChatMessage) {
         messages.removeAll { $0.id == message.id }
         router?.didDeleteMessage(message)
     }
+
+    #if canImport(UIKit)
+    /// All image and video attachments across the conversation in chronological order.
+    public var allConversationMedia: [(messageID: UUID, attachmentIndex: Int, attachment: FCLAttachment)] {
+        var result: [(messageID: UUID, attachmentIndex: Int, attachment: FCLAttachment)] = []
+        for message in messages {
+            let media = message.attachments.filter { $0.type == .image || $0.type == .video }
+            for (index, attachment) in media.enumerated() {
+                result.append((messageID: message.id, attachmentIndex: index, attachment: attachment))
+            }
+        }
+        return result
+    }
+
+    /// Finds the global media index for a specific attachment in a specific message.
+    public func globalMediaIndex(for attachment: FCLAttachment, in messageID: UUID) -> Int? {
+        allConversationMedia.firstIndex { $0.messageID == messageID && $0.attachment.id == attachment.id }
+    }
+    #endif
 }
+
+#if canImport(UIKit)
+// MARK: - FCLChatMediaPreviewSourceDelegate Conformance
+
+/// Conformance added here (rather than the primary declaration) so the
+/// ChatMediaPreviewer module stays free of any reference back to concrete
+/// chat-module types. The previewer consumes this protocol; the chat
+/// presenter supplies the data.
+extension FCLChatPresenter: FCLChatMediaPreviewSourceDelegate {
+    /// Returns the current window-space frame for the given attachment by
+    /// delegating to `frameProvider`, which the chat screen wires to its
+    /// internal relay on `onAppear`. Returns `nil` when no provider is set
+    /// or when the relay reports the cell is off-screen.
+    public func currentFrame(forItemID id: UUID) -> CGRect? {
+        frameProvider?(id)
+    }
+}
+
+// MARK: - Frame Provider
+
+public extension FCLChatPresenter {
+    /// Closure the chat screen installs to bridge attachment-cell window-space
+    /// frames from the internal relay into the `FCLChatMediaPreviewDataSource`
+    /// conformance. The chat screen wires this in `onAppear`; no other caller
+    /// should set it.
+    ///
+    /// - Note: A closure is used instead of a direct relay reference so the
+    ///   presenter stays free of any import on `FCLChatMediaPreviewRelay`,
+    ///   which is an internal chat-module type.
+    var frameProvider: ((UUID) -> CGRect?)? {
+        get { _frameProvider }
+        set { _frameProvider = newValue }
+    }
+}
+#endif

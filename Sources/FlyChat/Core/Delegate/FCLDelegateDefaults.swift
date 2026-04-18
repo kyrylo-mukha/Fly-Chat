@@ -1,4 +1,20 @@
 import CoreGraphics
+import SwiftUI
+
+// MARK: - FCLChatLayout
+
+/// Fixed layout constants for the chat timeline.
+///
+/// These values are not delegate-customizable and represent the library's canonical
+/// geometry for structural layout decisions.
+public enum FCLChatLayout {
+    /// Fixed inset (in points) applied on all edges of the attachment grid container
+    /// inside a chat bubble. The delegate-customizable `attachmentInsets` property is
+    /// deprecated; this constant is used instead.
+    public static let attachmentInset: CGFloat = 1
+}
+
+// MARK: - FCLAppearanceDefaults
 
 /// Default values for ``FCLAppearanceDelegate`` properties.
 ///
@@ -25,6 +41,31 @@ enum FCLAppearanceDefaults {
 
     /// Default minimum bubble height: 40 points.
     static let minimumBubbleHeight: CGFloat = 40
+
+    /// Default edge insets for the in-bubble attachment image grid: 1pt on all sides.
+    static let attachmentInsets = FCLEdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1)
+
+    /// Default inter-cell spacing within the in-bubble attachment image grid: 1pt.
+    static let attachmentItemSpacing: CGFloat = 1
+
+    /// Default status icons using SF Symbols.
+    ///
+    /// - `created`: `clock` — message created locally, not yet confirmed.
+    /// - `sent`: `checkmark` — single checkmark for confirmed delivery.
+    /// - `read`: A custom `FCLDoubleCheckmarkShape` is used in `FCLChatMessageStatusView`
+    ///   when no custom icon is provided; this slot holds `nil` by convention (the view
+    ///   falls back to the path drawing). The default struct sets it to `nil`.
+    static let statusIcons = FCLChatStatusIcons()
+
+    /// Default status color tokens.
+    ///
+    /// - `created` and `sent`: white at 60% opacity (muted, suitable for outgoing bubble).
+    /// - `read`: vivid green accent to signal the message was seen.
+    static let statusColors = FCLChatStatusColors(
+        created: FCLChatColorToken(red: 1, green: 1, blue: 1, alpha: 0.6),
+        sent: FCLChatColorToken(red: 1, green: 1, blue: 1, alpha: 0.6),
+        read: FCLChatColorToken(red: 0.27, green: 0.78, blue: 0.47)
+    )
 }
 
 /// Default values for ``FCLLayoutDelegate`` properties.
@@ -46,6 +87,9 @@ enum FCLLayoutDefaults {
 
     /// Default vertical spacing between different sender groups: 12 points.
     static let interGroupSpacing: CGFloat = 12
+
+    /// Default status visibility for outgoing messages: `true`.
+    static let showsStatusForOutgoing = true
 }
 
 /// Default values for ``FCLAvatarDelegate`` properties.
@@ -131,5 +175,11 @@ enum FCLAttachmentDefaults {
 
     /// Default file tab visibility: `true`.
     static let isFileTabEnabled = true
+
+    /// Default camera video recording availability: `true`.
+    static let isCameraVideoEnabled = true
+
+    /// Default tab transition animation style: ``FCLPickerTabTransition/slide``.
+    static let tabTransition: FCLPickerTabTransition = .slide
 }
 #endif

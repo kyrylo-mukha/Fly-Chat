@@ -8,6 +8,19 @@ public enum FCLChatMessageDirection: String, Sendable, Hashable {
     case outgoing
 }
 
+/// Delivery status of a chat message, used to render a compact status indicator inside the bubble.
+///
+/// Assign this value to ``FCLChatMessage/status`` to show a status glyph next to the timestamp.
+/// A `nil` status hides the indicator entirely.
+public enum FCLChatMessageStatus: String, Sendable, Hashable {
+    /// The message has been created locally but not yet confirmed by the server.
+    case created
+    /// The message has been sent and confirmed by the server.
+    case sent
+    /// The message has been read by the recipient.
+    case read
+}
+
 /// A single chat message within a conversation, containing text, optional attachments, and sender metadata.
 public struct FCLChatMessage: Identifiable, Hashable, Sendable {
     /// Unique identifier for the message.
@@ -22,6 +35,12 @@ public struct FCLChatMessage: Identifiable, Hashable, Sendable {
     public let attachments: [FCLAttachment]
     /// The user who authored this message.
     public let sender: FCLChatMessageSender
+    /// Optional delivery status shown as a compact glyph next to the timestamp.
+    ///
+    /// When `nil`, no status indicator is rendered and no additional width is reserved.
+    /// The status indicator is only rendered for outgoing messages (subject to
+    /// `FCLLayoutDelegate.showsStatusForOutgoing`); it is always hidden for incoming messages.
+    public let status: FCLChatMessageStatus?
 
     /// Creates a new chat message.
     /// - Parameters:
@@ -31,13 +50,15 @@ public struct FCLChatMessage: Identifiable, Hashable, Sendable {
     ///   - sentAt: The timestamp when the message was sent. Defaults to the current date.
     ///   - attachments: Media or file attachments. Defaults to an empty array.
     ///   - sender: The user who authored this message.
+    ///   - status: Optional delivery status indicator. Defaults to `nil` (hidden).
     public init(
         id: UUID = UUID(),
         text: String,
         direction: FCLChatMessageDirection,
         sentAt: Date = Date(),
         attachments: [FCLAttachment] = [],
-        sender: FCLChatMessageSender
+        sender: FCLChatMessageSender,
+        status: FCLChatMessageStatus? = nil
     ) {
         self.id = id
         self.text = text
@@ -45,5 +66,6 @@ public struct FCLChatMessage: Identifiable, Hashable, Sendable {
         self.sentAt = sentAt
         self.attachments = attachments
         self.sender = sender
+        self.status = status
     }
 }
