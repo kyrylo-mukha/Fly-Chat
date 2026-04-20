@@ -103,6 +103,8 @@ The microphone key is only required when `isCameraVideoEnabled` is `true` (the d
   - **Advanced —** [Custom Cache](Documentation/AvatarSystem/AdvancedUsage.md), [External Loading](Documentation/AvatarSystem/AdvancedUsage.md)
 - [Visual Style](Documentation/VisualStyle.md)
   - **Liquid Glass —** [Visual Style Enum](Documentation/VisualStyle.md#fclvisualstyle), [Delegate & Resolver](Documentation/VisualStyle.md#delegate-and-resolver), [Primitives](Documentation/VisualStyle.md#primitives), [Accessibility](Documentation/VisualStyle.md#accessibility), [Per-View Override](Documentation/VisualStyle.md#per-view-override)
+- [Design System](Documentation/DesignSystem/Overview.md)
+  - **Tokens & Components —** [Tokens](Documentation/DesignSystem/Tokens.md), [Components](Documentation/DesignSystem/Components.md), [Patterns](Documentation/DesignSystem/Patterns.md), [Accessibility](Documentation/DesignSystem/AccessibilityMatrix.md)
 - [Message Status](Documentation/MessageStatus.md)
   - **Status Indicators —** [Status Enum](Documentation/MessageStatus.md#fclchatmessagestatus), [Delegate Overrides](Documentation/MessageStatus.md#delegate-overrides), [Layout Toggle](Documentation/MessageStatus.md#layout-toggle), [Accessibility & RTL](Documentation/MessageStatus.md#accessibility-and-rtl)
 - [Attachment Flow](Documentation/AttachmentFlow.md) — end-to-end flow from picker to send
