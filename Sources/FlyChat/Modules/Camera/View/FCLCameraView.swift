@@ -234,67 +234,74 @@ public struct FCLCameraView: View {
 
     private var overlay: some View {
         VStack(spacing: 0) {
-            ZStack(alignment: .top) {
-                FCLCameraTopBar(
-                    flashMode: presenter.flashMode,
-                    capturedCount: presenter.capturedCount,
-                    isRecording: presenter.isRecording,
-                    onClose: handleClose,
-                    onToggleFlash: cycleFlash,
-                    onDiscardAssets: { captureRelay.clear() },
-                    showDiscardDialog: $showDiscardDialog
-                )
+            // Top bar floats above the safe area.
+            FCLCameraTopBar(
+                flashMode: presenter.flashMode,
+                capturedCount: presenter.capturedCount,
+                isRecording: presenter.isRecording,
+                onClose: handleClose,
+                onToggleFlash: cycleFlash,
+                onDiscardAssets: { captureRelay.clear() },
+                showDiscardDialog: $showDiscardDialog
+            )
 
-                if presenter.isRecording {
-                    FCLCameraRecordTimer(
-                        duration: presenter.recordingDuration,
-                        isRecording: true
-                    )
-                    .padding(.top, 6)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .allowsHitTesting(false)
-                }
+            // Record timer replaces the top bar area while recording,
+            // centered in the screen.
+            if presenter.isRecording {
+                FCLCameraRecordTimer(
+                    duration: presenter.recordingDuration,
+                    isRecording: true
+                )
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 8)
+                .allowsHitTesting(false)
             }
 
             Spacer()
 
-            if presenter.configuration.allowsVideo || !presenter.isRecording {
-                FCLCameraZoomPresetRing(
-                    currentZoom: presenter.zoomFactor,
-                    presets: presenter.zoomPresets,
-                    zoomRange: presenter.zoomRange,
-                    onSelectPreset: { factor in
-                        // While recording, skip the ramp animation to avoid
-                        // frame-rate glitches; otherwise animate to mimic
-                        // the system Camera preset feel.
-                        presenter.setZoom(factor, animated: !presenter.isRecording)
-                        showZoomHUD()
-                    },
-                    onSliderDrag: { factor in
-                        presenter.setZoom(factor, animated: false)
-                        showZoomHUD()
-                    }
+            // Bottom chrome cluster: zoom ring → shutter row → mode switcher.
+            // Gap between elements: 18 pt (prototype `gap: 18`).
+            // Bottom inset: 34 pt safe area clearance + 10 pt breathing room.
+            VStack(spacing: 18) {
+                if presenter.configuration.allowsVideo || !presenter.isRecording {
+                    FCLCameraZoomPresetRing(
+                        currentZoom: presenter.zoomFactor,
+                        presets: presenter.zoomPresets,
+                        zoomRange: presenter.zoomRange,
+                        onSelectPreset: { factor in
+                            // While recording, skip the ramp animation to avoid
+                            // frame-rate glitches; otherwise animate to mimic
+                            // the system Camera preset feel.
+                            presenter.setZoom(factor, animated: !presenter.isRecording)
+                            showZoomHUD()
+                        },
+                        onSliderDrag: { factor in
+                            presenter.setZoom(factor, animated: false)
+                            showZoomHUD()
+                        }
+                    )
+                    .opacity(presenter.isRecording ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.2), value: presenter.isRecording)
+                }
+
+                FCLCameraShutterRow(
+                    mode: presenter.mode,
+                    isRecording: presenter.isRecording,
+                    capturedCount: presenter.capturedCount,
+                    lastCapturedThumbnail: presenter.lastCapturedThumbnail,
+                    onShutter: { handleShutter() },
+                    onDone: handleDone
                 )
-                .opacity(presenter.isRecording ? 0 : 1)
-                .animation(.easeInOut(duration: 0.2), value: presenter.isRecording)
+
+                FCLCameraModeSwitcherRow(
+                    mode: presenter.mode,
+                    isRecording: presenter.isRecording,
+                    allowsVideo: presenter.configuration.allowsVideo,
+                    onFlip: handleFlip,
+                    onSetMode: { presenter.setMode($0) }
+                )
             }
-
-            FCLCameraModeSwitcherRow(
-                mode: presenter.mode,
-                isRecording: presenter.isRecording,
-                allowsVideo: presenter.configuration.allowsVideo,
-                onFlip: handleFlip,
-                onSetMode: { presenter.setMode($0) }
-            )
-
-            FCLCameraShutterRow(
-                mode: presenter.mode,
-                isRecording: presenter.isRecording,
-                capturedCount: presenter.capturedCount,
-                lastCapturedThumbnail: presenter.lastCapturedThumbnail,
-                onShutter: { handleShutter() },
-                onDone: handleDone
-            )
+            .padding(.bottom, 44)
         }
         .onChange(of: presenter.capturedResults.count) { _, _ in
             refreshLatestThumbnail()

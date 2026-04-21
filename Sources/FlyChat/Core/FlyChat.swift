@@ -4,5 +4,5 @@
 /// This type is not intended to be instantiated.
 public enum FlyChat {
     /// Current SDK semantic version string.
-    public static let version = "0.1.11"
+    public static let version = "0.2.0"
 }

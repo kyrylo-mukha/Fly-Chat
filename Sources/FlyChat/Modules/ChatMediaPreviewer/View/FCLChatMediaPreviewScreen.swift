@@ -151,7 +151,14 @@ struct FCLChatMediaPreviewScreen: View {
     /// observes the model directly, re-renders.
     @StateObject private var progressModel = FCLPagerProgressModel()
     @State private var chromeVisible: Bool = true
-    @State private var backgroundOpacity: Double = 1.0
+    /// Dimming level applied over the transparent cover so the pager reads
+    /// clearly while the chat timeline stays faintly visible underneath.
+    /// The cover itself is transparent (UIKit hosting controller uses
+    /// `backgroundColor = .clear`); this value drives only the black scrim
+    /// layer. `0.55` matches the design-system prototype's cover scrim.
+    /// On dismiss the value animates to `0` so the scrim fades out in
+    /// lock-step with the shrinking snapshot.
+    @State private var backgroundOpacity: Double = 0.55
     /// Carousel selection kept in sync with `currentIndex` and drives `FCLPreviewThumbCarousel`.
     @State private var carouselSelectedID: UUID = UUID()
     /// When non-nil, the preview is running its zoom-back dismiss animation toward this
@@ -253,15 +260,21 @@ struct FCLChatMediaPreviewScreen: View {
 
                 // Chrome overlay
                 VStack(spacing: 0) {
-                    // Top chrome: close button
+                    // Top chrome: close button on a glass surface at the top-left.
+                    // Matches the design spec — `FCLGlassIconButton` carrying the
+                    // `xmark` SF Symbol, sitting 12pt in from the leading and top
+                    // safe-area edges.
                     HStack {
+                        FCLGlassIconButton(
+                            systemImage: "xmark",
+                            size: 40,
+                            action: beginDismiss
+                        )
+                        .accessibilityLabel(Text("Close"))
+                        .padding(.leading, 12)
+                        .padding(.top, 12)
+
                         Spacer()
-                        Button(action: beginDismiss) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 30))
-                                .foregroundColor(.white.opacity(0.8))
-                                .padding(16)
-                        }
                     }
 
                     Spacer()
@@ -779,12 +792,16 @@ private struct FCLMediaPreviewPage: View {
             ZStack {
                 // Thumbnail layer — always present; acts as placeholder until
                 // full-res arrives, then remains underneath for a smooth crossfade.
+                //
+                // `scaledToFit` produces aspect-fit with transparent letterbox
+                // gaps around the photo, matching the design-system prototype
+                // (the cover's dim scrim shows through the letterbox). When the
+                // asset aspect is unknown, this also prevents a cropped fill.
                 if let data = attachment.thumbnailData, let thumb = UIImage(data: data) {
                     Image(uiImage: thumb)
                         .resizable()
-                        .scaledToFill()
+                        .scaledToFit()
                         .frame(width: fitSize.width, height: fitSize.height)
-                        .clipped()
                         .matchedGeometryEffect(id: attachment.id, in: namespace, isSource: false)
                 }
 
@@ -793,9 +810,8 @@ private struct FCLMediaPreviewPage: View {
                 if let image = loadedImage {
                     Image(uiImage: image)
                         .resizable()
-                        .scaledToFill()
+                        .scaledToFit()
                         .frame(width: fitSize.width, height: fitSize.height)
-                        .clipped()
                         .transition(.opacity.animation(.easeInOut(duration: 0.25)))
                 }
 
@@ -1033,20 +1049,31 @@ private struct FCLPreviewWrapperOffScreenCollapse: View {
 /// Using a dedicated namespace keeps magic numbers out of call sites and makes
 /// the safe-area arithmetic auditable in one place.
 enum FCLChatPreviewerLayout {
-    /// The fixed visual clearance (in points) above the safe-area bottom edge
-    /// at which the carousel strip sits. This constant matches the PRD-19 spec.
+    /// Clearance (in points) of the carousel strip's **top edge** above the
+    /// bottom safe-area boundary. The validated design-system prototype anchors
+    /// the strip with its top edge at this offset; the strip's bottom edge
+    /// then lands at `(carouselBaseSpacing - stripVisibleHeight)` above the
+    /// boundary (~16 pt for the current 72 pt strip).
     static let carouselBaseSpacing: CGFloat = 88
 
-    /// Returns the total bottom padding to apply to the carousel strip so it
-    /// clears the home indicator on notched devices while maintaining the
-    /// spec-required 88 pt visual clearance above the safe-area edge.
+    /// Visible height of the strip as rendered by `FCLChatPreviewerCarouselStrip`.
+    /// Kept in sync with the strip's internal `stripHeight` constant; changing
+    /// one without updating the other desynchronizes the top-edge anchor.
+    static let stripVisibleHeight: CGFloat = 72
+
+    /// Returns the total bottom padding to apply to the carousel strip's
+    /// container so its **top edge** lands exactly `carouselBaseSpacing` above
+    /// the bottom safe-area boundary on every device (including notched
+    /// hardware).
     ///
     /// - Parameter safeArea: The current container safe-area insets, as
     ///   reported by the enclosing `GeometryReader`.
-    /// - Returns: `88 + safeArea.bottom`, so the strip's bottom edge is
-    ///   always 88 pt above the system-defined bottom safe-area boundary.
+    /// - Returns: `safeArea.bottom + (carouselBaseSpacing - stripVisibleHeight)`,
+    ///   placing the strip's bottom edge at `carouselBaseSpacing - stripVisibleHeight`
+    ///   above the safe-area boundary (which, by construction, sets the strip's
+    ///   top edge at `carouselBaseSpacing` above it).
     static func carouselBottomSpacing(safeArea: EdgeInsets) -> CGFloat {
-        carouselBaseSpacing + safeArea.bottom
+        safeArea.bottom + (carouselBaseSpacing - stripVisibleHeight)
     }
 }
 

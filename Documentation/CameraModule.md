@@ -46,9 +46,9 @@ The microphone key is required whenever video recording is enabled.
 
 The camera UI is composed of three chrome bands over the live preview, each drawn from the shared visual-style primitives:
 
-- **`FCLCameraTopBar`** — a `FCLGlassToolbar` hosting close, flash, and overflow actions. Sits under the top safe area.
-- **`FCLCameraModeSwitcherRow`** — two segmented `FCLGlassChip` groups. The left group hosts the flip-camera control; the right group carries the photo / video mode switch.
-- **`FCLCameraShutterRow`** — a three-slot row: the leading slot is reserved for the Done chip (appears after the first capture), the center carries the shutter button, and the trailing slot stays empty to keep the shutter visually centered.
+- **`FCLCameraTopBar`** — three independently-floating capsule elements in a full-width `HStack` at 16 pt horizontal insets: a close `FCLGlassIconButton` (leading), a flash mode `FCLGlassChip` pill with glyph + label (center), and an optional overflow `FCLGlassIconButton` (trailing; an invisible 44 pt placeholder keeps the pill centered when the handler is `nil`). Positioned 12 pt below the status bar.
+- **`FCLCameraModeSwitcherRow`** — two intrinsic-width groups centered with a 10 pt gap. The flip `FCLGlassIconButton` sits on the left; a `Photo | Video` `FCLGlassChip` pair sits on the right. Active chip uses a white tint (`FCLChatColorToken(red:1.0, green:1.0, blue:1.0)`); deselected chips use no tint.
+- **`FCLCameraShutterRow`** — a `1fr | auto | 1fr` `HStack` with 20 pt horizontal padding and 16 pt column gap. Leading slot: Done chip (`FCLGlassChip` with badge, visible at count ≥ 2) or a same-size invisible placeholder. Center slot: 78 pt shutter button. Trailing slot: a dashed 44 pt rounded-rect placeholder reserved for a future last-capture thumbnail.
 
 The previous `FCLCameraBottomBar` and `FCLCameraStackCounter` types have been removed. The preview stack is no longer rendered on the live camera; instead, the Done chip routes directly into the preview screen.
 

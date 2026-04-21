@@ -163,6 +163,11 @@ struct FCLChatPreviewerCarouselStrip: View {
                 ? 0
                 : max(-parallaxClamp, min(parallaxClamp, rawParallax))
 
+            // Opacity: centered (focused) thumb is fully opaque, peripheral
+            // thumbs dim to 0.5 so the active index visually dominates. Matches
+            // the design-system prototype's strip behavior.
+            let cellOpacity: Double = isFocused ? 1.0 : 0.5
+
             FCLCarouselThumbCell(
                 attachment: item.attachment,
                 isFocused: isFocused,
@@ -172,6 +177,8 @@ struct FCLChatPreviewerCarouselStrip: View {
             )
             // Scale effect: centered thumb at 1.0, peripheral thumbs shrink.
             .scaleEffect(scale)
+            // Side thumbs fade; the center thumb is fully opaque.
+            .opacity(cellOpacity)
             // Parallax horizontal shift.
             .offset(x: parallaxOffset)
             .frame(width: thumbSize, height: thumbSize)

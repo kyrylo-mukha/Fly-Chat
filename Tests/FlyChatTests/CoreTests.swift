@@ -49,8 +49,8 @@ final class FCLCoreTests: XCTestCase {
         XCTAssertEqual(FCLLayoutDefaults.incomingSide, .left)
         XCTAssertEqual(FCLLayoutDefaults.outgoingSide, .right)
         XCTAssertEqual(FCLLayoutDefaults.maxBubbleWidthRatio, 0.78)
-        XCTAssertEqual(FCLLayoutDefaults.intraGroupSpacing, 4)
-        XCTAssertEqual(FCLLayoutDefaults.interGroupSpacing, 12)
+        XCTAssertEqual(FCLLayoutDefaults.intraGroupSpacing, 3)
+        XCTAssertEqual(FCLLayoutDefaults.interGroupSpacing, 10)
     }
 
     func testInputDefaultValues() {
@@ -60,7 +60,7 @@ final class FCLCoreTests: XCTestCase {
         XCTAssertTrue(FCLInputDefaults.showAttachButton)
         XCTAssertEqual(FCLInputDefaults.containerMode, .fieldOnlyRounded)
         XCTAssertFalse(FCLInputDefaults.liquidGlass)
-        XCTAssertEqual(FCLInputDefaults.fieldCornerRadius, 18)
+        XCTAssertEqual(FCLInputDefaults.fieldCornerRadius, 22)
         XCTAssertTrue(FCLInputDefaults.returnKeySends)
         XCTAssertEqual(FCLInputDefaults.elementSpacing, 8)
         XCTAssertEqual(FCLInputDefaults.attachmentThumbnailSize, 32)

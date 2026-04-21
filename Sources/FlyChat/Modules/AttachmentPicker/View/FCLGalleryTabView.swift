@@ -39,7 +39,8 @@ struct FCLGalleryTabView: View {
     /// renders without frame publishing and without pulse support.
     var cameraSourceRelay: FCLCameraSourceRelay? = nil
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
+    // Prototype specifies a 3-column grid (repeat(3, 1fr)) with 2pt gaps.
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -144,6 +145,13 @@ struct FCLGalleryTabView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { onAssetTap(assetID) }
 
+            // Prototype: selected cells get a blue tint overlay (rgba(0,122,255,0.18))
+            // rather than a border stroke. Keep it under the selection circle.
+            if isSelected {
+                Color.blue.opacity(0.18)
+                    .allowsHitTesting(false)
+            }
+
             // Selection circle — 40pt hit target, own tap region
             selectionCircle(isSelected: isSelected, number: selectionIndex.map { $0 + 1 })
                 .frame(width: 40, height: 40)
@@ -152,42 +160,46 @@ struct FCLGalleryTabView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { presenter.toggleAssetSelection(assetID) }
         }
-        .overlay(
-            isSelected
-                ? RoundedRectangle(cornerRadius: 0).stroke(Color.blue, lineWidth: 3)
-                : nil
-        )
-        .overlay(alignment: .bottomTrailing) {
+        // Prototype: video duration badge is bottom-leading (bottom:6, left:6).
+        .overlay(alignment: .bottomLeading) {
             if asset.mediaType == .video {
                 videoDurationBadge(duration: asset.duration)
-                    .padding(4)
+                    .padding(.leading, 6)
+                    .padding(.bottom, 6)
             }
         }
     }
 
     // MARK: - Selection Circle
 
+    /// Prototype spec (PhotoCell):
+    ///   - Size: 22 × 22 pt
+    ///   - Unselected: semi-transparent dark fill (rgba(0,0,0,0.18)) + 1.5pt white border
+    ///     + subtle shadow so the ring reads on any background.
+    ///   - Selected: solid blue fill + 1.5pt white border + ordinal number label.
     @ViewBuilder
     private func selectionCircle(isSelected: Bool, number: Int?) -> some View {
         ZStack {
+            Circle()
+                .fill(isSelected ? Color.blue : Color.black.opacity(0.18))
+                .frame(width: 22, height: 22)
+                .overlay(
+                    Circle()
+                        .strokeBorder(Color.white.opacity(isSelected ? 1.0 : 0.9), lineWidth: 1.5)
+                )
+                .shadow(color: .black.opacity(isSelected ? 0.25 : 0.08), radius: isSelected ? 3 : 0.5, x: 0, y: 1)
+
             if isSelected, let number {
-                Circle()
-                    .fill(Color.blue)
-                    .frame(width: 24, height: 24)
                 Text("\(number)")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(.white)
-            } else {
-                Circle()
-                    .stroke(Color.white, lineWidth: 2)
-                    .frame(width: 24, height: 24)
-                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 1)
             }
         }
     }
 
     // MARK: - Video Duration Badge
 
+    /// Returns the styled video duration badge label. Padding/position is applied at the call site.
     private func videoDurationBadge(duration: TimeInterval) -> some View {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
@@ -196,9 +208,8 @@ struct FCLGalleryTabView: View {
             .foregroundColor(.white)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
-            .background(Color.black.opacity(0.6))
-            .cornerRadius(3)
-            .padding(4)
+            .background(Color.black.opacity(0.45))
+            .cornerRadius(4)
     }
 }
 
@@ -321,7 +332,8 @@ struct FCLGalleryTabView_Previews: PreviewProvider {
 private struct FCLGalleryTabMockPreview: View {
     let selectedIndices: Set<Int>
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 4)
+    // Mirror the production 3-column spec.
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
     private static let mockItems: [(Color, Color, Bool, TimeInterval?)] = [
         (.blue,    .cyan,    false, nil),
@@ -384,6 +396,11 @@ private struct FCLGalleryTabMockPreview: View {
             LinearGradient(colors: [topColor, bottomColor], startPoint: .topLeading, endPoint: .bottomTrailing)
                 .aspectRatio(1, contentMode: .fit)
 
+            if isSelected {
+                Color.blue.opacity(0.18)
+                    .allowsHitTesting(false)
+            }
+
             if isVideo, let duration {
                 let minutes = Int(duration) / 60
                 let seconds = Int(duration) % 60
@@ -394,32 +411,31 @@ private struct FCLGalleryTabMockPreview: View {
                     .padding(.vertical, 2)
                     .background(Color.black.opacity(0.6))
                     .cornerRadius(3)
-                    .padding(4)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    // Prototype: bottom-leading, 6pt inset.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(.leading, 6)
+                    .padding(.bottom, 6)
             }
 
+            // Mirror production selectionCircle spec (22pt, dark semi-fill, 1.5pt white border).
             ZStack {
+                Circle()
+                    .fill(isSelected ? Color.blue : Color.black.opacity(0.18))
+                    .frame(width: 22, height: 22)
+                    .overlay(
+                        Circle()
+                            .strokeBorder(Color.white.opacity(isSelected ? 1.0 : 0.9), lineWidth: 1.5)
+                    )
+                    .shadow(color: .black.opacity(isSelected ? 0.25 : 0.08), radius: isSelected ? 3 : 0.5, x: 0, y: 1)
+
                 if isSelected, let selectionNumber {
-                    Circle()
-                        .fill(Color.blue)
-                        .frame(width: 24, height: 24)
                     Text("\(selectionNumber)")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundColor(.white)
-                } else {
-                    Circle()
-                        .stroke(Color.white, lineWidth: 2)
-                        .frame(width: 24, height: 24)
-                        .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 1)
                 }
             }
             .padding(4)
         }
-        .overlay(
-            isSelected
-                ? RoundedRectangle(cornerRadius: 0).stroke(Color.blue, lineWidth: 3)
-                : nil
-        )
     }
 }
 #endif

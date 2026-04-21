@@ -44,7 +44,6 @@ The Presenter is always the single source of truth. Views read `@Published` prop
 Fly-Chat/
 +-- Package.swift
 +-- README.md
-+-- CLAUDE.md
 +-- LICENSE
 +-- .gitignore
 |
@@ -179,7 +178,7 @@ Root namespace enum that holds SDK-level constants:
 
 ```swift
 public enum FlyChat {
-    public static let version = "0.1.0"
+    public static let version = "0.2.0"
 }
 ```
 

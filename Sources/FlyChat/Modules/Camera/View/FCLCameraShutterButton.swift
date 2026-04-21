@@ -14,7 +14,9 @@ struct FCLCameraShutterButton: View {
     let isEnabled: Bool
     let action: () -> Void
 
-    private let outerSize: CGFloat = 72
+    // Outer ring diameter matches the prototype (78 pt). Inner fill is
+    // outer - 14 = 64 pt, giving a 7 pt gap on each side for the ring.
+    private let outerSize: CGFloat = 78
 
     var body: some View {
         Button(action: action) {
@@ -50,6 +52,7 @@ struct FCLCameraShutterButton: View {
         } else {
             Circle()
                 .fill(mode == .video ? Color.red : Color.white)
+                // Inner disc: outerSize - 14 = 64 pt (7 pt ring gap each side)
                 .frame(width: outerSize - 14, height: outerSize - 14)
         }
     }

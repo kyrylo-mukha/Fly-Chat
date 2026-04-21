@@ -73,7 +73,7 @@ If the chat scrolled past the originating cell and no window frame is available 
 
 ## Parallax Thumbnail Strip
 
-`FCLChatPreviewerCarouselStrip` sits `88pt + bottom safe-area inset` above the bottom edge on an `FCLGlassContainer`, so on notched devices the strip clears the home indicator. The `FCLChatPreviewerLayout.carouselBottomSpacing(safeArea:)` helper owns the sum so call sites do not re-derive it. It is built with native SwiftUI scroll primitives:
+`FCLChatPreviewerCarouselStrip` sits on an `FCLGlassContainer` with its **top edge** anchored `88pt` above the bottom safe-area boundary, so on notched devices the strip clears the home indicator while staying visually close to the bottom of the screen. The `FCLChatPreviewerLayout.carouselBottomSpacing(safeArea:)` helper computes the exact bottom padding — `safeArea.bottom + (carouselBaseSpacing - stripVisibleHeight)`, which evaluates to `safeArea.bottom + 16pt` at the current `72pt` strip height — so call sites do not re-derive it. It is built with native SwiftUI scroll primitives:
 
 - **Structure.** `ScrollView(.horizontal)` + `scrollTargetBehavior(.viewAligned)` + `scrollPosition` so the strip snaps to the focused thumbnail without programmatic `scrollTo` thrash.
 - **Per-thumbnail scale.** Each thumbnail scales from `1.0` at the center to `0.65` at the edges, using `centerOffset / (stripWidth / 2)` as the normalized falloff.

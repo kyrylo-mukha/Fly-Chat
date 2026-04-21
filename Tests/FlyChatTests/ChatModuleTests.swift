@@ -46,8 +46,8 @@ final class FCLChatModuleTests: XCTestCase {
         XCTAssertEqual(presenter.resolvedIncomingSide, .left)
         XCTAssertEqual(presenter.resolvedOutgoingSide, .right)
         XCTAssertEqual(presenter.resolvedMaxBubbleWidthRatio, 0.78)
-        XCTAssertEqual(presenter.resolvedIntraGroupSpacing, 4)
-        XCTAssertEqual(presenter.resolvedInterGroupSpacing, 12)
+        XCTAssertEqual(presenter.resolvedIntraGroupSpacing, 3)
+        XCTAssertEqual(presenter.resolvedInterGroupSpacing, 10)
     }
 
     @MainActor

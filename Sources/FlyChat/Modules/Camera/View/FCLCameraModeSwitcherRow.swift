@@ -12,13 +12,16 @@ struct FCLCameraModeSwitcherRow: View {
     let onSetMode: (FCLCameraMode) -> Void
 
     var body: some View {
-        HStack(spacing: 16) {
+        // Center the two segmented groups with gap: 10, matching the prototype.
+        // No outer horizontal padding — the groups are intrinsic-width capsules
+        // that sit in the middle of the screen.
+        HStack(spacing: 10) {
             flipButton
             if allowsVideo && !isRecording {
                 modeChips
             }
         }
-        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 4)
     }
 
@@ -42,9 +45,12 @@ struct FCLCameraModeSwitcherRow: View {
 
     private func modeChip(_ target: FCLCameraMode, title: String) -> some View {
         let selected = mode == target
+        // Active state uses a white tint to match the prototype's
+        // `background: active ? '#fff'` on dark camera chrome.
+        // Deselected chips use no tint (transparent glass surface).
         return FCLGlassChip(
             title: title,
-            tint: selected ? FCLChatColorToken(red: 1.0, green: 0.84, blue: 0.0) : nil,
+            tint: selected ? FCLChatColorToken(red: 1.0, green: 1.0, blue: 1.0) : nil,
             action: { onSetMode(target) }
         )
         .accessibilityLabel("Switch to \(title.lowercased()) mode")

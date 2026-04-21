@@ -82,11 +82,11 @@ enum FCLLayoutDefaults {
     /// Default maximum bubble width ratio: 78% of available width.
     static let maxBubbleWidthRatio: CGFloat = 0.78
 
-    /// Default vertical spacing between messages in the same sender group: 4 points.
-    static let intraGroupSpacing: CGFloat = 4
+    /// Default vertical spacing between messages in the same sender group: 3 points.
+    static let intraGroupSpacing: CGFloat = 3
 
-    /// Default vertical spacing between different sender groups: 12 points.
-    static let interGroupSpacing: CGFloat = 12
+    /// Default vertical spacing between different sender groups: 10 points.
+    static let interGroupSpacing: CGFloat = 10
 
     /// Default status visibility for outgoing messages: `true`.
     static let showsStatusForOutgoing = true
@@ -97,8 +97,8 @@ enum FCLLayoutDefaults {
 /// These constants are used as fallbacks when the host app does not provide
 /// a custom ``FCLAvatarDelegate`` or does not override a specific property.
 enum FCLAvatarDefaults {
-    /// Default avatar size: 40x40 points.
-    static let avatarSize: CGFloat = 40
+    /// Default avatar size: 28x28 points.
+    static let avatarSize: CGFloat = 28
 
     /// Whether outgoing message avatars are shown by default: `false`.
     static let showOutgoingAvatar = false
@@ -136,8 +136,8 @@ enum FCLInputDefaults {
     /// Default text field background color: white.
     static let fieldBackgroundColor = FCLChatColorToken(red: 1, green: 1, blue: 1)
 
-    /// Default text field corner radius: 18 points.
-    static let fieldCornerRadius: CGFloat = 18
+    /// Default text field corner radius: 22 points (half of 44pt hit target = full pill).
+    static let fieldCornerRadius: CGFloat = 22
 
     /// Default explicit line height: `nil` (uses system default).
     static let lineHeight: CGFloat? = nil
@@ -146,7 +146,7 @@ enum FCLInputDefaults {
     static let returnKeySends = true
 
     /// Default content insets around the input bar's inner content.
-    static let contentInsets = FCLEdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
+    static let contentInsets = FCLEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
 
     /// Default spacing between input bar elements: 8 points.
     static let elementSpacing: CGFloat = 8

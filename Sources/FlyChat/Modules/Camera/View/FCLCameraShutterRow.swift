@@ -21,35 +21,46 @@ struct FCLCameraShutterRow: View {
     }
 
     var body: some View {
-        ZStack {
-            // Shutter is always centered.
+        // Three-slot grid: 1fr | auto | 1fr — mirrors the prototype's
+        // grid-template-columns layout so the shutter is always centered
+        // regardless of Done-chip width. Horizontal padding: 20 pt (prototype
+        // uses 20px). Bottom padding is handled by the parent chrome container.
+        HStack(spacing: 16) {
+            // Leading slot — Done chip or invisible placeholder.
+            Group {
+                if showsDoneChip {
+                    doneChip
+                } else {
+                    Color.clear.frame(width: 72, height: 44)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Center slot — shutter always centered.
             FCLCameraShutterButton(
                 mode: mode,
                 isRecording: isRecording,
                 isEnabled: true,
                 action: onShutter
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
-            // Left slot: Done chip or invisible placeholder for symmetry.
-            HStack {
-                if showsDoneChip {
-                    doneChip
-                } else {
-                    Color.clear.frame(width: 72, height: 44)
-                }
-                Spacer(minLength: 0)
-            }
-
-            // Right slot: always empty placeholder so shutter stays centered.
-            HStack {
-                Spacer(minLength: 0)
-                Color.clear.frame(width: 72, height: 44)
-            }
+            // Trailing slot — reserved, always empty for symmetry.
+            reservedSlot
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .frame(height: 72)
-        .padding(.horizontal, 24)
-        .padding(.bottom, 20)
+        .padding(.horizontal, 20)
+    }
+
+    /// Trailing placeholder that keeps the shutter centered. Matches the
+    /// prototype's dashed reserved slot at the same hit-target size.
+    private var reservedSlot: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .stroke(
+                Color.white.opacity(0.22),
+                style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+            )
+            .frame(width: 44, height: 44)
+            .opacity(0.6)
     }
 
     private var doneChip: some View {

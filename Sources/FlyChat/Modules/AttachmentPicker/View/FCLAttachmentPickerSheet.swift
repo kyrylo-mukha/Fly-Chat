@@ -117,20 +117,37 @@ struct FCLAttachmentPickerSheet: View {
                 .frame(width: 36, height: 5)
                 .padding(.top, 8)
                 .padding(.bottom, 4)
-            FCLPickerTopToolbar(
-                presenter: presenter,
-                collectionRegistry: collectionRegistry
-            )
-            FCLPickerPermissionSurface(
-                status: galleryAuthorizationStatus,
-                selectedCount: presenter.selectedAssets.count,
-                totalCount: galleryAssetCount,
-                isPresentationComplete: presenter.isPresentationComplete
-            )
+
+            // Scrollable gallery / files content fills all remaining space.
+            // The top toolbar and bottom bar float over the content via
+            // `.safeAreaInset` so the grid cells are never obscured.
             tabContentZStack
-            bottomBar
+                // Permission surface sits between the toolbar and the grid;
+                // pin it as a top inset so it does not displace the floating
+                // toolbar but does push the grid down when visible.
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    VStack(spacing: 0) {
+                        // Transparent top toolbar (close / source / trailing)
+                        // floats over the scrollable area — no opaque background.
+                        FCLPickerTopToolbar(
+                            presenter: presenter,
+                            collectionRegistry: collectionRegistry
+                        )
+                        FCLPickerPermissionSurface(
+                            status: galleryAuthorizationStatus,
+                            selectedCount: presenter.selectedAssets.count,
+                            totalCount: galleryAssetCount,
+                            isPresentationComplete: presenter.isPresentationComplete
+                        )
+                    }
+                }
+                // Bottom bar (tab bar or caption+send) floats over the grid.
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    bottomBar
+                }
         }
-        .background(FCLPalette.systemBackground)
+        // Prototype sheet background: #F2F2F7 = systemGroupedBackground.
+        .background(FCLPalette.systemGroupedBackground)
         .onAppear {
             // Apple does not provide an "onPresent" / presentation-complete
             // callback on `.sheet`. 0.55s matches typical iOS sheet present
@@ -397,30 +414,32 @@ struct FCLAttachmentPickerSheet: View {
         // animation completing (which would cause a visible tab-bar flash).
         let showInputBar = presenter.state == .gallerySelected || presenter.state == .sending
 
-        VStack(spacing: 0) {
-            Divider()
-
-            if showInputBar {
-                FCLPickerInputBar(
-                    captionText: $presenter.captionText,
-                    hasSelection: !presenter.selectedAssets.isEmpty && !isSendDisabled,
-                    fieldBackgroundColor: FCLPalette.tertiarySystemFill,
-                    fieldCornerRadius: 18,
-                    captionFocusBinding: $isCaptionFocused,
-                    onSend: {
-                        performSynchronizedSend {
-                            compressAndSendGallery()
-                        }
+        // No Divider, no opaque background — the bar floats over the grid per
+        // the prototype spec (position: absolute, bottom: 10). The glass
+        // surfaces on FCLGlassTextField / FCLGlassToolbar provide visual separation.
+        if showInputBar {
+            FCLPickerInputBar(
+                captionText: $presenter.captionText,
+                hasSelection: !presenter.selectedAssets.isEmpty && !isSendDisabled,
+                fieldBackgroundColor: FCLPalette.tertiarySystemFill,
+                fieldCornerRadius: 22,
+                captionFocusBinding: $isCaptionFocused,
+                onSend: {
+                    performSynchronizedSend {
+                        compressAndSendGallery()
                     }
-                )
-            } else {
-                FCLPickerTabBar(
-                    tabs: buildTabDisplayItems(),
-                    selectedTab: presenter.selectedTab,
-                    isEnabled: presenter.state != .gallerySelected,
-                    onTabSelected: { presenter.selectTab($0) }
-                )
-            }
+                }
+            )
+            .padding(.bottom, 10)
+        } else {
+            FCLPickerTabBar(
+                tabs: buildTabDisplayItems(),
+                selectedTab: presenter.selectedTab,
+                isEnabled: presenter.state != .gallerySelected,
+                onTabSelected: { presenter.selectTab($0) }
+            )
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
         }
     }
 

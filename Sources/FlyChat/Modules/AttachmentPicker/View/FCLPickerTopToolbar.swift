@@ -40,6 +40,7 @@ struct FCLPickerTopToolbar: View {
         .frame(height: 52)
         .padding(.horizontal, 10)
         .animation(.easeInOut(duration: 0.28), value: presenter.fileSearchState)
+        .animation(.spring(response: 0.30, dampingFraction: 0.85), value: presenter.selectedAssets.count)
     }
 
     // MARK: - Browsing layout
@@ -53,8 +54,11 @@ struct FCLPickerTopToolbar: View {
             centerSlot
                 .frame(maxWidth: .infinity)
 
+            // The trailing slot hosts either a fixed-size icon button (44×44)
+            // or a variable-width selection-count chip — allow it to size
+            // intrinsically and constrain only the minimum hit area.
             trailingSlot
-                .frame(width: 44, height: 44)
+                .frame(minWidth: 44, minHeight: 44)
         }
     }
 
@@ -78,7 +82,31 @@ struct FCLPickerTopToolbar: View {
                 action: { presenter.beginFileSearch() }
             )
             .accessibilityLabel("Search files")
-        case .gallery, .custom:
+        case .gallery:
+            // Prototype: when ≥1 asset selected, show a blue-tinted glass chip
+            // with a checkmark and the count. When nothing is selected, show an
+            // invisible placeholder so the close/source-pill layout stays centered.
+            galleryTrailingView
+        case .custom:
+            Color.clear
+        }
+    }
+
+    /// Selection-count chip for the Gallery tab trailing slot.
+    @ViewBuilder
+    private var galleryTrailingView: some View {
+        if presenter.selectedAssets.count > 0 {
+            FCLGlassChip(
+                title: "\(presenter.selectedAssets.count)",
+                tint: FCLChatColorToken(red: 0.0, green: 0.48, blue: 1.0)
+            ) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .accessibilityLabel("\(presenter.selectedAssets.count) selected")
+            .transition(.scale(scale: 0.85).combined(with: .opacity))
+        } else {
             Color.clear
         }
     }
@@ -133,6 +161,14 @@ struct FCLPickerTopToolbar: View {
     FCLPickerTopToolbarPreviewHost(tab: .gallery, searchState: .closed)
 }
 
+#Preview("Top toolbar — Gallery (1 asset selected — count pill)") {
+    FCLPickerTopToolbarPreviewHost(tab: .gallery, searchState: .closed, selectedCount: 1)
+}
+
+#Preview("Top toolbar — Gallery (3 assets selected — count pill)") {
+    FCLPickerTopToolbarPreviewHost(tab: .gallery, searchState: .closed, selectedCount: 3)
+}
+
 #Preview("Top toolbar — Files (browsing)") {
     FCLPickerTopToolbarPreviewHost(tab: .file, searchState: .closed)
 }
@@ -150,6 +186,7 @@ private struct FCLPickerTopToolbarPreviewHost: View {
     let tab: FCLPickerTab
     let searchState: FCLAttachmentPickerPresenter.FileSearchState
     var text: String = ""
+    var selectedCount: Int = 0
 
     @StateObject private var presenter = FCLAttachmentPickerPresenter(
         delegate: nil,
@@ -159,7 +196,8 @@ private struct FCLPickerTopToolbarPreviewHost: View {
 
     var body: some View {
         ZStack {
-            FCLPalette.systemBackground.ignoresSafeArea()
+            // Transparent-over-gallery — simulate the sheet background.
+            FCLPalette.systemGroupedBackground.ignoresSafeArea()
             VStack {
                 FCLPickerTopToolbar(
                     presenter: presenter,
@@ -173,6 +211,9 @@ private struct FCLPickerTopToolbarPreviewHost: View {
             presenter.fileSearchText = text
             if searchState == .open {
                 presenter.beginFileSearch()
+            }
+            for i in 0..<selectedCount {
+                presenter.toggleAssetSelection("preview-asset-\(i)")
             }
         }
     }

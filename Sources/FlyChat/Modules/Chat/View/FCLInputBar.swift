@@ -247,8 +247,8 @@ struct FCLInputBar: View {
             .focused(composerFocusBinding)
             .submitLabel(returnKeySends ? .send : .return)
             .onSubmit { if returnKeySends { onSend() } }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
     }
 
     /// Conditionally renders the paperclip attachment button.
@@ -257,18 +257,17 @@ struct FCLInputBar: View {
         if showAttachButton {
             FCLGlassIconButton(
                 systemImage: "paperclip",
-                size: 36,
+                size: 44,
                 action: { presentAttachmentPicker() }
             )
             .accessibilityLabel("Attach file")
-            // Attach the matched-transition source to an invisible 36×36 Circle
+            // Attach the matched-transition source to an invisible 44×44 Circle
             // so the zoom originates from the paperclip's visual bounds rather
             // than from `.buttonStyle(.glass)`'s padded outer frame on iOS 26.
-            // See docs/superpowers/knowledge/2026-04-17-picker-chrome-overhaul.md (Q1).
             .background(
                 Circle()
                     .fill(Color.clear)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 44, height: 44)
                     .allowsHitTesting(false)
                     .modifier(FCLPickerZoomSource(
                         sourceID: "FCLAttachmentPicker",
@@ -308,7 +307,7 @@ struct FCLInputBar: View {
         )
         return FCLGlassIconButton(
             systemImage: "paperplane.fill",
-            size: 36,
+            size: 44,
             tint: FCLAppearanceDefaults.senderBubbleColor,
             action: onSend
         )

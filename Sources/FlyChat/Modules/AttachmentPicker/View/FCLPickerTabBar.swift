@@ -68,7 +68,8 @@ struct FCLPickerTabBar: View {
                     .animation(pillAnimation, value: selectedTab)
                 }
             }
-            .frame(height: 52)
+            // Prototype per-segment height: 56pt.
+            .frame(height: 56)
         }
         .opacity(isEnabled ? 1.0 : 0.4)
         .allowsHitTesting(isEnabled)
@@ -108,14 +109,16 @@ private struct FCLPickerTabItem: View {
         )
 
         Button(action: onTap) {
-            VStack(spacing: 2) {
+            VStack(spacing: 3) {
                 item.icon.image
-                    .font(.system(size: 22))
+                    // Prototype: 24pt icon in each tab segment.
+                    .font(.system(size: 24))
                 Text(item.title)
-                    .font(.caption2.weight(.semibold))
+                    // Prototype: 10pt / weight 500 label.
+                    .font(.system(size: 10, weight: .medium))
             }
             .padding(6)
-            .frame(minWidth: 60, minHeight: 52)
+            .frame(minWidth: 60, minHeight: 56)
             .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .background {
                 if isSelected {
@@ -202,7 +205,7 @@ struct FCLPickerTabBar_Previews: PreviewProvider {
             }
         }
         .previewDisplayName("2 Tabs — Gallery Selected (Disabled)")
-        .previewLayout(.fixed(width: 390, height: 120))
+        .previewLayout(.fixed(width: 390, height: 130))
 
         // 2 tabs — File selected (enabled)
         ZStack {
@@ -219,7 +222,7 @@ struct FCLPickerTabBar_Previews: PreviewProvider {
             }
         }
         .previewDisplayName("2 Tabs — File Selected")
-        .previewLayout(.fixed(width: 390, height: 120))
+        .previewLayout(.fixed(width: 390, height: 130))
 
         // 5 tabs — horizontally scrollable, Gallery selected
         ZStack {
@@ -236,7 +239,7 @@ struct FCLPickerTabBar_Previews: PreviewProvider {
             }
         }
         .previewDisplayName("5 Tabs — Scrollable")
-        .previewLayout(.fixed(width: 390, height: 120))
+        .previewLayout(.fixed(width: 390, height: 130))
 
         // Reduce-transparency fallback — shows opaque background behind selected tab
         ZStack {
@@ -254,7 +257,7 @@ struct FCLPickerTabBar_Previews: PreviewProvider {
         }
         .fclPreviewReduceTransparency()
         .previewDisplayName("2 Tabs — Reduce Transparency Fallback")
-        .previewLayout(.fixed(width: 390, height: 120))
+        .previewLayout(.fixed(width: 390, height: 130))
 
         // Reduce-motion — press animation uses linear cross-fade instead of spring
         ZStack {
@@ -272,7 +275,7 @@ struct FCLPickerTabBar_Previews: PreviewProvider {
         }
         .fclPreviewReduceMotion()
         .previewDisplayName("2 Tabs — Reduce Motion")
-        .previewLayout(.fixed(width: 390, height: 120))
+        .previewLayout(.fixed(width: 390, height: 130))
     }
 }
 

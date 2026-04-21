@@ -176,7 +176,7 @@ public struct FCLChatScreen: View {
             }
         }
         .fclInstallVisualStyleDelegate(delegate?.visualStyle)
-        .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+        .background(FCLPalette.systemBackground)
         // Read container size via a background GeometryReader + PreferenceKey.
         // Unlike wrapping the entire hierarchy in a `GeometryReader`, this pattern
         // does not cause the `VStack`/`List` subtree to rebuild when the container
@@ -456,9 +456,9 @@ public struct FCLChatScreen: View {
         HStack(spacing: 8) {
             TextField("Message", text: $presenter.draftText)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color.white)
-                .cornerRadius(18)
+                .padding(.vertical, 11)
+                .background(FCLPalette.systemBackground)
+                .cornerRadius(22)
 
             Button(action: presenter.sendDraft) {
                 Text("Send")
@@ -470,9 +470,9 @@ public struct FCLChatScreen: View {
                     .clipShape(Capsule())
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color(red: 0.93, green: 0.94, blue: 0.96))
+        .background(FCLPalette.secondarySystemBackground)
     }
     #endif
 
@@ -722,7 +722,9 @@ private struct FCLChatMessageRow: View {
     @ViewBuilder
     private func bubbleContent(tailStyle: FCLBubbleTailStyle) -> some View {
         let textColor: Color = isSender ? senderTextColor.color : receiverTextColor.color
-        let timeColor: Color = textColor.opacity(0.6)
+        // Outgoing timestamps sit on a colored background: 0.85 opacity reads clearly.
+        // Incoming timestamps sit on the receiver fill: 0.55 provides the right muted weight.
+        let timeColor: Color = textColor.opacity(isSender ? 0.85 : 0.55)
         let timeString = Self.timeFormatter.string(from: message.sentAt)
         let timestampFont: Font = .caption2
         let mediaAttachments = message.attachments.filter { $0.type == .image || $0.type == .video }
@@ -823,6 +825,11 @@ private struct FCLChatMessageRow: View {
                 #endif
 
                 if !message.text.isEmpty {
+                    // Top padding: 6pt when a media grid precedes the caption (MediaBubble layout),
+                    // 7pt for pure text-only bubbles (Bubble layout).
+                    let textTopPadding: CGFloat = mediaAttachments.isEmpty ? 7 : 6
+                    // Bottom padding: 7pt when media is above (caption of a MediaBubble), 6pt otherwise.
+                    let textBottomPadding: CGFloat = mediaAttachments.isEmpty ? 6 : 7
                     (
                         Text(message.text)
                             .font(messageFont.font)
@@ -833,9 +840,9 @@ private struct FCLChatMessageRow: View {
                     )
                     .multilineTextAlignment(side == .right ? .trailing : .leading)
                     .lineLimit(nil)
-                    .padding(.horizontal, 8)
-                    .padding(.top, 6)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, 12)
+                    .padding(.top, textTopPadding)
+                    .padding(.bottom, textBottomPadding)
                     .overlay(
                         HStack(spacing: 3) {
                             if shouldShowStatus, let status = message.status {
@@ -849,9 +856,8 @@ private struct FCLChatMessageRow: View {
                                 .font(timestampFont)
                                 .foregroundColor(timeColor)
                         }
-                        .offset(y: 3)
-                        .padding(.trailing, 8)
-                        .padding(.bottom, 4),
+                        .padding(.trailing, 10)
+                        .padding(.bottom, 5),
                         alignment: .bottomTrailing
                     )
                 } else if hasAttachments {
@@ -899,9 +905,9 @@ private struct FCLChatMessageRow: View {
                 )
                 .multilineTextAlignment(side == .right ? .trailing : .leading)
                 .lineLimit(nil)
-                .padding(.horizontal, 8)
-                .padding(.top, 6)
-                .padding(.bottom, 4)
+                .padding(.horizontal, 12)
+                .padding(.top, 7)
+                .padding(.bottom, 6)
                 .overlay(
                     HStack(spacing: 3) {
                         if shouldShowStatus, let status = message.status {
@@ -915,9 +921,8 @@ private struct FCLChatMessageRow: View {
                             .font(timestampFont)
                             .foregroundColor(timeColor)
                     }
-                    .offset(y: 3)
-                    .padding(.trailing, 8)
-                    .padding(.bottom, 4),
+                    .padding(.trailing, 10)
+                    .padding(.bottom, 5),
                     alignment: .bottomTrailing
                 )
             } else if hasAttachments {
