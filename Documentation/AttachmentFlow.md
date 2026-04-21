@@ -70,7 +70,7 @@ If the user attempts to dismiss the preview while it is dirty (any asset has edi
 
 ## Send Path
 
-Send fires a single `withAnimation(.easeOut(duration: 0.22))` that dismisses the preview, the sheet, and the keyboard in parallel. The message bubble inserts synchronously on the chat timeline using the chat's standard animation. Double-sends are guarded by an in-flight flag. If a send fails, the error is surfaced via a toast overlay on the chat screen.
+Send fires a single `withAnimation(.easeOut(duration: 0.22))` that dismisses the preview, the sheet, and the keyboard in parallel. The message bubble inserts synchronously on the chat timeline using the chat's standard animation. The dismiss timing (`0.22s`) is aligned with the chat presenter's deferred-insert grace (`~0.24s`) so the preview collapse visually completes one frame before the new bubble appears — the eye reads one continuous motion instead of two overlapping transitions. Double-sends are guarded by an in-flight flag. If a send fails, the error is surfaced via a toast overlay on the chat screen.
 
 ## Related Documents
 

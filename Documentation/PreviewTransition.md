@@ -64,6 +64,10 @@ The previewer uses a manual SwiftUI snapshot overlay for the morph rather than `
 
 If the chat scrolled past the originating cell and no window frame is available at dismiss time, the previewer runs a `0×0` center-collapse with `.easeIn` duration `0.28s`. This is visually distinct from the morph-to-cell dismiss and signals to the user that the source is off-screen.
 
+### Animation Curves
+
+The present morph and the visible-cell dismiss morph both use a critically-damped spring (response ≈ `0.38s`, no overshoot). The real pager is held hidden until the spring completes, at which point the overlay is removed and interaction hands off to the live pager. Both phases resolve via SwiftUI's `completionCriteria: .logicallyComplete` so the motion ends as soon as the spring settles rather than waiting on a trailing low-energy tail. The off-screen center-collapse described above (`.easeIn` `0.28s`) is the alternate dismiss branch when the source cell is not visible.
+
 ## Dismiss Gestures
 
 - **Pinch-to-dismiss** — active on the chat previewer.
