@@ -18,7 +18,6 @@ public protocol FCLChatListRouting {
 /// simple closure, making it easy for host apps to handle navigation without
 /// creating a dedicated router type.
 public final class FCLChatListActionRouter: FCLChatListRouting {
-    /// The closure invoked when a chat is selected.
     private let onOpenChat: (FCLChatSummary) -> Void
 
     /// Creates a new action router with the given callback.
@@ -29,9 +28,6 @@ public final class FCLChatListActionRouter: FCLChatListRouting {
         self.onOpenChat = onOpenChat
     }
 
-    /// Forwards the chat selection to the stored closure.
-    ///
-    /// - Parameter chat: The chat summary the user selected.
     public func openChat(_ chat: FCLChatSummary) {
         onOpenChat(chat)
     }

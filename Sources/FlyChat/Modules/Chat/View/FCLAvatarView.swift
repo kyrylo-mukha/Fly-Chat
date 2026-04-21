@@ -45,7 +45,6 @@ enum FCLAvatarColorGenerator {
         Double(djb2Hash(initials.uppercased()) % 360)
     }
 
-    /// Converts HSL (hue 0-360, saturation 0-1, lightness 0-1) to HSB (hue 0-360, saturation 0-1, brightness 0-1).
     static func hslToHSB(h: Double, s: Double, l: Double) -> (h: Double, s: Double, b: Double) {
         let b = l + s * min(l, 1 - l)
         let sB = b == 0 ? 0 : 2 * (1 - l / b)
@@ -98,7 +97,6 @@ struct FCLAvatarView: View {
         }
     }
 
-    /// The colored circle with initials, used as the default avatar when no image is loaded.
     private var acronymView: some View {
         let initials = FCLAvatarColorGenerator.initials(from: displayName)
         let hueDegrees = FCLAvatarColorGenerator.hue(for: initials)
@@ -112,15 +110,12 @@ struct FCLAvatarView: View {
         }
     }
 
-    /// Asynchronously loads the avatar image through the delegate pipeline:
-    /// cache -> download -> default image -> initials fallback.
+    /// Loads the avatar image through the delegate pipeline: cache → download → default image → initials fallback.
     @MainActor
     private func loadAvatar() async {
         guard let avatarDelegate = delegate else { return }
 
-        // Step 1: Try delegate URL
         if let url = await avatarDelegate.avatarURL(for: senderID) {
-            // Check cache first
             if let cacheDelegate = avatarDelegate.cache {
                 if let data = await cacheDelegate.cachedImage(for: senderID),
                    let image = UIImage(data: data) {
@@ -129,23 +124,18 @@ struct FCLAvatarView: View {
                 }
             }
 
-            // Download
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
                 if let image = UIImage(data: data) {
                     loadedImage = image
-                    // Cache the downloaded image
                     if let cacheDelegate = avatarDelegate.cache {
                         await cacheDelegate.cacheImage(data, for: senderID)
                     }
                     return
                 }
-            } catch {
-                // Fall through to next step
-            }
+            } catch {}
         }
 
-        // Step 2: Try default image from delegate
         if let source = avatarDelegate.defaultAvatarImage {
             switch source {
             case .name(let name):
@@ -161,7 +151,6 @@ struct FCLAvatarView: View {
             }
         }
 
-        // Step 3: Acronym fallback (already shown as default in acronymView)
         loadFailed = true
     }
 }

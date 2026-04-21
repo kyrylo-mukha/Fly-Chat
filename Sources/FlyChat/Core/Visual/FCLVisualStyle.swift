@@ -171,7 +171,6 @@ extension EnvironmentValues {
         set { self[FCLVisualStyleDelegateStyleKey.self] = newValue }
     }
 
-    /// Delegate-global default tint.
     var fclDelegateVisualTint: FCLChatColorToken? {
         get { self[FCLVisualStyleDelegateTintKey.self] }
         set { self[FCLVisualStyleDelegateTintKey.self] = newValue }
@@ -198,10 +197,7 @@ public extension View {
 }
 
 /// Installs a library-wide ``FCLVisualStyleDelegate`` into the environment.
-///
-/// `FCLChatScreen` applies this modifier when wiring a ``FCLChatDelegate``;
-/// hosts rarely call it directly. The modifier is `internal` because the
-/// public entry point is the delegate chain.
+/// Internal — the public entry point is the delegate chain; `FCLChatScreen` calls this.
 extension View {
     @MainActor
     func fclInstallVisualStyleDelegate(_ delegate: (any FCLVisualStyleDelegate)?) -> some View {
@@ -218,10 +214,9 @@ extension View {
 
 // MARK: - Preview accessibility overrides
 
-// These internal keys allow #Preview blocks to force-inject accessibility states
-// that the system environment does not expose as writable key paths in Swift 6.3+.
-// They have nil defaults so they are inert at runtime and do not affect production builds.
-
+/// `nil` defaults keep these keys inert at runtime; system environment values
+/// are not writable key paths in Swift 6.3+, so preview-only injection requires
+/// a dedicated side channel.
 struct FCLPreviewReduceTransparencyKey: EnvironmentKey {
     static let defaultValue: Bool? = nil
 }
@@ -250,12 +245,10 @@ extension EnvironmentValues {
 
 #if DEBUG
 extension View {
-    /// Forces the reduce-transparency accessibility path in Xcode Previews.
     func fclPreviewReduceTransparency(_ value: Bool = true) -> some View {
         environment(\.fclPreviewReduceTransparency, value)
     }
 
-    /// Forces the reduce-motion accessibility path in Xcode Previews.
     func fclPreviewReduceMotion(_ value: Bool = true) -> some View {
         environment(\.fclPreviewReduceMotion, value)
     }
@@ -264,12 +257,8 @@ extension View {
 
 // MARK: - Shared fallback recipe
 
-/// Renders the shared iOS 17/18 fallback "glass stack" behind any shape.
-///
-/// Layer order (bottom → top): material (or opaque reduce-transparency fill),
-/// tint overlay, top inner highlight gradient, edge stroke. An outer shadow is
-/// applied to the rendered background as a whole by callers that want the
-/// floating affordance.
+/// Shared iOS 17/18 fallback "glass stack" for any `InsettableShape`.
+/// Layer order: material → tint overlay → top inner highlight → edge stroke.
 struct FCLGlassFallbackBackground<S: InsettableShape>: View {
     let shape: S
     let tint: FCLChatColorToken?

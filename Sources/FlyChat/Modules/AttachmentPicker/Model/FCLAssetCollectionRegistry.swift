@@ -7,19 +7,16 @@ import SwiftUI
 
 /// A value-type snapshot of a single `PHAssetCollection`.
 ///
-/// Conforms to `Identifiable` via the collection's stable `localIdentifier`.
-/// `UIImage` is intentionally kept out of this struct — thumbnail images are
-/// published separately on `FCLAssetCollectionRegistry` to avoid sending a
-/// non-Sendable type across isolation boundaries.
+/// Thumbnails are published separately on `FCLAssetCollectionRegistry` to avoid
+/// sending a non-Sendable type across isolation boundaries.
 struct FCLAssetCollection: Identifiable, Equatable {
-    /// Stable identifier — matches `PHAssetCollection.localIdentifier`.
+    /// Stable identifier matching `PHAssetCollection.localIdentifier`.
     let id: String
     /// Localized title shown in the collection list.
     let title: String
-    /// Precise asset count. `PHCollection.estimatedAssetCount` is `NSNotFound`
-    /// for smart albums, so we store a fetched count at construction time.
+    /// Precise asset count fetched at construction time.
     let assetCount: Int
-    /// The underlying `PHAssetCollection` subtype, used to prioritize Recents.
+    /// The underlying subtype, used to prioritize Recents.
     let subtype: PHAssetCollectionSubtype
 
     static func == (lhs: FCLAssetCollection, rhs: FCLAssetCollection) -> Bool {
@@ -31,36 +28,20 @@ struct FCLAssetCollection: Identifiable, Equatable {
 
 /// Discovers, orders, and thumbnail-caches the user's photo collections.
 ///
-/// ## Lifecycle
-/// Call `load()` once after photo library authorization is confirmed `.authorized`.
-/// The registry stays alive for the session; do NOT call `load()` in `.limited`
-/// state (the collection selector is hidden in that mode per PRD item 5).
-///
-/// ## Concurrency
-/// `@MainActor` throughout. PhotoKit fetch calls are synchronous and are safe on
-/// the main thread for metadata-only reads (no I/O). Thumbnail I/O runs through
-/// `PHCachingImageManager` with a result handler that already hops back to the
-/// main queue via `DispatchQueue.main.async` before mutating `@Published` state.
-///
-/// ## Session persistence
-/// `selectedCollectionID` is in-memory only and resets when the registry is
-/// deallocated (i.e. when the picker sheet is dismissed). It is never written to
-/// UserDefaults.
+/// Call `load()` once after `.authorized` status is confirmed. Not safe to call
+/// in `.limited` mode — the collection selector is hidden in that state.
 @MainActor
 final class FCLAssetCollectionRegistry: ObservableObject {
 
     // MARK: - Published State
 
-    /// Ordered list: Recents first, then remaining smart albums in system order,
-    /// then user albums ordered by creation date.
+    /// Ordered list: Recents first, then remaining smart albums, then user albums.
     @Published private(set) var collections: [FCLAssetCollection] = []
 
-    /// Thumbnail images keyed by `FCLAssetCollection.id`. Published so observers
-    /// can react when an image finishes loading without re-rendering the whole list.
+    /// Thumbnails keyed by `FCLAssetCollection.id`.
     @Published private(set) var thumbnails: [String: UIImage] = [:]
 
-    /// The collection that is currently selected. `nil` means "all photos" (the
-    /// synthetic Recents fallback built from `PHAsset.fetchAssets(with:)`).
+    /// Currently selected collection. `nil` means the flat all-photos fallback.
     @Published var selectedCollectionID: String?
 
     // MARK: - Private
@@ -78,41 +59,29 @@ final class FCLAssetCollectionRegistry: ObservableObject {
 
     // MARK: - API
 
-    /// User-meaningful smart-album subtypes. Everything outside this list
-    /// (e.g. `smartAlbumAllHidden`, `smartAlbumSlomoVideos`,
-    /// `smartAlbumGeneric`) is filtered out during discovery so the selector
-    /// list only shows collections a user would recognize from the Photos
-    /// app. Keep the order aligned with the Photos-app sidebar.
+    /// Smart-album subtypes surfaced in the collection selector. Subtypes outside
+    /// this set (e.g. `smartAlbumAllHidden`) are filtered during discovery.
     private static let allowedSmartAlbumSubtypes: Set<PHAssetCollectionSubtype> = [
         .smartAlbumRecentlyAdded,
         .smartAlbumFavorites,
         .smartAlbumVideos,
         .smartAlbumPanoramas,
         .smartAlbumScreenshots,
-        // Portrait-mode album — the PhotoKit enum case is `smartAlbumDepthEffect`,
-        // not `smartAlbumPortrait`; the latter does not exist.
-        .smartAlbumDepthEffect,
+        .smartAlbumDepthEffect,     // "Portrait" in the Photos app sidebar
         .smartAlbumLivePhotos,
         .smartAlbumSelfPortraits,
         .smartAlbumBursts,
         .smartAlbumTimelapses
     ]
 
-    /// Discovers all available collections and preloads key-asset thumbnails.
-    ///
-    /// Safe to call repeatedly; subsequent calls after the first are no-ops.
+    /// Discovers all collections and preloads key-asset thumbnails. Idempotent.
     func load() {
         guard !Self.isRunningInPreview, !didLoad else { return }
         didLoad = true
 
         var result: [FCLAssetCollection] = []
 
-        // 1. Smart albums in Photos-app system order (default PHFetchOptions ordering).
-        //    `.any` returns every subtype including internal / developer-only
-        //    ones (`smartAlbumAllHidden`, `smartAlbumSlomoVideos`, …); the
-        //    `makeItem(from:)` helper rejects subtypes outside
-        //    `allowedSmartAlbumSubtypes` so only user-meaningful albums reach
-        //    the selector.
+        // Smart albums in system order; makeItem(from:) filters to allowedSmartAlbumSubtypes.
         let smartFetch = PHAssetCollection.fetchAssetCollections(
             with: .smartAlbum,
             subtype: .any,
@@ -124,7 +93,7 @@ final class FCLAssetCollectionRegistry: ObservableObject {
             }
         }
 
-        // 2. User albums in default (creation-date) order.
+        // User albums in default (creation-date) order.
         let userFetch = PHAssetCollection.fetchAssetCollections(
             with: .album,
             subtype: .albumRegular,
@@ -136,14 +105,8 @@ final class FCLAssetCollectionRegistry: ObservableObject {
             }
         }
 
-        // Promote Recents (smartAlbumRecentlyAdded) to index 0 if present and
-        // pre-select it as the default collection. When the device does not
-        // expose a `smartAlbumRecentlyAdded` (possible on early-state
-        // libraries or custom OS configurations), leave
-        // `selectedCollectionID` at `nil` so the data source falls back to a
-        // flat `PHAsset.fetchAssets(with:)` — a "Recents"-equivalent view
-        // across the entire library — instead of picking whichever allow-listed
-        // album happens to sort first.
+        // Promote Recents to index 0 when present; otherwise leave selectedCollectionID
+        // nil so the data source falls back to a flat all-photos fetch.
         if let recentsIndex = result.firstIndex(where: { $0.subtype == .smartAlbumRecentlyAdded }),
            recentsIndex != 0 {
             let recents = result.remove(at: recentsIndex)
@@ -158,7 +121,6 @@ final class FCLAssetCollectionRegistry: ObservableObject {
             selectedCollectionID = nil
         }
 
-        // Kick off thumbnail loads.
         result.forEach { loadThumbnail(for: $0) }
     }
 
@@ -186,8 +148,6 @@ final class FCLAssetCollectionRegistry: ObservableObject {
         options.deliveryMode = .opportunistic
         options.resizeMode = .fast
 
-        // PHCachingImageManager result handler fires on an arbitrary queue.
-        // We hop back to MainActor before mutating @Published state.
         let collectionID = item.id
         imageManager.requestImage(
             for: keyAsset,
@@ -206,17 +166,12 @@ final class FCLAssetCollectionRegistry: ObservableObject {
 
     private static func makeItem(from collection: PHAssetCollection) -> FCLAssetCollection? {
         guard let title = collection.localizedTitle, !title.isEmpty else { return nil }
-        // Smart-album allow-list. User albums (`.album` / `.albumRegular`)
-        // bypass this filter so the user's named folders keep surfacing
-        // regardless of subtype.
         let subtype = collection.assetCollectionSubtype
         if collection.assetCollectionType == .smartAlbum,
            !allowedSmartAlbumSubtypes.contains(subtype) {
             return nil
         }
-        // Count assets accurately (estimatedAssetCount is NSNotFound for smart albums).
         let count = PHAsset.fetchAssets(in: collection, options: nil).count
-        // Skip empty albums.
         guard count > 0 else { return nil }
         return FCLAssetCollection(
             id: collection.localIdentifier,
@@ -228,8 +183,7 @@ final class FCLAssetCollectionRegistry: ObservableObject {
 
     // MARK: - Lookup
 
-    /// Returns the `PHAssetCollection` for the given identifier, or `nil` for
-    /// the synthetic all-photos fallback.
+    /// Returns the `PHAssetCollection` for the given identifier, or `nil`.
     func phCollection(for id: String) -> PHAssetCollection? {
         let fetch = PHAssetCollection.fetchAssetCollections(
             withLocalIdentifiers: [id],
@@ -240,11 +194,7 @@ final class FCLAssetCollectionRegistry: ObservableObject {
 
     // MARK: - Defaults
 
-    /// The identifier of the preferred default collection, or `nil` when the
-    /// spec's preferred default (`smartAlbumRecentlyAdded`) is not available
-    /// on this device. A `nil` return instructs ``FCLGalleryDataSource`` to
-    /// fall back to the flat all-photos fetch, which still yields a
-    /// "Recents"-equivalent view ordered by creation date descending.
+    /// Identifier of the Recents smart album, or `nil` when unavailable.
     var defaultCollectionID: String? {
         collections.first(where: { $0.subtype == .smartAlbumRecentlyAdded })?.id
     }
@@ -254,8 +204,7 @@ final class FCLAssetCollectionRegistry: ObservableObject {
 
 #if DEBUG
 extension FCLAssetCollectionRegistry {
-    /// Populates the registry with mock data suitable for Xcode Previews.
-    /// Bypasses the real PhotoKit APIs which are unavailable in preview agents.
+    /// Populates the registry with mock data for Xcode Previews.
     func loadMockData(selecting selectedIndex: Int = 0) {
         let items: [(String, String, Int, PHAssetCollectionSubtype)] = [
             ("recents-id",    "Recents",    1392, .smartAlbumRecentlyAdded),

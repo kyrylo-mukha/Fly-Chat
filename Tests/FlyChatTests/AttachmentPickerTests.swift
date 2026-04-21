@@ -123,7 +123,6 @@ extension AttachmentPickerTests {
         await store.add(fileURL: url, fileName: "dedup.pdf", fileSize: 200)
 
         let list = await store.list()
-        // Duplicate by URL — should collapse to 1, most recent version retained.
         XCTAssertEqual(list.count, 1)
         XCTAssertEqual(list.first?.fileSize, 200)
 

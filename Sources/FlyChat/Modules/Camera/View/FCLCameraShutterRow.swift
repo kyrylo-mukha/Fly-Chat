@@ -21,12 +21,7 @@ struct FCLCameraShutterRow: View {
     }
 
     var body: some View {
-        // Three-slot grid: 1fr | auto | 1fr — mirrors the prototype's
-        // grid-template-columns layout so the shutter is always centered
-        // regardless of Done-chip width. Horizontal padding: 20 pt (prototype
-        // uses 20px). Bottom padding is handled by the parent chrome container.
         HStack(spacing: 16) {
-            // Leading slot — Done chip or invisible placeholder.
             Group {
                 if showsDoneChip {
                     doneChip
@@ -36,7 +31,6 @@ struct FCLCameraShutterRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Center slot — shutter always centered.
             FCLCameraShutterButton(
                 mode: mode,
                 isRecording: isRecording,
@@ -44,15 +38,12 @@ struct FCLCameraShutterRow: View {
                 action: onShutter
             )
 
-            // Trailing slot — reserved, always empty for symmetry.
             reservedSlot
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, 20)
     }
 
-    /// Trailing placeholder that keeps the shutter centered. Matches the
-    /// prototype's dashed reserved slot at the same hit-target size.
     private var reservedSlot: some View {
         RoundedRectangle(cornerRadius: 10, style: .continuous)
             .stroke(
@@ -77,16 +68,12 @@ struct FCLCameraShutterRow: View {
     @ViewBuilder
     private var thumbnailAccessory: some View {
         if let image = lastCapturedThumbnail {
-            // Scope 05/07: rely on `FCLGlassChip`'s own 8pt corner + 4pt
-            // padding. An inner `.clipShape(RoundedRectangle(cornerRadius: 4))`
-            // would mask the outer 8pt radius the primitive applies.
+            // Do not add an inner `.clipShape` — `FCLGlassChip` owns the corner radius.
             Image(uiImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: 24, height: 24)
         } else {
-            // Placeholder when thumbnail is not yet loaded. Same no-inner-clip
-            // rule applies — the primitive owns the corner.
             Color.white.opacity(0.2)
                 .frame(width: 24, height: 24)
         }

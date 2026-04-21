@@ -10,7 +10,6 @@ public enum FCLCameraFlashMode: String, Sendable, Hashable, CaseIterable {
     case off
 
     #if canImport(AVFoundation)
-    /// Maps to the equivalent `AVCaptureDevice.FlashMode`.
     var avFlashMode: AVCaptureDevice.FlashMode {
         switch self {
         case .auto: return .auto

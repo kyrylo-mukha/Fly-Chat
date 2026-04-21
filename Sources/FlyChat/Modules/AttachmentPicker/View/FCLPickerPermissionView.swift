@@ -5,21 +5,8 @@ import UIKit
 
 // MARK: - FCLPickerPermissionSurface
 
-/// Unified permission surface rendered under the picker's top toolbar.
-///
-/// Shown whenever ``PHAuthorizationStatus`` is not `.authorized`. Renders:
-/// - a slim banner at the top (always when visible), and
-/// - a full empty state beneath it for ``.denied`` and ``.restricted``.
-///
-/// The color palette uses ``FCLPalette`` system semantic colors so the surface
-/// stays legible across light, dark, and high-contrast traits (see HIG). Status
-/// is indicated by a small leading dot: info-blue for limited, neutral for
-/// not-determined (with a spinner), warning-orange for denied/restricted.
-///
-/// The surface observes ``presenter.isPresentationComplete`` to decide whether
-/// `.notDetermined` should appear "pending" (spinner) or blank — before the
-/// sheet animation has finished, it stays blank to avoid competing with the
-/// presentation.
+/// Permission surface shown when `PHAuthorizationStatus` is not `.authorized`.
+/// Renders a slim banner and, for denied/restricted, a full empty state.
 struct FCLPickerPermissionSurface: View {
     let status: PHAuthorizationStatus
     let selectedCount: Int?

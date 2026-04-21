@@ -33,19 +33,13 @@ enum FCLRotateCropAspect: CaseIterable, Hashable {
 
 // MARK: - FCLRotateCropEditor
 
-/// In-place rotate/crop/flip editor that replaces the preview pager while
-/// editing a single asset.
-///
-/// Heavy image work (flip, free rotation, final crop) runs on a detached
-/// task so the main thread stays responsive. Each committed transformation
-/// pushes a snapshot onto the shared ``FCLAttachmentEditHistory``.
+/// In-place rotate/crop/flip editor. Heavy transforms run on a detached task
+/// to keep the main thread responsive.
 @MainActor
 struct FCLRotateCropEditor: View {
     let original: UIImage
 
-    /// Commit: receives the final rendered image.
     let onCommit: (UIImage) -> Void
-    /// Discard: editor returns to preview, caller restores original.
     let onCancel: () -> Void
 
     @StateObject private var historyBox: HistoryBox
@@ -95,9 +89,6 @@ struct FCLRotateCropEditor: View {
             }
         }
         .onDisappear {
-            // Belt-and-braces: drop history when the editor leaves the hierarchy
-            // so a subsequent reuse (if SwiftUI ever skipped the `.id()` identity
-            // change) cannot resurrect stale undo/redo state from another asset.
             historyBox.history.reset()
         }
     }
@@ -113,10 +104,6 @@ struct FCLRotateCropEditor: View {
                     .rotationEffect(.degrees(rotationAngle - committedRotation))
                     .frame(width: geo.size.width, height: geo.size.height)
 
-                // Simple visual crop frame. Dragging logic is intentionally
-                // minimal — the aspect picker controls its shape, and commit
-                // reads `cropRectUnit` directly. Corner drags are handled via
-                // the four transparent handles.
                 CropOverlay(cropRectUnit: $cropRectUnit, aspect: aspect, imageSize: geo.size)
                     .allowsHitTesting(true)
             }
@@ -133,7 +120,7 @@ struct FCLRotateCropEditor: View {
                     VStack(spacing: 4) {
                         Image(systemName: "arrow.left.and.right.righttriangle.left.righttriangle.right")
                             .font(.system(size: 18))
-                        Text("Flip H").font(.system(size: 11))
+                    Text("Flip H").font(.system(size: 11))
                     }
                     .foregroundStyle(.white)
                     .frame(width: 64, height: 48)
@@ -177,8 +164,6 @@ struct FCLRotateCropEditor: View {
                     in: -45 ... 45,
                     step: 1,
                     onEditingChanged: { editing in
-                        // Commit the rotation snapshot only when the user
-                        // releases the slider, not on every step change.
                         if !editing { commitRotationSnapshot() }
                     }
                 )
@@ -230,10 +215,8 @@ struct FCLRotateCropEditor: View {
     }
 
     private func commit() {
-        // Apply any in-flight rotation before cropping.
         commitRotationSnapshot()
-        // Capture main-actor-isolated cropRectUnit before entering the
-        // @Sendable transform closure to avoid an actor-isolation error.
+        // Capture cropRectUnit on MainActor before entering the @Sendable closure.
         let cropRect = cropRectUnit
         runTransform(push: false) { img in
             img.fcl_cropped(to: cropRect)
@@ -273,7 +256,6 @@ struct FCLRotateCropEditor: View {
 
     // MARK: - History box
 
-    /// Wraps the main-actor history so `@StateObject` can observe it.
     @MainActor
     final class HistoryBox: ObservableObject {
         let history: FCLAttachmentEditHistory
@@ -295,8 +277,6 @@ private struct CropOverlay: View {
     let imageSize: CGSize
 
     @State private var isDragging: Bool = false
-    /// Crop rect captured when a drag begins; used as the stable base so the
-    /// drag translation is applied once instead of compounding per event.
     @State private var dragBaseRect: CGRect?
 
     private let cornerArmLength: CGFloat = 20
@@ -313,25 +293,21 @@ private struct CropOverlay: View {
                 height: cropRectUnit.size.height * geo.size.height
             )
             ZStack {
-                // Thin border.
                 Rectangle()
                     .strokeBorder(Color.white.opacity(0.9), lineWidth: 1)
                     .frame(width: rect.width, height: rect.height)
                     .position(x: rect.midX, y: rect.midY)
 
-                // Rule-of-thirds grid — visible only while dragging.
                 if isDragging {
                     thirdsGrid(in: rect)
                 }
 
-                // Interior pan area — drags the whole crop rect.
                 Color.clear
                     .contentShape(Rectangle())
                     .frame(width: max(0, rect.width - 40), height: max(0, rect.height - 40))
                     .position(x: rect.midX, y: rect.midY)
                     .gesture(panGesture(containerSize: geo.size))
 
-                // L-shaped corner marks.
                 ForEach(Corner.allCases, id: \.self) { corner in
                     CornerMark(
                         corner: corner,
@@ -344,7 +320,6 @@ private struct CropOverlay: View {
                     .gesture(cornerDragGesture(for: corner, containerSize: geo.size))
                 }
 
-                // Edge handles — thin rectangles at mid-edge.
                 ForEach(Edge.allCases, id: \.self) { edge in
                     edgeHandle(edge: edge)
                         .position(edgePoint(edge, in: rect))
@@ -528,8 +503,7 @@ private struct CropOverlay: View {
 
 // MARK: - CornerMark
 
-/// Draws two perpendicular white lines meeting at the corner, forming an
-/// L-shape. The `corner` parameter selects which quadrant the arms point into.
+/// Draws an L-shaped corner mark; `corner` selects which quadrant the arms point into.
 @MainActor
 private struct CornerMark: View {
     let corner: CropOverlay.Corner
@@ -556,7 +530,7 @@ private struct CornerMark: View {
                 path.move(to: CGPoint(x: w, y: h)); path.addLine(to: CGPoint(x: 0, y: h))
             }
             ctx.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: lineWidth, lineCap: .square))
-            _ = armLength // silence unused warning; armLength is encoded via the frame
+            _ = armLength
         }
     }
 }
@@ -564,8 +538,8 @@ private struct CornerMark: View {
 // MARK: - UIImage helpers
 
 extension UIImage {
-    /// Returns a copy of `self` rendered with `.up` orientation so subsequent
-    /// pixel-level transforms operate on a predictable coordinate system.
+    /// Returns a copy with `.up` orientation so pixel-level transforms operate on
+    /// a predictable coordinate system.
     func fcl_normalizedOrientation() -> UIImage {
         if imageOrientation == .up { return self }
         let format = UIGraphicsImageRendererFormat.default()
@@ -590,8 +564,6 @@ extension UIImage {
                 cg.translateBy(x: 0, y: size.height)
                 cg.scaleBy(x: 1, y: -1)
             }
-            // Core Graphics y-up vs UIKit y-down. Draw via UIImage to keep
-            // orientation metadata out of the equation.
             if let cgImage {
                 cg.draw(cgImage, in: CGRect(origin: .zero, size: size))
             }

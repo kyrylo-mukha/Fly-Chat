@@ -41,9 +41,7 @@ enum FCLAttachmentGridLayout {
 
 /// A computed frame for a single cell within an attachment grid.
 struct FCLGridCellFrame {
-    /// Index into the attachments array that this frame represents.
     let index: Int
-    /// Frame in the grid's local coordinate space (origin at top-left of the grid content area).
     let rect: CGRect
 }
 
@@ -56,16 +54,6 @@ enum FCLAttachmentGridLayoutPlanner {
 
     // MARK: - Public entry point
 
-    /// Computes cell frames for all attachments and the total grid height.
-    ///
-    /// - Parameters:
-    ///   - attachments: The attachments to lay out.
-    ///   - aspects: Known aspect ratios (width / height) keyed by attachment ID.
-    ///             Missing entries default to `4/3`.
-    ///   - maxWidth: Full available width (outer bubble width, before insets).
-    ///   - spacing: Gap between adjacent cells.
-    ///   - insets: Outer padding to subtract from the available width.
-    /// - Returns: Cell frames in local coordinate space and the total grid height (including insets).
     static func plan(
         attachments: [FCLAttachment],
         aspects: [UUID: CGFloat],
@@ -98,7 +86,6 @@ enum FCLAttachmentGridLayoutPlanner {
             (localFrames, innerHeight) = layoutPairedRows(aspects: resolvedAspects, width: innerWidth, spacing: spacing)
         }
 
-        // Offset all frames by the leading + top insets so they live in the outer coordinate space.
         let offsetFrames = localFrames.map { cell in
             FCLGridCellFrame(
                 index: cell.index,
@@ -129,7 +116,6 @@ enum FCLAttachmentGridLayoutPlanner {
         let a0 = aspects[0], a1 = aspects[1]
         let class0 = aspectClass(a0), class1 = aspectClass(a1)
 
-        // Mixed portrait+landscape: stack vertically (each row full width)
         if class0 != class1, (class0 == .narrow || class1 == .narrow) {
             let h0 = width / a0
             let h1 = width / a1
@@ -139,7 +125,6 @@ enum FCLAttachmentGridLayoutPlanner {
             return ([.init(index: 0, rect: f0), .init(index: 1, rect: f1)], totalH)
         }
 
-        // Same class (both wide/square/narrow): side by side, equal row height
         let rowH = (width - spacing) / (a0 + a1)
         let w0 = rowH * a0
         let w1 = rowH * a1
@@ -157,7 +142,6 @@ enum FCLAttachmentGridLayoutPlanner {
             return layout3PortraitLeft(aspects: aspects, width: width, spacing: spacing)
         }
         if c1 == .narrow && c0 != .narrow && c2 != .narrow {
-            // Rearrange: put the narrow one first for the portrait-left layout
             let reordered = [aspects[1], aspects[0], aspects[2]]
             let (frames, h) = layout3PortraitLeft(aspects: reordered, width: width, spacing: spacing)
             let remapped = frames.map { f -> FCLGridCellFrame in
@@ -176,7 +160,6 @@ enum FCLAttachmentGridLayoutPlanner {
             return (remapped, h)
         }
 
-        // All narrow: three columns in one row
         if c0 == .narrow && c1 == .narrow && c2 == .narrow {
             let totalAspect = a0 + a1 + a2
             let rowH = (width - 2 * spacing) / totalAspect
@@ -190,7 +173,6 @@ enum FCLAttachmentGridLayoutPlanner {
             return (frames, rowH)
         }
 
-        // Default: one on top, two on bottom
         let topH = (width) / a0
         let bottomRowH = (width - spacing) / (a1 + a2)
         let w1 = bottomRowH * a1
@@ -205,14 +187,8 @@ enum FCLAttachmentGridLayoutPlanner {
     /// Layout for 3 items where item[0] is portrait: portrait column on left, items[1]+[2] stacked on right.
     private static func layout3PortraitLeft(aspects: [CGFloat], width: CGFloat, spacing: CGFloat) -> ([FCLGridCellFrame], CGFloat) {
         let a0 = aspects[0], a1 = aspects[1], a2 = aspects[2]
-        // Left column width derived from portrait column filling available height
-        // Right side is (width - spacing - leftW). Try balancing so heights match.
-        // Left column height = leftW / a0
-        // Right col: rowH1 = rightW/a1, rowH2 = rightW/a2 → total right = rightW/a1 + spacing + rightW/a2
-        // Equate: leftW/a0 = rightW*(1/a1 + 1/a2) + spacing  → approx leftW/a0 ≈ rightW*(1/a1+1/a2)
         let rightSumInvAspect = 1.0 / a1 + 1.0 / a2
         let leftW = (width - spacing) / (1.0 / a0 * 1.0 / rightSumInvAspect + 1.0)
-        // Safe fallback: split evenly
         let safeLeftW = leftW.isFinite && leftW > 0 ? min(leftW, width * 0.6) : width / 2
         let rightW = width - safeLeftW - spacing
         let leftH = safeLeftW / a0
@@ -230,7 +206,6 @@ enum FCLAttachmentGridLayoutPlanner {
         let a0 = aspects[0], a1 = aspects[1], a2 = aspects[2], a3 = aspects[3]
         let c0 = aspectClass(a0), c1 = aspectClass(a1), c2 = aspectClass(a2), c3 = aspectClass(a3)
 
-        // One narrow + three others: narrow on left, three stacked on right
         let narrowIndices = [c0, c1, c2, c3].enumerated().filter { $0.element == .narrow }.map { $0.offset }
         if narrowIndices.count == 1 {
             let narrowIdx = narrowIndices[0]
@@ -242,7 +217,6 @@ enum FCLAttachmentGridLayoutPlanner {
                 otherAspects: otherAspects,
                 width: width, spacing: spacing
             )
-            // Remap indices back to original
             var remapped: [FCLGridCellFrame] = []
             for f in frames {
                 let originalIndex: Int
@@ -256,22 +230,18 @@ enum FCLAttachmentGridLayoutPlanner {
             return (remapped, h)
         }
 
-        // All narrow: 2x2 grid scaled down
         if narrowIndices.count == 4 {
             return layout4Grid2x2(aspects: aspects, width: width, spacing: spacing)
         }
 
-        // Default: 2x2 uniform grid
         return layout4Grid2x2(aspects: aspects, width: width, spacing: spacing)
     }
 
     /// 2x2 grid with aspect-aware row heights.
     private static func layout4Grid2x2(aspects: [CGFloat], width: CGFloat, spacing: CGFloat) -> ([FCLGridCellFrame], CGFloat) {
-        // Row 0: items 0 and 1
         let rowH0 = (width - spacing) / (aspects[0] + aspects[1])
         let w0 = rowH0 * aspects[0]
         let w1 = rowH0 * aspects[1]
-        // Row 1: items 2 and 3
         let rowH1 = (width - spacing) / (aspects[2] + aspects[3])
         let w2 = rowH1 * aspects[2]
         let w3 = rowH1 * aspects[3]
@@ -296,7 +266,6 @@ enum FCLAttachmentGridLayoutPlanner {
         width: CGFloat,
         spacing: CGFloat
     ) -> ([FCLGridCellFrame], CGFloat) {
-        // Balance left column height with right column total height
         let rightSumInvAspect = otherAspects.reduce(0) { $0 + 1.0 / $1 }
         let leftW = (width - spacing) / (1.0 / narrowAspect / rightSumInvAspect + 1.0)
         let safeLeftW = leftW.isFinite && leftW > 0 ? min(leftW, width * 0.5) : width * 0.35
@@ -388,45 +357,24 @@ private struct FCLAttachmentCellFramesKey: PreferenceKey {
 /// for media-only messages and ``FCLAttachmentMaskMode/topRoundedBottomFlat(topRadius:)``
 /// when text follows below the grid. When `nil` (default) no additional clipping is applied.
 struct FCLAttachmentGridView: View {
-    /// The media attachments to display (filtered to `.image` and `.video` types only).
     let attachments: [FCLAttachment]
-    /// The maximum width of the grid, matching the bubble's max width.
     let maxWidth: CGFloat
-    /// Outer edge insets applied around the grid content area.
-    ///
-    /// Default: 1pt on all sides, matching ``FCLChatLayout/attachmentInset``.
+    /// Outer padding around the grid content area. Defaults to 1pt on all sides.
     var insets: FCLEdgeInsets = FCLEdgeInsets(
         top: FCLChatLayout.attachmentInset,
         leading: FCLChatLayout.attachmentInset,
         bottom: FCLChatLayout.attachmentInset,
         trailing: FCLChatLayout.attachmentInset
     )
-    /// Spacing between adjacent cells.
     var itemSpacing: CGFloat = 1
-    /// Optional hero namespace for matched geometry transitions.
     var heroNamespace: Namespace.ID?
-    /// Called when the user taps an attachment thumbnail to open a preview.
     var onAttachmentTap: ((FCLAttachment) -> Void)?
-    /// Optional callback invoked with the window-space frames of each rendered cell,
-    /// keyed by `attachment.id.uuidString`.
-    ///
-    /// The grid measures every visible cell using a `GeometryReader` in `.global`
-    /// coordinate space and reports the aggregated dictionary whenever it changes.
-    /// Hosts use this to drive the media-preview dismiss animation, which needs to
-    /// know where the originating cell currently is on screen.
+    /// Reports window-space frames of rendered cells (keyed by `attachment.id.uuidString`)
+    /// so the media-preview dismiss animation can return to the originating cell.
     var onCellFramesChange: (([String: CGRect]) -> Void)?
-    /// Invoked when the grid leaves the view hierarchy, passing the set of
-    /// attachment keys that this grid was reporting. Hosts use this to
-    /// prune stale entries from the preview-relay's window-frame cache so
-    /// the media preview's dismiss animation never targets a frame for a
-    /// cell that is no longer on screen.
+    /// Called on `onDisappear` with the set of attachment keys this grid was reporting,
+    /// so callers can prune stale entries from the preview-relay frame cache.
     var onCellFramesInvalidate: ((Set<String>) -> Void)?
-    /// Shape-aware mask applied to the grid container via `.clipShape`.
-    ///
-    /// When `nil` (default) no additional clipping is applied — the parent bubble shape
-    /// is relied upon to clip the grid (suitable for media-only bubbles where the bubble
-    /// shape itself provides the mask). When non-nil, the specified ``FCLAttachmentMaskShape``
-    /// is used to clip the container, supporting both full-bubble and top-rounded/bottom-flat modes.
     var maskShape: FCLAttachmentMaskShape?
 
     /// Loaded thumbnail images keyed by attachment ID.
@@ -444,7 +392,6 @@ struct FCLAttachmentGridView: View {
         )
 
         let gridContent = ZStack(alignment: .topLeading) {
-            // Invisible full-size canvas
             Color.clear
                 .frame(width: maxWidth, height: totalHeight)
 
@@ -472,10 +419,6 @@ struct FCLAttachmentGridView: View {
             onCellFramesChange?(newFrames)
         }
         .onDisappear {
-            // Prune this grid's keys from any parent-held frame cache.
-            // Without this, a scrolled-off or disappearing row leaves stale
-            // window-space rects in the cache, causing the preview's dismiss
-            // animation to fly to a location that is no longer visible.
             let keys = Set(attachments.map { $0.id.uuidString })
             onCellFramesInvalidate?(keys)
         }
@@ -488,7 +431,6 @@ struct FCLAttachmentGridView: View {
         }
     }
 
-    /// Renders a single attachment cell with an async-loaded thumbnail and an optional video overlay.
     @ViewBuilder
     private func attachmentCell(_ attachment: FCLAttachment, frame: CGRect) -> some View {
         Button {
@@ -497,7 +439,6 @@ struct FCLAttachmentGridView: View {
             ZStack {
                 imageLayer(for: attachment, size: frame.size)
 
-                // Play overlay for video
                 if attachment.type == .video {
                     Circle()
                         .fill(Color.black.opacity(0.5))
@@ -521,7 +462,6 @@ struct FCLAttachmentGridView: View {
         }
     }
 
-    /// The image layer for a cell: async-loaded thumbnail, thumbnailData fallback, or placeholder.
     @ViewBuilder
     private func imageLayer(for attachment: FCLAttachment, size: CGSize) -> some View {
         if let loaded = thumbnailsByID[attachment.id] {
@@ -553,7 +493,6 @@ struct FCLAttachmentGridView: View {
         }
     }
 
-    /// Loads the pixel size of an attachment and updates `aspectByID`.
     private func loadAspect(for attachment: FCLAttachment) async {
         guard aspectByID[attachment.id] == nil else { return }
         if let size = await FCLAsyncThumbnailLoader.shared.pixelSize(for: attachment), size.height > 0 {
@@ -561,7 +500,6 @@ struct FCLAttachmentGridView: View {
         }
     }
 
-    /// Loads a downscaled thumbnail for an attachment and updates `thumbnailsByID`.
     private func loadThumbnail(for attachment: FCLAttachment, targetSize: CGSize) async {
         guard thumbnailsByID[attachment.id] == nil else { return }
         if let image = await FCLAsyncThumbnailLoader.shared.thumbnail(for: attachment, targetSize: targetSize) {
@@ -574,7 +512,6 @@ struct FCLAttachmentGridView: View {
 
 #if DEBUG
 
-/// Generates a solid-color `UIImage` as preview thumbnail data.
 private func previewThumbnailData(color: UIColor, size: CGSize = CGSize(width: 100, height: 100)) -> Data? {
     UIGraphicsBeginImageContextWithOptions(size, true, 1)
     color.setFill()
@@ -584,7 +521,6 @@ private func previewThumbnailData(color: UIColor, size: CGSize = CGSize(width: 1
     return image?.jpegData(compressionQuality: 0.8)
 }
 
-/// Makes a mock `FCLAttachment` with inline thumbnail data so previews render without disk I/O.
 private func mockImageAttachment(
     color: UIColor,
     aspectWidth: CGFloat = 1,

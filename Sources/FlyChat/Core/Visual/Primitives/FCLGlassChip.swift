@@ -110,10 +110,8 @@ public struct FCLGlassChip<Accessory: View>: View {
         }
     }
 
-    /// Returns the rim stroke color when `showButtonShapes` is active, `nil` otherwise.
-    ///
-    /// Exposed as `internal` so unit tests can assert that the environment flag
-    /// produces a non-nil stroke without rendering the full view.
+    /// `internal` (not `private`) so unit tests can verify the `showButtonShapes` path
+    /// without rendering the full view.
     static func effectiveRimStroke(
         showButtonShapes: Bool,
         tint: FCLChatColorToken?
@@ -200,11 +198,6 @@ struct FCLChipPressStyle: ButtonStyle {
 }
 
 #Preview("Chip — Done with image accessory and badge (camera Done-chip)") {
-    // Simulates the Done-chip that appears in FCLCameraShutterRow when
-    // capturedCount >= 2. A solid-color swatch stands in for an actual capture
-    // thumbnail; production code supplies a UIImage decoded from the relay.
-    // The accessory is clipped to a continuous 4pt-corner rounded rect, matching
-    // FCLCameraShutterRow.thumbnailAccessory.
     ZStack {
         Color.black.ignoresSafeArea()
         FCLGlassChip(

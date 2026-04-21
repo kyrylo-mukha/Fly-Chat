@@ -4,55 +4,28 @@ import UIKit
 
 // MARK: - FCLCameraTransitionCurves
 
-/// Canonical curve constants for the camera open/close morph. Centralized so
-/// the animator and the pulse overlay stay in lockstep.
+/// Canonical timing constants for the camera open/close morph.
+/// Centralized so the animator and the pulse overlay stay in lockstep.
 enum FCLCameraTransitionCurves {
-    /// Total morph duration for open and close animations. Tuned to a 0.32s
-    /// feel that matches the system sheet presentation cadence so the camera
-    /// morph stays in the same visual family as the picker presentation.
     static let morphDuration: TimeInterval = 0.32
-    /// Cross-dissolve duration between camera and previewer. Defaults to
-    /// PRD-08's 0.25s ease-in-out, in sympathy with scope 06's zoom-ramp
-    /// (0.25s easeInOut) — see the spec follow-up notes.
     static let crossDissolveDuration: TimeInterval = 0.25
-    /// Spring damping used to shape the open/close envelope.
     static let springDampingFraction: CGFloat = 0.86
-    /// Single pulse-highlight duration on the source cell after close.
     static let pulseDuration: TimeInterval = 0.35
-    /// Fraction of the close morph during which the snapshot fades out.
-    /// With a 0.32s morph the snapshot begins fading at ~0.192s
-    /// (`1 - 0.40 = 0.60` of the duration) and finishes at 0.32s.
+    /// Fraction of the close morph over which the snapshot fades out
+    /// (applied at the tail of the animation).
     static let closeSnapshotFadeFraction: CGFloat = 0.40
 }
 
 // MARK: - FCLCameraTransition
 
-/// Custom `UIViewControllerAnimatedTransitioning` driving the camera module's
-/// open and close animations from a supplied source rect.
-///
-/// Open: morphs an empty rect at the gallery camera cell's window frame up to
-/// the camera screen's full frame, cross-fading the camera view in as it
-/// scales.
-///
-/// Close: captures a Metal-safe snapshot of the live camera preview via
-/// `UIView.snapshotView(afterScreenUpdates:)` (required because
-/// `AVCaptureVideoPreviewLayer` is GPU-backed — `drawHierarchy(in:)` would
-/// return a black frame on modern devices), animates the snapshot from the
-/// full-screen camera rect back to the source cell rect, and fades the
-/// snapshot out over the final
-/// ``FCLCameraTransitionCurves/closeSnapshotFadeFraction`` of the morph.
-/// While the snapshot animates, the relay's `firePulse()` is invoked so the
-/// source cell plays a single 0.35s ease-in-out pulse-highlight.
-///
-/// If the source cell is off-screen at close-time (`sourceFrame` is `nil` or
-/// outside the window bounds), the close path collapses the snapshot to a
-/// zero-sized rect at the screen center with a fade, mirroring the
-/// chat-previewer off-screen rule in scope 18.
+/// `UIViewControllerAnimatedTransitioning` driving the camera module's open
+/// and close morph from the gallery camera cell's source rect.
+/// Close path uses `snapshotView(afterScreenUpdates:)` because
+/// `AVCaptureVideoPreviewLayer` is Metal-backed and cannot be captured with
+/// `drawHierarchy(in:afterScreenUpdates:)`.
 @MainActor
 final class FCLCameraTransition: NSObject, UIViewControllerAnimatedTransitioning {
-    /// `true` when presenting (cell → full-screen), `false` when dismissing.
     let isPresenting: Bool
-    /// Relay supplying the source cell frame and coordinating the pulse.
     let sourceRelay: FCLCameraSourceRelay
 
     init(isPresenting: Bool, sourceRelay: FCLCameraSourceRelay) {
@@ -90,9 +63,6 @@ final class FCLCameraTransition: NSObject, UIViewControllerAnimatedTransitioning
         container.addSubview(toView)
 
         let startFrame = resolvedSourceFrame(in: container)
-        // Scale the camera view down to the source cell and fade in as it
-        // expands to full screen. Keep a uniform transform so the camera
-        // preview does not distort horizontally.
         let sx = max(startFrame.width / max(finalFrame.width, 1), 0.001)
         let sy = max(startFrame.height / max(finalFrame.height, 1), 0.001)
         let scale = min(sx, sy)
@@ -136,14 +106,8 @@ final class FCLCameraTransition: NSObject, UIViewControllerAnimatedTransitioning
         }
 
         let fullRect = fromView.frame
-        // Scope 08: `AVCaptureVideoPreviewLayer` is Metal-backed on modern
-        // devices, so `UIView.drawHierarchy(in:afterScreenUpdates:false)`
-        // returns a black frame. `UIView.snapshotView(afterScreenUpdates:)`
-        // is documented to correctly capture GPU-backed content, including
-        // the preview layer. We snapshot the full hosting view so overlay
-        // chrome (top bar, shutter row) morphs with the preview content.
-        // The session stays running until the parent router stops it in its
-        // dismiss completion, so the snapshot captures a live frame.
+        // `AVCaptureVideoPreviewLayer` is Metal-backed; `drawHierarchy(in:)` returns
+        // black. `snapshotView(afterScreenUpdates:)` correctly captures GPU content.
         let snapshotView = makeSnapshotView(for: fromView, fallbackFrame: fullRect)
         snapshotView.frame = fullRect
         snapshotView.clipsToBounds = true
@@ -166,8 +130,6 @@ final class FCLCameraTransition: NSObject, UIViewControllerAnimatedTransitioning
             endFrame = target
         }
 
-        // Trigger the source-cell pulse in parallel with the snapshot morph
-        // (only when the cell is actually on-screen to receive the pulse).
         if !isOffScreen {
             sourceRelay.firePulse()
         }
@@ -186,7 +148,6 @@ final class FCLCameraTransition: NSObject, UIViewControllerAnimatedTransitioning
             snapshotView.layer.cornerRadius = min(endFrame.width, endFrame.height) * 0.04
         }
 
-        // Fade out over the final `closeSnapshotFadeFraction` of the morph.
         let fadeFraction = FCLCameraTransitionCurves.closeSnapshotFadeFraction
         let fadeDuration = duration * TimeInterval(fadeFraction)
         let fadeDelay = duration - fadeDuration
@@ -208,9 +169,6 @@ final class FCLCameraTransition: NSObject, UIViewControllerAnimatedTransitioning
 
     // MARK: - Helpers
 
-    /// Returns the best-known source frame in the container's coordinate
-    /// space. Falls back to a bottom-center dot when no frame has been
-    /// published (e.g. no picker ever presented).
     private func resolvedSourceFrame(in container: UIView) -> CGRect {
         if let frame = sourceRelay.sourceFrame,
            frame.width > 0, frame.height > 0 {
@@ -224,19 +182,11 @@ final class FCLCameraTransition: NSObject, UIViewControllerAnimatedTransitioning
         )
     }
 
-    /// Returns `true` when `frame` is at least partially inside the container
-    /// bounds with non-zero size. Used to pick the center-collapse fallback.
     private func isFrameOnScreen(_ frame: CGRect, in container: UIView) -> Bool {
         guard frame.width > 0, frame.height > 0 else { return false }
         return container.bounds.intersects(frame)
     }
 
-    /// Produces a Metal-safe snapshot view of the live camera UI. Prefers
-    /// `UIView.snapshotView(afterScreenUpdates:)` because
-    /// `AVCaptureVideoPreviewLayer` renders via Metal on modern devices and
-    /// cannot be captured with `drawHierarchy` or `CALayer.render(in:)`.
-    /// Falls back to a black placeholder when snapshotView returns `nil`
-    /// (e.g. the view is not yet onscreen).
     private func makeSnapshotView(for view: UIView, fallbackFrame: CGRect) -> UIView {
         if let snap = view.snapshotView(afterScreenUpdates: false) {
             return snap
@@ -277,9 +227,6 @@ final class FCLCameraTransitioningDelegate: NSObject, UIViewControllerTransition
 // MARK: - Previews
 
 #if DEBUG
-/// SwiftUI host that drives ``FCLCameraTransition`` end-to-end. Tap the
-/// pseudo-cell to open a mock camera controller and close it again to see
-/// the morph and the pulse tick travel through the relay.
 struct FCLCameraTransition_Previews: PreviewProvider {
     static var previews: some View {
         FCLCameraTransitionPreviewHost()

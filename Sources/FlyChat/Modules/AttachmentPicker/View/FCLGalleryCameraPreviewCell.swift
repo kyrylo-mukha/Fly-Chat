@@ -27,9 +27,7 @@ struct FCLGalleryCameraPreviewCell: UIViewRepresentable {
 // MARK: - FCLGalleryCameraPreviewUIView
 
 final class FCLGalleryCameraPreviewUIView: UIView, @unchecked Sendable {
-    // Safety invariant: all UI work happens on the main thread. The capture session
-    // runs on sessionQueue. No mutable state is shared without synchronization.
-    // Follow-up: refactor to actor-based isolation when UIView supports it.
+    // Safety invariant: UI work runs on the main thread; session runs on sessionQueue.
     private var captureSession: AVCaptureSession?
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private let sessionQueue = DispatchQueue(label: "com.flychat.gallery-camera-preview")
@@ -100,8 +98,6 @@ final class FCLGalleryCameraPreviewUIView: UIView, @unchecked Sendable {
     }
 
     func stopSession() {
-        // Safety: captureSession is created and started on sessionQueue, and stopRunning()
-        // is also dispatched to sessionQueue. No concurrent access occurs.
         nonisolated(unsafe) let session = captureSession
         sessionQueue.async {
             session?.stopRunning()

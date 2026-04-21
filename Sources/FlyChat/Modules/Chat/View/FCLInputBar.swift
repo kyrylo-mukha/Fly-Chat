@@ -10,62 +10,32 @@ import SwiftUI
 ///
 /// This view is used internally by ``FCLChatScreen`` when no custom input bar is provided.
 struct FCLInputBar: View {
-    /// Two-way binding to the current draft message text.
     @Binding private var draftText: String
-    /// Placeholder string shown when the text field is empty.
     private let placeholderText: String
-    /// Optional maximum number of visible text rows. When `nil`, auto-calculated from available height.
     private let maxRows: Int?
-    /// Optional explicit line height for the text view. When `nil`, the font's native line height is used.
     private let lineHeight: CGFloat?
-    /// Whether pressing the Return key triggers a send instead of inserting a newline.
     private let returnKeySends: Bool
-    /// Whether the paperclip attachment button is shown.
     private let showAttachButton: Bool
-    /// The size (in points) for attachment thumbnail previews in the strip above the input row.
     private let attachmentThumbnailSize: CGFloat
-    /// The container mode controlling how input bar elements are grouped visually.
     private let containerMode: FCLInputBarContainerMode
-    /// Whether the input bar background uses a liquid glass / blur material effect.
     private let liquidGlass: Bool
-    /// The background color for the entire input bar container.
     private let backgroundColor: FCLChatColorToken
-    /// The background color for the text input field.
     private let fieldBackgroundColor: FCLChatColorToken
-    /// The corner radius of the text input field.
     private let fieldCornerRadius: CGFloat
-    /// Padding insets around the input bar content.
     private let contentInsets: FCLEdgeInsets
-    /// Spacing between the attach button, text field, and send button.
     private let elementSpacing: CGFloat
-    /// Font configuration for the input text, matching the message bubble font.
     private let font: FCLChatMessageFontConfiguration
-    /// Minimum trimmed character count required before the send button enables.
     private let minimumTextLength: Int
-    /// Callback invoked when the user taps the send button or presses Return (if `returnKeySends` is true).
     private let onSend: () -> Void
-    /// Whether the attachment picker sheet is presented.
     @State private var showAttachmentPicker = false
-    /// Current detent of the presented attachment picker sheet. The sheet starts
-    /// at `.medium`; the user can drag up to `.large` and back, or drag below
-    /// `.medium` to dismiss.
     @State private var pickerDetent: PresentationDetent = .medium
-    /// Focus binding for the composer text field, hoisted from
-    /// ``FCLChatScreen`` so the chat timeline tap and drag handlers can
-    /// dismiss the keyboard declaratively via SwiftUI's `@FocusState` instead
-    /// of a UIKit `resignFirstResponder` call.
+    /// Hoisted from ``FCLChatScreen`` so timeline tap and drag handlers can dismiss the keyboard
+    /// via `@FocusState` instead of a UIKit `resignFirstResponder` call.
     private let composerFocusBinding: FocusState<Bool>.Binding
-    /// Shared namespace for the source-anchored zoom transition (iOS 18+).
-    /// Pairs the attach button (source) with the picker sheet (destination)
-    /// through the matching `sourceID`. On iOS 17 the namespace is unused —
-    /// the modifiers no-op and the sheet uses a plain slide-up.
+    /// Namespace for the source-anchored zoom transition (iOS 18+). Unused on iOS 17 — the sheet falls back to a slide-up.
     @Namespace private var pickerNamespace
-    /// Optional delegate providing tab configuration and compression settings for the attachment picker.
     private let delegate: (any FCLChatDelegate)?
-    /// The chat presenter used to route attachment sends.
     @ObservedObject private var presenter: FCLChatPresenter
-
-    /// The total available screen height, used to auto-calculate max rows when not explicitly set.
     private let availableHeight: CGFloat
 
     /// Creates an input bar with the given configuration.
@@ -145,8 +115,6 @@ struct FCLInputBar: View {
         inputBarContent(resolvedMaxRows: resolvedMaxRows)
     }
 
-    /// Auto-calculate max rows from available screen height.
-    /// Formula: clamp(4, floor(height / 160), 10)
     private func resolveMaxRows(forAvailableHeight height: CGFloat) -> Int {
         FCLInputBar.resolveMaxRows(forAvailableHeight: height, explicitMaxRows: maxRows)
     }
@@ -164,20 +132,6 @@ struct FCLInputBar: View {
         return min(max(Int(height / 160), 4), 10)
     }
 
-    /// Builds the full input bar content with the input row and the attachment
-    /// picker sheet.
-    ///
-    /// Glass resolution: the container inherits the library-wide style from the
-    /// `FCLVisualStyleDelegate` installed on ``FCLChatScreen``. The deprecated
-    /// `liquidGlass` init flag is honored only when the host explicitly set it
-    /// to `true` — passing `false` is treated as "no opinion" so new installs
-    /// take the library default (`.liquidGlass`) instead of being forced onto
-    /// the opaque path. Tint is intentionally not routed from the delegate's
-    /// `backgroundColor` when glass is active: painting the light-gray fallback
-    /// color on top of glass desaturates it into a gray rectangle, which is
-    /// what the pre-fix build produced. Opaque style (explicit `.default` or
-    /// reduce-transparency) falls back to the delegate-provided background
-    /// through ``FCLGlassContainer``'s own opaque branch.
     @ViewBuilder
     private func inputBarContent(resolvedMaxRows: Int) -> some View {
         FCLGlassContainer(cornerRadius: 0, tint: nil) {
@@ -202,7 +156,6 @@ struct FCLInputBar: View {
         }
     }
 
-    /// Lays out the attach button, expanding text field, and send button according to the container mode.
     @ViewBuilder
     private func inputRow(resolvedMaxRows: Int) -> some View {
         switch containerMode {
@@ -234,11 +187,6 @@ struct FCLInputBar: View {
         }
     }
 
-    /// Native SwiftUI multi-line composer that grows vertically with content
-    /// and clamps at `resolvedMaxRows`. Replaces the prior `UITextView`
-    /// wrapper. Focus is bound to the hoisted ``composerFocusBinding`` so the
-    /// keyboard can be dismissed declaratively from anywhere on the chat
-    /// screen (timeline tap, drag, picker open).
     @ViewBuilder
     private func composerField(resolvedMaxRows: Int) -> some View {
         TextField(placeholderText, text: $draftText, axis: .vertical)
@@ -251,7 +199,6 @@ struct FCLInputBar: View {
             .padding(.vertical, 11)
     }
 
-    /// Conditionally renders the paperclip attachment button.
     @ViewBuilder
     private var attachButtonIfNeeded: some View {
         if showAttachButton {
@@ -261,9 +208,8 @@ struct FCLInputBar: View {
                 action: { presentAttachmentPicker() }
             )
             .accessibilityLabel("Attach file")
-            // Attach the matched-transition source to an invisible 44×44 Circle
-            // so the zoom originates from the paperclip's visual bounds rather
-            // than from `.buttonStyle(.glass)`'s padded outer frame on iOS 26.
+            /// The transition source is attached to an invisible `Circle` so the zoom originates
+            /// from the paperclip's visual bounds, not from `.buttonStyle(.glass)`'s padded frame.
             .background(
                 Circle()
                     .fill(Color.clear)
@@ -277,11 +223,6 @@ struct FCLInputBar: View {
         }
     }
 
-    /// Opens the attachment picker sheet: dismisses the composer keyboard
-    /// declaratively via the hoisted focus binding, then flips the
-    /// presentation state. On iOS 18+ the matched-source zoom morph is driven
-    /// by the system once the sheet presents; on iOS 17 the sheet uses a
-    /// plain slide-up.
     private func presentAttachmentPicker() {
         composerFocusBinding.wrappedValue = false
         showAttachmentPicker = true
@@ -298,7 +239,6 @@ struct FCLInputBar: View {
         hasAttachments || text.trimmingCharacters(in: .whitespacesAndNewlines).count >= minimumLength
     }
 
-    /// The circular send button that is visually disabled when send conditions are not met.
     private var sendButton: some View {
         let enabled = Self.isSendEnabled(
             text: draftText,
@@ -320,13 +260,9 @@ struct FCLInputBar: View {
 
 // MARK: - Legacy Liquid Glass Override
 
-/// Applies `.fclVisualStyle(.liquidGlass)` only when the host explicitly opted
-/// into the deprecated `FCLInputDelegate.liquidGlass` flag. Passing `false` is
-/// a no-op, preserving whatever style the installed
-/// ``FCLVisualStyleDelegate`` provides. The legacy flag's `false` default used
-/// to force an opaque fallback, which painted the input bar as a solid gray
-/// rectangle on every new install; dropping that override is what restores
-/// glass rendering by default.
+/// Applies `.fclVisualStyle(.liquidGlass)` only when the host explicitly opted into the deprecated
+/// `FCLInputDelegate.liquidGlass` flag; `false` is treated as "no opinion" so the installed
+/// `FCLVisualStyleDelegate` takes precedence.
 private struct FCLInputBarLegacyLiquidGlassOverride: ViewModifier {
     let optedIn: Bool
 
@@ -341,13 +277,8 @@ private struct FCLInputBarLegacyLiquidGlassOverride: ViewModifier {
 
 // MARK: - Attachment Picker Host
 
-/// A private wrapper that owns the attachment picker's presenter and gallery data source
-/// as `@StateObject` so their identity persists across `FCLInputBar` body re-evaluations.
-/// Without this, the picker presenter would be re-instantiated on every parent render,
-/// losing `selectedAssets` state after the first selection.
-///
-/// The host applies the `FCLPickerZoomDestination` modifier to its body so the iOS 18+
-/// system-driven zoom transition can morph from the matching attach-button source.
+/// Owns the attachment picker's presenter and gallery data source as `@StateObject` so their
+/// identity persists across `FCLInputBar` body re-evaluations.
 private struct FCLAttachmentPickerHost: View {
     @StateObject private var presenter: FCLAttachmentPickerPresenter
     @StateObject private var galleryDataSource: FCLGalleryDataSource
@@ -364,18 +295,9 @@ private struct FCLAttachmentPickerHost: View {
         _presenter = StateObject(wrappedValue: FCLAttachmentPickerPresenter(
             delegate: delegate,
             onSend: { [weak chatPresenter] attachments, caption in
-                // Append the outgoing bubble synchronously. The picker sheet's
-                // synchronized dismiss animation runs in parallel; both the
-                // modal collapse and the bubble slide-in share the same UI
-                // tick instead of being chained through a sleep-based delay.
-                chatPresenter?.handleAttachmentsDeferred(
-                    attachments,
-                    caption: caption
-                )
+                chatPresenter?.handleAttachmentsDeferred(attachments, caption: caption)
             },
             onSendError: { [weak chatPresenter] message in
-                // Send-path errors must surface on the chat screen, not the
-                // already-dismissed picker sheet. See FCLChatPresenter.reportSendError.
                 chatPresenter?.reportSendError(message)
             }
         ))

@@ -84,12 +84,7 @@ struct FCLPickerAssetPreview: View {
         }
         .statusBarHidden(true)
         .onAppear { resolveInitialIndex() }
-        // Attach as `.simultaneousGesture` so the underlying TabView
-        // pager keeps receiving horizontal drag samples. The previous
-        // `.gesture(...)` attachment installed a higher-priority recognizer
-        // at the ZStack root that intercepted every drag, including the
-        // horizontal pan that should reach the pager — making swipe between
-        // assets feel sluggish or completely blocked.
+        // simultaneousGesture lets the TabView pager keep receiving horizontal drags.
         .simultaneousGesture(
             DragGesture(minimumDistance: 20)
                 .onEnded { value in
@@ -108,10 +103,6 @@ struct FCLPickerAssetPreview: View {
             }
         }
         .overlay {
-            // In-place editor replacement for the legacy fullScreenCover path.
-            // The gallery preview currently exposes only the rotate/crop tool
-            // via this entry point; markup routing from the gallery-picker
-            // preview is a follow-up.
             if isEditorPresented, let sourceImage = editorSourceImage, let assetID = currentAssetID {
                 FCLRotateCropEditor(
                     original: sourceImage,
@@ -135,13 +126,11 @@ struct FCLPickerAssetPreview: View {
 
     private var topChrome: some View {
         HStack(spacing: 12) {
-            // Selection indicator (top-left)
             selectionIndicator
                 .padding(.leading, 16)
 
             Spacer()
 
-            // Close button (top-right)
             Button(action: onDismiss) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 30))
@@ -182,7 +171,6 @@ struct FCLPickerAssetPreview: View {
 
     private var bottomCaptionBar: some View {
         HStack(spacing: 8) {
-            // Rotate button (bottom-left)
             Button {
                 if let assetID = currentAssetID {
                     rotationByID[assetID] = ((rotationByID[assetID] ?? 0) + 1) % 4
@@ -196,7 +184,6 @@ struct FCLPickerAssetPreview: View {
                     .clipShape(Circle())
             }
 
-            // Edit button
             Button {
                 openEditor()
             } label: {
@@ -212,7 +199,6 @@ struct FCLPickerAssetPreview: View {
                     .clipShape(Circle())
             }
 
-            // Caption field
             TextField("Add a caption…", text: $presenter.captionText)
                 .focused($captionFocused)
                 .padding(.horizontal, 12)
@@ -221,9 +207,8 @@ struct FCLPickerAssetPreview: View {
                 .foregroundColor(.black)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
 
-            // Spacer so send button overlay stays visible
             Spacer()
-                .frame(width: 52) // matches send button width + trailing padding
+                .frame(width: 52)
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 24)
@@ -234,7 +219,6 @@ struct FCLPickerAssetPreview: View {
 
     private func openEditor() {
         guard let assetID = currentAssetID else { return }
-        // Prefer edited image as source if already edited, otherwise load fresh
         if let edited = presenter.editedImage(for: assetID) {
             editorSourceImage = edited
             isEditorPresented = true
@@ -277,7 +261,6 @@ private struct FCLPickerAssetPageView: View {
 
     @State private var loadedImage: UIImage?
 
-    /// The image to display: edited override takes precedence over gallery-loaded.
     private var displayImage: UIImage? {
         editedImage ?? loadedImage
     }
@@ -288,7 +271,6 @@ private struct FCLPickerAssetPageView: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
-                    // Only apply visual rotation when using the gallery image (not the already-rendered edit).
                     .rotationEffect(.degrees(editedImage == nil ? Double(rotationSteps) * 90 : 0))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

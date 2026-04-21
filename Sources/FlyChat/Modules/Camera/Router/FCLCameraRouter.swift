@@ -29,12 +29,7 @@ public final class FCLCameraRouter {
 
     private weak var hostedController: UIViewController?
     private weak var activePresenter: FCLCameraPresenter?
-    /// Retained for the lifetime of the presentation so the custom open/close
-    /// transition stays wired to the hosting controller.
     private var transitioningDelegate: FCLCameraTransitioningDelegate?
-    /// Scope 09: observer that mirrors the relay's `isModalInPresentation`
-    /// flag onto the hosting controller so UIKit swipe-down honors the
-    /// confirmation contract.
     private var modalInPresentationCancellable: AnyCancellable?
 
     public init(
@@ -55,9 +50,6 @@ public final class FCLCameraRouter {
     /// relay's `sourceFrame`. When `sourceFrame` is `nil`, a safe bottom-center
     /// fallback rect is used (see ``FCLCameraTransition``).
     public func present(from presenter: UIViewController) {
-        // Scope 07: share a single capture relay between the presenter (which
-        // subscribes to `capturedAssets` for the Done-chip thumbnail) and the
-        // SwiftUI view (which appends decoded thumbnails to the relay).
         let captureRelay = FCLCaptureSessionRelay()
         let cameraPresenter = FCLCameraPresenter(
             configuration: configuration,
@@ -80,15 +72,11 @@ public final class FCLCameraRouter {
         hostedController = hosting
 
         if let relay = sourceRelay {
-            // Custom morph transition from the gallery camera cell's frame.
             let delegate = FCLCameraTransitioningDelegate(sourceRelay: relay)
             transitioningDelegate = delegate
             hosting.transitioningDelegate = delegate
             hosting.modalPresentationStyle = .custom
             relay.isTransitioning = true
-            // Scope 09: mirror the relay's isModalInPresentation onto the
-            // hosted controller so UIKit swipe-down is suppressed when
-            // `capturedCount >= 2`.
             hosting.isModalInPresentation = relay.isModalInPresentation
             modalInPresentationCancellable = relay.$isModalInPresentation
                 .receive(on: DispatchQueue.main)
@@ -139,12 +127,9 @@ public final class FCLCameraRouter {
         }
     }
 
-    /// Signals the host that capture is complete and the pre-send editor
-    /// should open. The previewer transition is a SwiftUI cross-dissolve
-    /// driven by the presenting host (see ``FCLAttachmentPickerSheet`` modal
-    /// swap). The relay's `isTransitioning` flag is set so the camera view
-    /// keeps its `AVCaptureSession` alive across the dissolve — no black
-    /// frame while the previewer fades in.
+    /// Signals that capture is complete and the pre-send editor should open.
+    /// Sets `isTransitioning` on the relay so the session stays alive across
+    /// the cross-dissolve.
     public func presentPreviewer() {
         guard let presenter = activePresenter,
               !presenter.capturedResults.isEmpty else { return }
@@ -164,19 +149,13 @@ public final class FCLCameraRouter {
     }
 
     /// Backwards-compatible alias for ``presentPreviewer()``.
-    ///
-    /// Scope 07 exposed the Done-chip route point as `routeToPreviewer`; this
-    /// wrapper keeps existing call sites working while scope 08 consolidates
-    /// routing through ``presentPreviewer()``.
     public func routeToPreviewer(animated: Bool = true) {
         _ = animated
         presentPreviewer()
     }
 
-    /// Marks the router as transitioning while the host re-enters the camera
-    /// from the previewer (scope 17/18's 2+ state). The camera hosting
-    /// controller is re-presented by the host; this hook lets the host signal
-    /// "do not tear down the session" during the cross-dissolve.
+    /// Signals the router that the host is re-entering the camera from the previewer.
+    /// Keeps the session alive across the cross-dissolve.
     public func returnFromPreviewer() {
         sourceRelay?.isTransitioning = true
         DispatchQueue.main.asyncAfter(
@@ -187,11 +166,8 @@ public final class FCLCameraRouter {
     }
 
     private func dismiss(completion: @escaping () -> Void) {
-        // Defensive: stop the capture session on every teardown path. The
-        // SwiftUI `.onDisappear` on `FCLCameraView` also calls `stopSession()`,
-        // but cover-dismiss races and host-driven dismissals can land before
-        // SwiftUI propagates the disappear event — make the stop idempotent
-        // by also issuing it here.
+        // Stop the session here as well as in `onDisappear`: host-driven
+        // dismissals can arrive before SwiftUI propagates the disappear event.
         activePresenter?.stopSession()
         activePresenter = nil
 
@@ -207,9 +183,8 @@ public final class FCLCameraRouter {
         modalInPresentationCancellable = nil
     }
 
-    /// Dismisses without stopping the session; used when the host is about to
-    /// cross-dissolve into the previewer. The session is kept alive so the
-    /// dissolve does not flash a black frame.
+    /// Dismisses without stopping the session so the cross-dissolve to the
+    /// previewer does not flash a black frame.
     private func dismissForPreviewer(completion: @escaping () -> Void) {
         guard let hosted = hostedController else {
             activePresenter = nil
@@ -217,8 +192,6 @@ public final class FCLCameraRouter {
             return
         }
         hosted.dismiss(animated: true) { [weak self] in
-            // Stop the session only after the previewer has visibly taken
-            // over. A short delay — one cross-dissolve — is sufficient.
             let presenterRef = self?.activePresenter
             DispatchQueue.main.asyncAfter(
                 deadline: .now() + FCLCameraTransitionCurves.crossDissolveDuration

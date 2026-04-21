@@ -36,10 +36,6 @@ struct FCLAttachmentEditToolbar<ToolControls: View>: View {
     // MARK: Rows
 
     private var topRow: some View {
-        // Match the system Photos editor: Cancel is semibold white on the
-        // leading side, Done is semibold yellow on the trailing side. Using
-        // semibold for Cancel balances visual weight with Done so the title
-        // stays optically centered between two buttons of equal stroke.
         HStack {
             Button(action: onCancel) {
                 Text("Cancel")

@@ -5,41 +5,19 @@ import SwiftUI
 // MARK: - FCLGalleryTabView
 
 /// Displays a photo library grid with a camera cell, selection circles, and video duration badges.
-///
-/// Authorization is driven by ``FCLPhotoAuthorizationCoordinator``, which handles
-/// the permission request (deferred until the sheet finishes presenting) and live
-/// status refresh on scene-active return. The gallery renders the asset grid only
-/// when access is `.authorized` or `.limited`; permission banners and denied states
-/// are rendered by the enclosing sheet via ``FCLPickerPermissionSurface``.
 struct FCLGalleryTabView: View {
-    /// Authorization coordinator that owns the permission state and refresh logic.
-    /// Hoisted into ``FCLAttachmentPickerSheet`` so the top toolbar and permission
-    /// surface share the same identity across tab switches.
     @ObservedObject var authCoordinator: FCLPhotoAuthorizationCoordinator
-
-    /// Registry that discovers and orders photo collections.
-    /// Hoisted into ``FCLAttachmentPickerSheet`` so the top toolbar's collection
-    /// selector pill binds to the same registry that scopes the grid.
     @ObservedObject var collectionRegistry: FCLAssetCollectionRegistry
 
     @ObservedObject var presenter: FCLAttachmentPickerPresenter
     @ObservedObject var galleryDataSource: FCLGalleryDataSource
 
-    /// Scene phase, observed to refresh authorization when the user returns from Settings.
     @Environment(\.scenePhase) private var scenePhase
 
-    /// Called when the user taps the camera cell.
     let onCameraCapture: () -> Void
-
-    /// Called when the user taps on an asset cell body (not the selection circle).
     let onAssetTap: (String) -> Void
-
-    /// Optional scope-08 relay used to publish the camera cell's window-space
-    /// frame and to drive the return pulse-highlight. When `nil` the cell
-    /// renders without frame publishing and without pulse support.
     var cameraSourceRelay: FCLCameraSourceRelay? = nil
 
-    // Prototype specifies a 3-column grid (repeat(3, 1fr)) with 2pt gaps.
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
     var body: some View {
@@ -53,14 +31,11 @@ struct FCLGalleryTabView: View {
                 syncDataSourceAfterAuth()
             }
         }
-        // iOS 17+ two-argument onChange: fires when scenePhase transitions to
-        // .active so any permission change made in Settings is picked up immediately.
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
             authCoordinator.refresh()
             syncDataSourceAfterAuth()
         }
-        // Propagate the selected collection ID from the registry into the data source.
         .onChange(of: collectionRegistry.selectedCollectionID) { _, newID in
             galleryDataSource.collectionID = newID
         }
@@ -68,18 +43,12 @@ struct FCLGalleryTabView: View {
 
     // MARK: - Content by status
 
-    /// Content rendered inside the gallery tab area for the current
-    /// ``FCLPhotoAuthorizationCoordinator/status``. The top toolbar's source-pill
-    /// (collection selector) and the permission surface live *outside* this view —
-    /// see ``FCLPickerTopToolbar`` and ``FCLPickerPermissionSurface``.
     @ViewBuilder
     private var contentForStatus: some View {
         switch authCoordinator.status {
         case .authorized, .limited:
             assetContent
         case .denied, .restricted, .notDetermined:
-            // The permission surface renders the banner + full empty state
-            // above this area; the grid stays hidden until access is granted.
             Color.clear
         @unknown default:
             Color.clear
@@ -109,13 +78,10 @@ struct FCLGalleryTabView: View {
     private func syncDataSourceAfterAuth() {
         let status = authCoordinator.status
         if status == .authorized {
-            // Load the registry (no-op if already loaded).
             collectionRegistry.load()
-            // Set the initial collection ID from the registry's default selection.
             galleryDataSource.collectionID = collectionRegistry.selectedCollectionID
             galleryDataSource.requestAccessAndFetch()
         } else if status == .limited {
-            // In limited mode: flat fetch, no collection selector.
             galleryDataSource.collectionID = nil
             galleryDataSource.requestAccessAndFetch()
         }
@@ -139,20 +105,16 @@ struct FCLGalleryTabView: View {
         let isSelected = selectionIndex != nil
 
         ZStack(alignment: .topTrailing) {
-            // Body — tap opens preview
             FCLAssetThumbnailView(asset: asset, galleryDataSource: galleryDataSource)
                 .aspectRatio(1, contentMode: .fit)
                 .contentShape(Rectangle())
                 .onTapGesture { onAssetTap(assetID) }
 
-            // Prototype: selected cells get a blue tint overlay (rgba(0,122,255,0.18))
-            // rather than a border stroke. Keep it under the selection circle.
             if isSelected {
                 Color.blue.opacity(0.18)
                     .allowsHitTesting(false)
             }
 
-            // Selection circle — 40pt hit target, own tap region
             selectionCircle(isSelected: isSelected, number: selectionIndex.map { $0 + 1 })
                 .frame(width: 40, height: 40)
                 .padding(.top, 2)
@@ -160,7 +122,6 @@ struct FCLGalleryTabView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { presenter.toggleAssetSelection(assetID) }
         }
-        // Prototype: video duration badge is bottom-leading (bottom:6, left:6).
         .overlay(alignment: .bottomLeading) {
             if asset.mediaType == .video {
                 videoDurationBadge(duration: asset.duration)
@@ -172,11 +133,6 @@ struct FCLGalleryTabView: View {
 
     // MARK: - Selection Circle
 
-    /// Prototype spec (PhotoCell):
-    ///   - Size: 22 × 22 pt
-    ///   - Unselected: semi-transparent dark fill (rgba(0,0,0,0.18)) + 1.5pt white border
-    ///     + subtle shadow so the ring reads on any background.
-    ///   - Selected: solid blue fill + 1.5pt white border + ordinal number label.
     @ViewBuilder
     private func selectionCircle(isSelected: Bool, number: Int?) -> some View {
         ZStack {
@@ -199,7 +155,6 @@ struct FCLGalleryTabView: View {
 
     // MARK: - Video Duration Badge
 
-    /// Returns the styled video duration badge label. Padding/position is applied at the call site.
     private func videoDurationBadge(duration: TimeInterval) -> some View {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
@@ -238,8 +193,6 @@ private struct FCLGalleryCameraCellContainer: View {
                         .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
                 )
                 .overlay(
-                    // Pulse overlay — a subtle white tint that animates in and
-                    // out in 0.35s total when the relay tick increments.
                     RoundedRectangle(cornerRadius: 0)
                         .fill(Color.white.opacity(pulseOpacity))
                         .allowsHitTesting(false)
@@ -279,10 +232,6 @@ private struct FCLGalleryCameraCellContainer: View {
 // MARK: - FCLAssetThumbnailView
 
 /// Loads and displays a PHAsset thumbnail asynchronously.
-///
-/// Uses `Color` as a sizing base to guarantee a square aspect ratio. The loaded
-/// thumbnail image is placed in an `.overlay` with `.scaledToFill()` and `.clipped()`
-/// so it fills the square without pushing the cell size.
 private struct FCLAssetThumbnailView: View {
     let asset: PHAsset
     let galleryDataSource: FCLGalleryDataSource
@@ -326,13 +275,9 @@ struct FCLGalleryTabView_Previews: PreviewProvider {
     }
 }
 
-/// A self-contained preview that replicates the gallery grid layout using
-/// programmatically generated images. This avoids Photos framework access
-/// which crashes the Xcode preview agent due to missing TCC entitlements.
 private struct FCLGalleryTabMockPreview: View {
     let selectedIndices: Set<Int>
 
-    // Mirror the production 3-column spec.
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
     private static let mockItems: [(Color, Color, Bool, TimeInterval?)] = [
@@ -411,13 +356,11 @@ private struct FCLGalleryTabMockPreview: View {
                     .padding(.vertical, 2)
                     .background(Color.black.opacity(0.6))
                     .cornerRadius(3)
-                    // Prototype: bottom-leading, 6pt inset.
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .padding(.leading, 6)
                     .padding(.bottom, 6)
             }
 
-            // Mirror production selectionCircle spec (22pt, dark semi-fill, 1.5pt white border).
             ZStack {
                 Circle()
                     .fill(isSelected ? Color.blue : Color.black.opacity(0.18))

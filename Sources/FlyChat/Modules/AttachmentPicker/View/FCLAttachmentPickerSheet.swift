@@ -7,11 +7,6 @@ import UIKit
 // MARK: - FCLPickerModal
 
 /// Drives the single unified `fullScreenCover` on ``FCLAttachmentPickerSheet``.
-///
-/// `.cameraFlow` replaces the former separate `.camera` and `.cameraStack` cases.
-/// Both camera and pre-send previewer render inside a single cover via a ZStack,
-/// enabling a literal SwiftUI cross-dissolve (both views on-screen simultaneously)
-/// rather than a UIKit cover-swap pair.
 private enum FCLPickerModal: Identifiable {
     case cameraFlow
     case assetPreview(String)
@@ -26,73 +21,29 @@ private enum FCLPickerModal: Identifiable {
 
 // MARK: - FCLAttachmentPickerSheet
 
-/// The root sheet view for the attachment picker.
-///
-/// `FCLAttachmentPickerSheet` presents a half/full-height sheet containing a tab-based
-/// attachment picker. The bottom bar switches between:
-/// - ``FCLPickerTabBar`` when the state is `.browsing` or `.sending` / `.error`
-/// - ``FCLPickerInputBar`` when the state is `.gallerySelected`
-///
-/// The bottom bar transition is animated with an ease-in-out curve.
-///
-/// A ``FCLPickerCloseButton`` lives inside ``FCLPickerTopToolbar``'s leading slot
-/// and dismisses the sheet through SwiftUI's `DismissAction`, routing through the
-/// same path used by swipe-down and tap-outside.
+/// Root sheet view for the attachment picker, containing a tab-based picker with a
+/// dynamic bottom bar that switches between the tab bar and the caption input bar.
 struct FCLAttachmentPickerSheet: View {
-    /// The presenter that drives picker state, selected assets, and caption text.
     @ObservedObject var presenter: FCLAttachmentPickerPresenter
-
-    /// The data source that provides photo library assets and thumbnails.
     @ObservedObject var galleryDataSource: FCLGalleryDataSource
-
-    /// The attachment delegate supplying tab configuration, custom tabs, and compression settings.
     let delegate: (any FCLAttachmentDelegate)?
-
-    /// Callback invoked when the sheet should be dismissed (e.g. after send or cancel).
     let onDismiss: () -> Void
 
     @State private var modal: FCLPickerModal?
 
-    /// Focus state for the caption text field hosted by ``FCLPickerInputBar``.
-    /// Hoisted to the sheet so the synchronized send path can dismiss the
-    /// keyboard immediately before invoking the dismiss animation.
     @FocusState private var isCaptionFocused: Bool
 
-    // MARK: Camera-flow ZStack state
-    //
-    // These two flags drive which layer is visible inside the `.cameraFlow`
-    // cover's ZStack. Both can be `true` simultaneously for the 0.25s
-    // cross-dissolve window — that is the literal cross-fade: camera fades
-    // out while the previewer fades in with both views on-screen at once.
-    //
-    // Invariant: `showPreviewer` is only `true` while `modal == .cameraFlow`.
-    // `showCamera` is `true` for the full duration the cover is open except
-    // when the user returns from the previewer to the camera (Add More path),
-    // at which point the swap direction reverses.
-
     /// Whether the camera bridge (`FCLCameraRouterBridge`) layer is visible.
+    /// Both `showCamera` and `showPreviewer` can be `true` simultaneously during
+    /// the cross-dissolve window — that is the literal cross-fade between layers.
     @State private var showCamera: Bool = false
     /// Whether the pre-send attachment previewer layer is visible.
     @State private var showPreviewer: Bool = false
 
-    /// Scope-08 relay that publishes the gallery camera cell frame to the
-    /// ``FCLCameraRouter`` and coordinates the return pulse-highlight. Held
-    /// as `@StateObject` so its identity survives body re-evaluations.
     @StateObject private var cameraSourceRelay = FCLCameraSourceRelay()
-    /// Reentrancy guard for send taps. A rapid double-tap on any send button
-    /// (camera, asset preview, gallery, file, custom tab) would otherwise
-    /// invoke ``performSynchronizedSend`` twice — sending an empty payload on
-    /// the camera path or duplicating the bubble on the gallery path. The flag
-    /// flips to `true` on entry, all send buttons visually disable, and it
-    /// auto-resets after the send animation window so subsequent unrelated
-    /// sends stay responsive.
     @State private var isSendInFlight: Bool = false
 
-    /// Hoisted from ``FCLGalleryTabView`` so the top toolbar (source pill) and
-    /// permission surface share the same identity across tab switches.
     @StateObject private var authCoordinator = FCLPhotoAuthorizationCoordinator()
-    /// Hoisted from ``FCLGalleryTabView`` so the top toolbar's collection
-    /// selector pill binds to the same registry that scopes the grid.
     @StateObject private var collectionRegistry = FCLAssetCollectionRegistry()
 
     private var galleryAuthorizationStatus: PHAuthorizationStatus { authCoordinator.status }
@@ -101,34 +52,21 @@ struct FCLAttachmentPickerSheet: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Whether any send button is currently disabled. Send buttons are
-    /// disabled while a send is in-flight (local guard) or while the presenter
-    /// is in the `.sending` state (remote confirmation).
     private var isSendDisabled: Bool {
         isSendInFlight || presenter.state == .sending
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Drag handle. The system sheet drives dismissal on downward
-            // drags; this capsule is purely a visual affordance.
             Capsule()
                 .fill(FCLPalette.tertiaryLabel)
                 .frame(width: 36, height: 5)
                 .padding(.top, 8)
                 .padding(.bottom, 4)
 
-            // Scrollable gallery / files content fills all remaining space.
-            // The top toolbar and bottom bar float over the content via
-            // `.safeAreaInset` so the grid cells are never obscured.
             tabContentZStack
-                // Permission surface sits between the toolbar and the grid;
-                // pin it as a top inset so it does not displace the floating
-                // toolbar but does push the grid down when visible.
                 .safeAreaInset(edge: .top, spacing: 0) {
                     VStack(spacing: 0) {
-                        // Transparent top toolbar (close / source / trailing)
-                        // floats over the scrollable area — no opaque background.
                         FCLPickerTopToolbar(
                             presenter: presenter,
                             collectionRegistry: collectionRegistry
@@ -141,47 +79,22 @@ struct FCLAttachmentPickerSheet: View {
                         )
                     }
                 }
-                // Bottom bar (tab bar or caption+send) floats over the grid.
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     bottomBar
                 }
         }
-        // Prototype sheet background: #F2F2F7 = systemGroupedBackground.
         .background(FCLPalette.systemGroupedBackground)
         .onAppear {
-            // Apple does not provide an "onPresent" / presentation-complete
-            // callback on `.sheet`. 0.55s matches typical iOS sheet present
-            // animation duration so the permission request and asset fetch
-            // run after the sheet is visually in place. See
-            // docs/superpowers/knowledge/2026-04-17-picker-chrome-overhaul.md (Q3).
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
                 presenter.markPresentationComplete()
             }
         }
         .onDisappear {
-            // Ensure the presenter's per-asset edit dictionaries do not
-            // outlive the sheet itself. Any edit still cached at this point
-            // belongs to a session the user is walking away from.
             presenter.clearEditState()
         }
         .fullScreenCover(item: $modal) { currentModal in
             switch currentModal {
             case .cameraFlow:
-                // Single ZStack that hosts both the camera bridge and the
-                // pre-send previewer. Swapping `showCamera`/`showPreviewer`
-                // inside a `withAnimation(.easeInOut(duration: 0.25))` block
-                // produces a literal cross-dissolve: both layers are on-screen
-                // simultaneously while one fades out and the other fades in.
-                //
-                // The camera bridge (`FCLCameraRouterBridge`) occupies zIndex 1
-                // and the previewer occupies zIndex 2. During the dissolve both
-                // are visible; after the dissolve only the target layer remains.
-                //
-                // The open/close morph (cell → camera and camera → cell) is a
-                // UIKit custom transition that `FCLCameraRouter` drives entirely
-                // within `FCLCameraRouterBridge`. That mechanism is unaffected
-                // by the ZStack — the morph targets the UIKit hosting controller
-                // that the bridge presents, not the SwiftUI cover itself.
                 ZStack {
                     if showCamera {
                         FCLCameraRouterBridge(
@@ -189,8 +102,6 @@ struct FCLAttachmentPickerSheet: View {
                             cameraSourceRelay: cameraSourceRelay,
                             onFinish: { results in
                                 presenter.appendCameraResults(results)
-                                // Cross-dissolve: bring previewer in while
-                                // camera is still visible, then remove camera.
                                 withAnimation(.easeInOut(
                                     duration: FCLCameraTransitionCurves.crossDissolveDuration
                                 )) {
@@ -200,12 +111,10 @@ struct FCLAttachmentPickerSheet: View {
                             },
                             onCancel: {
                                 if presenter.cameraCaptures.isEmpty {
-                                    // No captures — collapse the whole cover.
                                     showCamera = false
                                     showPreviewer = false
                                     modal = nil
                                 } else {
-                                    // Captures exist — cross-dissolve to previewer.
                                     withAnimation(.easeInOut(
                                         duration: FCLCameraTransitionCurves.crossDissolveDuration
                                     )) {
@@ -240,12 +149,6 @@ struct FCLAttachmentPickerSheet: View {
                                 modal = nil
                             },
                             onAddMore: {
-                                // Cross-dissolve back to camera from previewer
-                                // ("Add More" path). The relay's isTransitioning
-                                // flag keeps the AVCaptureSession alive across
-                                // the dissolve so the session does not need to
-                                // restart — the camera view never left the ZStack
-                                // hierarchy when the previewer was on top.
                                 withAnimation(.easeInOut(
                                     duration: FCLCameraTransitionCurves.crossDissolveDuration
                                 )) {
@@ -266,12 +169,6 @@ struct FCLAttachmentPickerSheet: View {
                     galleryDataSource: galleryDataSource,
                     initialAssetID: assetID,
                     onSend: {
-                        // Asset preview send: let the synchronized dismiss block
-                        // below drive both `modal = nil` (the preview cover) and
-                        // `onDismiss()` (the sheet) inside a single ease-out
-                        // animation so the preview and sheet collapse together
-                        // instead of the preview popping instantly and the sheet
-                        // sliding out afterwards.
                         performSynchronizedSend {
                             compressAndSendGallery()
                         }
@@ -284,11 +181,6 @@ struct FCLAttachmentPickerSheet: View {
 
     // MARK: - Tab Content ZStack
 
-    /// All tab views live in a `ZStack` so switching between them preserves
-    /// state (scroll position, loaded thumbnails, search text) and does not
-    /// re-fire `.task` side effects. The visible tab is offset to x=0 and all
-    /// others are offset by ± the container width; on `.crossfade` the offset
-    /// stays 0 and opacity drives visibility instead.
     @ViewBuilder
     private var tabContentZStack: some View {
         let transition = delegate?.tabTransition ?? FCLAttachmentDefaults.tabTransition
@@ -409,14 +301,7 @@ struct FCLAttachmentPickerSheet: View {
 
     @ViewBuilder
     private var bottomBar: some View {
-        // Keep the input bar visible during `.sending` so the bottom bar does not
-        // regress to the tab-bar row between the send tap and the sheet dismiss
-        // animation completing (which would cause a visible tab-bar flash).
         let showInputBar = presenter.state == .gallerySelected || presenter.state == .sending
-
-        // No Divider, no opaque background — the bar floats over the grid per
-        // the prototype spec (position: absolute, bottom: 10). The glass
-        // surfaces on FCLGlassTextField / FCLGlassToolbar provide visual separation.
         if showInputBar {
             FCLPickerInputBar(
                 captionText: $presenter.captionText,
@@ -445,47 +330,19 @@ struct FCLAttachmentPickerSheet: View {
 
     // MARK: - Synchronized Send Dismiss
 
-    /// Performs a send action with a single synchronized dismissal animation.
-    ///
-    /// Steps on the same UI tick:
-    /// 1. Resign first responder so the keyboard collapses alongside the sheet.
-    /// 2. Invoke `action`, which hands the staged attachments off to the chat
-    ///    presenter. The chat presenter defers the actual bubble insert so the
-    ///    chat screen becomes visible first.
-    /// 3. In one `withAnimation(.easeOut(duration: 0.22))` block, flip any
-    ///    intermediate `fullScreenCover` binding (`modal`) off and invoke
-    ///    `onDismiss`, collapsing every modal layer in parallel rather than
-    ///    chaining preview → sheet → input bar.
-    ///
-    /// The 0.22s ease-out matches the system sheet dismiss curve closely and
-    /// lines up with the 0.24s delay used by
-    /// ``FCLChatPresenter/handleAttachmentsDeferred(_:caption:delay:)`` so the
-    /// outgoing bubble slides in immediately after the chat is visible.
+    /// Dismisses the keyboard, invokes the send action, and collapses all modal layers
+    /// in a single synchronized animation. Guards against reentrancy from rapid double-taps.
     private func performSynchronizedSend(_ action: () -> Void) {
-        // Reentrancy guard: double-taps on a send button fire the handler
-        // twice before SwiftUI re-renders the disabled state. Short-circuit
-        // the second invocation so camera sends don't empty-out and gallery
-        // sends don't duplicate the bubble.
         guard !isSendInFlight else { return }
         isSendInFlight = true
-
-        // Drop the keyboard synchronously via the hoisted focus state so the
-        // composer keyboard collapses in the same visual transaction as the
-        // dismiss animation below.
         isCaptionFocused = false
-
         action()
-
         withAnimation(.easeOut(duration: 0.22)) {
             modal = nil
             showCamera = false
             showPreviewer = false
             onDismiss()
         }
-
-        // Release the guard after the dismiss animation window. Any send
-        // initiated before this point has already been accepted by the
-        // presenter; later taps are a fresh interaction.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             isSendInFlight = false
         }
@@ -499,8 +356,6 @@ struct FCLAttachmentPickerSheet: View {
 
         presenter.beginSending()
 
-        // Snapshot edits up front so we can DEBUG-assert that every edit the
-        // preview committed is actually consumed by this send.
         #if DEBUG
         let preSendEditKeys = Set(presenter.editedImageByAssetID.keys)
         var consumedEditKeys: Set<String> = []
@@ -562,9 +417,6 @@ struct FCLAttachmentPickerSheet: View {
 
                 presenter.sendGalleryAttachments(attachments)
             } catch {
-                // The sheet has already been dismissed by the synchronized
-                // send block — route the error through the chat-facing
-                // channel instead of the now-gone sheet UI.
                 presenter.reportSendError(error.localizedDescription)
             }
         }
@@ -572,17 +424,9 @@ struct FCLAttachmentPickerSheet: View {
 
     // MARK: - Export Video
 
-    /// Exports a gallery video `PHAsset` to a temporary MP4 file using
-    /// `PHImageManager.requestExportSession(forVideo:options:exportPreset:resultHandler:)`.
-    ///
-    /// PhotoKit returns a pre-configured `AVAssetExportSession` that owns the
-    /// underlying `AVAsset` on its own queue. The session is never handed off to
-    /// a separate `Task`; every access to the session happens inside either the
-    /// PhotoKit result handler or AVFoundation's own `exportAsynchronously`
-    /// completion handler. This avoids the cross-queue `AVAsset` access pattern
-    /// that tripped `_dispatch_assert_queue_fail` when an asset fetched with
-    /// `requestAVAsset` was passed into a detached `AVAssetExportSession` init
-    /// on a different executor.
+    /// Exports a gallery video `PHAsset` to a temporary MP4 using PhotoKit's
+    /// `requestExportSession`. The session stays on PhotoKit's queue for its full lifetime
+    /// to avoid cross-queue `AVAsset` access that caused `_dispatch_assert_queue_fail`.
     private func exportVideo(
         for phAsset: PHAsset,
         preset: FCLVideoExportPreset
@@ -613,14 +457,8 @@ struct FCLAttachmentPickerSheet: View {
                 }
                 session.outputURL = outputURL
                 session.outputFileType = .mp4
-                // `exportAsynchronously`'s completion is `@Sendable` on the
-                // iOS 18 SDK, so `AVAssetExportSession` (non-`Sendable`) cannot
-                // be captured directly. Wrap the session in `FCLUncheckedBox`
-                // so only a documented, single-owner reference crosses into the
-                // completion. Safe invariant: PhotoKit owns this session on its
-                // own queue, AVFoundation schedules the completion on its
-                // internal queue, and no FlyChat-side code touches the session
-                // concurrently from anywhere else.
+                // `exportAsynchronously` completion is `@Sendable` on iOS 18+; box the
+                // session so a single-owner reference crosses the boundary safely.
                 let box = FCLUncheckedBox(session)
                 session.exportAsynchronously {
                     switch box.value.status {
@@ -644,15 +482,8 @@ struct FCLAttachmentPickerSheet: View {
 
     // MARK: - Camera Configuration
 
-    /// Builds an ``FCLCameraConfiguration`` from the current delegate and presenter state.
-    ///
-    /// - `allowsVideo` maps from `delegate?.isCameraVideoEnabled`.
-    /// - `maxAssets` is set to the number of remaining slots available (no existing camera
-    ///   captures plus no upper limit when not specified — defaults to a generous maximum).
     private func makeCameraConfiguration() -> FCLCameraConfiguration {
         let allowsVideo = delegate?.isCameraVideoEnabled ?? FCLAttachmentDefaults.isCameraVideoEnabled
-        // Remaining slots: allow any additional captures (no hard cap from the delegate yet,
-        // so use a generous default of 10 minus how many are already staged).
         let maxCaptures = max(1, 10 - presenter.cameraCaptures.count)
         return FCLCameraConfiguration(
             allowsVideo: allowsVideo,
@@ -665,7 +496,6 @@ struct FCLAttachmentPickerSheet: View {
 
     // MARK: - Helpers
 
-    /// Builds the ordered list of ``FCLPickerTabDisplayItem`` values from the presenter's available tabs.
     private func buildTabDisplayItems() -> [FCLPickerTabDisplayItem] {
         let customTabs = delegate?.customTabs ?? []
 
@@ -684,7 +514,6 @@ struct FCLAttachmentPickerSheet: View {
                     title: "Files"
                 )
             case .custom(let id):
-                // Match the custom tab by reconstructing the id the presenter uses.
                 let matchingTab = customTabs.enumerated().first { index, t in
                     "custom-\(t.tabTitle)-\(index)" == "custom-\(id)"
                 }
@@ -698,16 +527,9 @@ struct FCLAttachmentPickerSheet: View {
 
 // MARK: - FCLCameraRouterBridge
 
-/// A transparent `UIViewControllerRepresentable` that triggers the full-screen
-/// FlyChat camera module via ``FCLCameraRouter``.
-///
-/// The bridge presents the camera on top of its own hosting `UIViewController`.
-/// Using `UIViewControllerRepresentable` lets SwiftUI manage the hosting
-/// container while `FCLCameraRouter` handles the `AVCaptureSession`-based UI.
-///
-/// Presentation is deferred until `viewDidAppear` so the hosting controller is
-/// fully embedded in the window hierarchy before `present(_:animated:completion:)`
-/// is called (required by UIKit — see `UIViewController.present(_:animated:completion:)`).
+/// A transparent `UIViewControllerRepresentable` that presents the FlyChat camera
+/// module via `FCLCameraRouter`. Defers presentation until `viewDidAppear` so the
+/// hosting controller is in the window hierarchy before `present(_:animated:)` is called.
 private struct FCLCameraRouterBridge: UIViewControllerRepresentable {
     let configuration: FCLCameraConfiguration
     let cameraSourceRelay: FCLCameraSourceRelay
@@ -746,9 +568,6 @@ private struct FCLCameraRouterBridge: UIViewControllerRepresentable {
             let vc = PresentationContainerViewController()
             containerViewController = vc
 
-            // Capture as weak inside the router closures to avoid a retain cycle.
-            // The router itself is held strongly by the coordinator for the duration
-            // of the camera session.
             let router = FCLCameraRouter(
                 configuration: configuration,
                 onFinish: { results in
@@ -770,9 +589,7 @@ private struct FCLCameraRouterBridge: UIViewControllerRepresentable {
 
     // MARK: - PresentationContainerViewController
 
-    /// A lightweight, transparent view controller used solely as the UIKit
-    /// presenter anchor. Its view is invisible; all presentation happens via
-    /// `FCLCameraRouter` on top of it.
+    /// Transparent UIKit presenter anchor for `FCLCameraRouter`.
     private final class PresentationContainerViewController: UIViewController {
         var onViewDidAppear: (() -> Void)?
 
@@ -790,13 +607,7 @@ private struct FCLCameraRouterBridge: UIViewControllerRepresentable {
 
 // MARK: - FCLCameraStackPreview
 
-/// A full-screen preview showing camera captures accumulated so far.
-///
-/// When a single capture is present the view renders a clean single-image layout
-/// (full-screen image, caption field bottom-leading, send button bottom-trailing,
-/// close button top-trailing, add-more `+` button top-leading) to match the
-/// picker asset preview experience. When two or more captures are present the
-/// view renders the paged layout with a count badge and an "Add another" button.
+/// Full-screen preview of accumulated camera captures with single-image and paged layouts.
 private struct FCLCameraStackPreview: View {
     @ObservedObject var presenter: FCLAttachmentPickerPresenter
     @Binding var captionText: String
@@ -824,9 +635,7 @@ private struct FCLCameraStackPreview: View {
                     .ignoresSafeArea()
             }
 
-            // Overlay controls
             VStack {
-                // Top bar: close (trailing), add-more (leading)
                 HStack {
                     Button(action: onAddMore) {
                         Image(systemName: "plus.circle.fill")
@@ -849,7 +658,6 @@ private struct FCLCameraStackPreview: View {
 
                 Spacer()
 
-                // Bottom: caption (leading) + send button (trailing)
                 HStack(spacing: 12) {
                     TextField("Add a caption…", text: $captionText)
                         .padding(.horizontal, 12)
@@ -878,7 +686,6 @@ private struct FCLCameraStackPreview: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            // Paged media viewer
             TabView {
                 ForEach(presenter.cameraCaptures) { attachment in
                     FCLCapturePageView(attachment: attachment)
@@ -888,9 +695,7 @@ private struct FCLCameraStackPreview: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea()
 
-            // Overlay controls
             VStack {
-                // Top bar
                 HStack {
                     Button(action: onCancel) {
                         Image(systemName: "xmark.circle.fill")
@@ -901,7 +706,6 @@ private struct FCLCameraStackPreview: View {
 
                     Spacer()
 
-                    // Capture count badge
                     if presenter.cameraCaptures.count > 0 {
                         Text("\(presenter.cameraCaptures.count)")
                             .font(.caption.bold())
@@ -916,7 +720,6 @@ private struct FCLCameraStackPreview: View {
 
                 Spacer()
 
-                // Bottom: caption + send + add-more
                 VStack(spacing: 12) {
                     HStack(spacing: 12) {
                         TextField("Add a caption…", text: $captionText)
@@ -971,7 +774,6 @@ private struct FCLCapturePageView: View {
                 .scaledToFit()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            // Video or image without thumbnail: show icon placeholder
             ZStack {
                 Color.black
                 VStack(spacing: 8) {
@@ -989,8 +791,6 @@ private struct FCLCapturePageView: View {
 
 // MARK: - FCLCustomTabWrapper
 
-/// A `UIViewControllerRepresentable` that hosts a custom tab's view controller
-/// provided by the host app via ``FCLCustomAttachmentTab``.
 private struct FCLCustomTabWrapper: UIViewControllerRepresentable {
     let tab: any FCLCustomAttachmentTab
     let onSelect: @MainActor (FCLAttachment) -> Void

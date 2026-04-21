@@ -1,15 +1,3 @@
-// MARK: - Host app Info.plist requirements
-//
-// The host app must declare the following keys in its Info.plist before using
-// the attachment picker's camera feature:
-//
-//   NSCameraUsageDescription      — describes why camera access is needed.
-//   NSMicrophoneUsageDescription  — describes why microphone access is needed
-//                                   (required when video recording is enabled).
-//
-// Failing to include these keys causes the system to terminate the host app
-// when camera or microphone authorization is requested.
-
 #if canImport(UIKit)
 import Combine
 import Foundation
@@ -33,19 +21,14 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
 
     // MARK: - Scope A state (file search + presentation completion)
 
-    /// Whether the Files-tab search morph is open. When `.open`, the top toolbar
-    /// swaps to a search text field + Cancel button and the Files tab filters
-    /// its recent-files list by ``fileSearchText``.
+    /// Whether the Files-tab search morph is open.
     @Published private(set) var fileSearchState: FileSearchState = .closed
 
-    /// Current query text bound by the search text field when
-    /// ``fileSearchState`` is `.open`. Always empty when the search is closed.
+    /// Query text bound when the search morph is open.
     @Published var fileSearchText: String = ""
 
-    /// Set to `true` after the sheet's presentation animation has finished.
-    /// Downstream side effects that would block the animation (notably the
-    /// `PHPhotoLibrary` authorization request and the initial PHAsset fetch)
-    /// wait for this flag before running.
+    /// `true` after the sheet presentation animation has finished.
+    /// Authorization requests and asset fetches wait for this flag.
     @Published private(set) var isPresentationComplete: Bool = false
 
     /// States for the in-sheet Files search morph.
@@ -60,10 +43,6 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
 
     private let delegate: (any FCLAttachmentDelegate)?
     private let onSend: @MainActor ([FCLAttachment], String?) -> Void
-    /// Optional callback invoked when a send-path error occurs after the picker
-    /// modal stack has been dismissed. The host (typically the chat screen)
-    /// forwards this to ``FCLChatPresenter/reportSendError(_:)`` so the error
-    /// surfaces as a toast on the chat, not on the already-gone sheet.
     private let onSendError: (@MainActor (String) -> Void)?
 
     init(
@@ -76,16 +55,13 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
         self.onSendError = onSendError
     }
 
-    /// Reports an error originating from an asynchronous send operation to the
-    /// host, after the picker modal has already been dismissed. Also updates
-    /// local state so any still-attached picker surface can react.
+    /// Routes a post-dismiss send error to the host and updates local state.
     func reportSendError(_ message: String) {
         onSendError?(message)
         state = .error(message)
     }
 
-    /// Clears all per-asset edit state (bitmaps and tool history). Called on
-    /// send completion, on dismiss, and whenever the staged asset set empties.
+    /// Clears all per-asset edit bitmaps.
     func clearEditState() {
         editedImageByAssetID.removeAll()
     }
@@ -108,20 +84,18 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
 
     // MARK: - Scope A actions
 
-    /// Opens the Files-tab search morph. Keeps any existing ``fileSearchText``.
+    /// Opens the Files-tab search morph.
     func beginFileSearch() {
         fileSearchState = .open
     }
 
-    /// Closes the Files-tab search morph and clears the query.
+    /// Closes the Files-tab search morph and clears the query text.
     func cancelFileSearch() {
         fileSearchState = .closed
         fileSearchText = ""
     }
 
-    /// Signals that the sheet's presentation animation has finished. Gated downstream
-    /// side effects (permission request, initial asset fetch) may now run. The call
-    /// is idempotent — repeated invocations are no-ops.
+    /// Signals that the sheet presentation animation has finished. Idempotent.
     func markPresentationComplete() {
         guard !isPresentationComplete else { return }
         isPresentationComplete = true
@@ -134,8 +108,6 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
             selectedAssets.append(assetID)
         }
         state = selectedAssets.isEmpty ? .browsing : .gallerySelected
-        // Drop any edit state when the selection empties — otherwise stale
-        // per-asset edits would apply to a future, unrelated selection.
         if selectedAssets.isEmpty {
             clearEditState()
         }
@@ -166,12 +138,7 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
         state = .gallerySelected
     }
 
-    /// Converts an array of ``FCLCameraCaptureResult`` values (produced by the Camera module)
-    /// into ``FCLAttachment`` values and appends them to `cameraCaptures`.
-    ///
-    /// File size is read from the filesystem on-the-fly; if the file is unavailable
-    /// the size is left as `nil`. Thumbnail data is decoded from `thumbnailURL` when
-    /// present; otherwise the field is `nil`.
+    /// Converts camera capture results into `FCLAttachment` values and appends them.
     func appendCameraResults(_ results: [FCLCameraCaptureResult]) {
         for result in results {
             let fileSize = (try? FileManager.default.attributesOfItem(
@@ -202,7 +169,7 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
         cameraCaptures.removeAll { $0.id == id }
         // Drop any edit state keyed by this capture's UUID string so a
         // re-captured asset does not inherit stale edits.
-        editedImageByAssetID.removeValue(forKey: id.uuidString)
+        editedImageByAssetID.removeValue(forKey: id.uuidString) // prevent stale edits on re-capture
         if cameraCaptures.isEmpty && selectedAssets.isEmpty {
             state = .browsing
             clearEditState()
@@ -217,13 +184,8 @@ final class FCLAttachmentPickerPresenter: ObservableObject {
             Task { await FCLRecentFilesStore.shared.add(fileURL: attachment.url, fileName: attachment.fileName, fileSize: attachment.fileSize) }
         }
         onSend(all, caption.isEmpty ? nil : caption)
-        // Defer the `cameraCaptures` emptying to the next runloop
-        // turn. Emitting an empty `@Published` value synchronously here
-        // would propagate to the still-mounted preview/stack views
-        // before the host finishes its dismiss animation, causing a
-        // visible flash where the stack thumbnail collapses to nothing
-        // mid-transition. Posting onto the main queue runs the wipe
-        // after SwiftUI has committed the dismiss transaction.
+        // Defer the wipe so SwiftUI commits the dismiss transaction before the
+        // camera-captures array empties, preventing a mid-transition thumbnail flash.
         DispatchQueue.main.async { [weak self] in
             self?.cameraCaptures.removeAll()
             self?.clearEditState()

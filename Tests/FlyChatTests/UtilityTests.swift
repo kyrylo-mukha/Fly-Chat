@@ -137,13 +137,11 @@ final class FCLUtilityTests: XCTestCase {
     @MainActor
     func testLoadMockDataPlacesRecentsAtIndexZeroWhenNonDefaultSelected() {
         let registry = FCLAssetCollectionRegistry()
-        // Select a non-Recents album (index 2 = Selfies in mock data)
         registry.loadMockData(selecting: 2)
         XCTAssertFalse(registry.collections.isEmpty, "Registry must be populated after loadMockData")
         let first = registry.collections[0]
         XCTAssertEqual(first.subtype, .smartAlbumRecentlyAdded,
                        "Recents must remain at index 0 regardless of which collection is pre-selected")
-        // The selected ID should be for Selfies (index 2), not Recents
         let selectedID = registry.selectedCollectionID
         XCTAssertNotNil(selectedID, "A collection should be selected")
         XCTAssertNotEqual(selectedID, first.id,

@@ -12,9 +12,6 @@ import UIKit
 /// results to the caller via closures (typically owned by `FCLCameraRouter`).
 public struct FCLCameraView: View {
     @StateObject private var presenter: FCLCameraPresenter
-    /// Optional scope-08 relay used to keep the capture session alive across
-    /// cross-dissolves to the pre-send previewer. When `nil` the view falls
-    /// back to the original `onDisappear` teardown behavior.
     private let sourceRelay: FCLCameraSourceRelay?
     private let onFinish: ([FCLCameraCaptureResult]) -> Void
     private let onCancel: () -> Void
@@ -30,13 +27,6 @@ public struct FCLCameraView: View {
     @State private var zoomHUDHideTask: Task<Void, Never>?
     @State private var showDiscardDialog: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Shared capture relay mirroring the camera's in-flight capture list. Owned
-    /// here so the Done-chip thumbnail and the downstream pre-send editor consume
-    /// the same source of truth. Scope 07: the presenter subscribes to this
-    /// relay's `capturedAssets` publisher at init time and republishes
-    /// `.last?.thumbnail` as `lastCapturedThumbnail` — no manual push from the
-    /// view is needed. The legacy `updateLastCapturedThumbnail(_:)` path
-    /// remains available for presenters constructed without a relay.
     @StateObject private var captureRelay: FCLCaptureSessionRelay
 
     public init(
@@ -64,25 +54,15 @@ public struct FCLCameraView: View {
             zoomHUD
                 .allowsHitTesting(false)
 
-            // Photo shutter flash feedback overlay (on top, non-interactive).
             Color.white
                 .opacity(shutterFlashOpacity)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
-            // Scope 09: top-edge drag-down catcher. When 2+ captures are
-            // pending and the user drags downward beyond 80 pt from the top
-            // edge of the screen, raise the discard dialog instead of
-            // allowing the enclosing presentation to dismiss. The capture
-            // area is an invisible 80 pt strip at the top of the screen.
             swipeDownCatcher
         }
         .statusBarHidden(true)
         .preferredColorScheme(.dark)
-        // Scope 09: suppress interactive dismissal while the user has
-        // 2+ captures pending. SwiftUI honors this for sheet-style
-        // presentations; the UIHostingController also mirrors
-        // `isModalInPresentation` in the router when count changes.
         .interactiveDismissDisabled(presenter.capturedCount >= 2)
         .task {
             if presenter.authorizationState == .notDetermined {
@@ -93,26 +73,14 @@ public struct FCLCameraView: View {
             }
         }
         .onChange(of: presenter.capturedCount) { _, newCount in
-            // Scope 09: mirror the SwiftUI interactive-dismiss gate onto the
-            // hosting controller's `isModalInPresentation` so UIKit-level
-            // swipe-down on the presented `UIHostingController` also respects
-            // the confirmation contract.
             sourceRelay?.isModalInPresentation = newCount >= 2
         }
         .onDisappear {
-            // Scope 08: when a cross-dissolve to the pre-send previewer is in
-            // flight the relay's `isTransitioning` flag is true — keep the
-            // capture session alive so the dissolve does not flash black.
-            // The router's `dismissForPreviewer` path stops the session after
-            // the dissolve completes.
+            // Skip teardown when a cross-dissolve to the previewer is in flight;
+            // the router's `dismissForPreviewer` path stops the session after the dissolve.
             if sourceRelay?.isTransitioning == true { return }
             presenter.stopSession()
         }
-        // Scope 09: accessibility back gesture (VoiceOver two-finger Z escape)
-        // routes through the same close handler as the X button. If 2+ assets
-        // are pending, a confirmation dialog is shown. `.accessibilityAction(.escape)`
-        // is the iOS-supported hook for the accessibility escape gesture;
-        // `.onExitCommand` is macOS/tvOS-only and unavailable on iOS.
         .accessibilityAction(.escape) {
             if presenter.capturedCount >= 2 {
                 showDiscardDialog = true
@@ -124,9 +92,6 @@ public struct FCLCameraView: View {
 
     // MARK: - Swipe-down catcher
 
-    /// Scope 09: invisible 80 pt top-edge strip that detects downward drags
-    /// beyond 80 pt and, when 2+ captures are pending, raises the discard
-    /// dialog. Cancels the drag so the enclosing presentation sees no motion.
     @ViewBuilder
     private var swipeDownCatcher: some View {
         if presenter.capturedCount >= 2 {
@@ -234,7 +199,6 @@ public struct FCLCameraView: View {
 
     private var overlay: some View {
         VStack(spacing: 0) {
-            // Top bar floats above the safe area.
             FCLCameraTopBar(
                 flashMode: presenter.flashMode,
                 capturedCount: presenter.capturedCount,
@@ -245,8 +209,6 @@ public struct FCLCameraView: View {
                 showDiscardDialog: $showDiscardDialog
             )
 
-            // Record timer replaces the top bar area while recording,
-            // centered in the screen.
             if presenter.isRecording {
                 FCLCameraRecordTimer(
                     duration: presenter.recordingDuration,
@@ -259,9 +221,6 @@ public struct FCLCameraView: View {
 
             Spacer()
 
-            // Bottom chrome cluster: zoom ring → shutter row → mode switcher.
-            // Gap between elements: 18 pt (prototype `gap: 18`).
-            // Bottom inset: 34 pt safe area clearance + 10 pt breathing room.
             VStack(spacing: 18) {
                 if presenter.configuration.allowsVideo || !presenter.isRecording {
                     FCLCameraZoomPresetRing(
@@ -269,9 +228,6 @@ public struct FCLCameraView: View {
                         presets: presenter.zoomPresets,
                         zoomRange: presenter.zoomRange,
                         onSelectPreset: { factor in
-                            // While recording, skip the ramp animation to avoid
-                            // frame-rate glitches; otherwise animate to mimic
-                            // the system Camera preset feel.
                             presenter.setZoom(factor, animated: !presenter.isRecording)
                             showZoomHUD()
                         },
@@ -360,7 +316,7 @@ public struct FCLCameraView: View {
                     _ = try await presenter.capturePhoto()
                     finishIfSingleAsset()
                 } catch {
-                    // Silently ignore; presenter state remains consistent.
+                    // Capture failed; presenter state is already consistent.
                 }
             }
         case .video:
@@ -370,15 +326,13 @@ public struct FCLCameraView: View {
                         _ = try await presenter.stopRecording()
                         finishIfSingleAsset()
                     } catch {
-                        // Silently ignore; presenter cleans up timers.
+                        // Recording failed; presenter timer cleanup is idempotent.
                     }
                 }
             } else {
                 do {
                     try presenter.startRecording()
-                } catch {
-                    // Silently ignore.
-                }
+                } catch { }
             }
         }
     }
@@ -400,11 +354,6 @@ public struct FCLCameraView: View {
         }
     }
 
-    /// Decodes a small thumbnail from the most recent capture off the main
-    /// thread and appends the result to the shared capture relay. Scope 07:
-    /// the presenter is subscribed to the relay's `capturedAssets` publisher
-    /// and republishes `.last?.thumbnail` as `lastCapturedThumbnail`, so no
-    /// manual push into the presenter is required here.
     private func refreshLatestThumbnail() {
         guard let last = presenter.capturedResults.last else {
             captureRelay.clear()
@@ -486,9 +435,8 @@ public struct FCLCameraView: View {
         }
     }
 
-    /// Shows the zoom HUD chip. When `resetFade` is true, (re)starts the
-    /// 1.5s fade-out timer. Otherwise keeps the HUD sticky — used during an
-    /// active gesture so rapid deltas do not continuously reset the timer.
+    /// Shows the zoom HUD chip.
+    /// When `resetFade` is false, the HUD stays sticky during an active gesture.
     private func showZoomHUD(resetFade: Bool = true) {
         withAnimation(reduceMotion ? .linear(duration: 0.15) : .spring(response: 0.25, dampingFraction: 0.85)) {
             zoomHUDVisible = true
@@ -512,10 +460,6 @@ public struct FCLCameraView: View {
 }
 
 #if DEBUG
-/// Scope 05: four preview variants required by the spec. The "FirstEnter"
-/// variants seed an empty presenter; the "SecondEnter" variants use
-/// `FCLCameraPresenter.makeForPreview(capturedCount:thumbnail:)` so the
-/// Done-chip (count + thumbnail) is exercised in preview.
 private let _flcCameraPreviewThumbnail: UIImage = {
     let config = UIImage.SymbolConfiguration(
         pointSize: 18,

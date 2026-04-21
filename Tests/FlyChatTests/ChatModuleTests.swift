@@ -148,7 +148,7 @@ final class FCLChatModuleTests: XCTestCase {
         let presenter = FCLChatPresenter(messages: [m1, m2], currentUser: s)
 
         XCTAssertEqual(presenter.spacing(after: m1), presenter.resolvedIntraGroupSpacing)
-        XCTAssertEqual(presenter.spacing(after: m2), 0) // last message, no spacing after
+        XCTAssertEqual(presenter.spacing(after: m2), 0)
     }
 
     @MainActor
@@ -303,9 +303,7 @@ final class FCLChatModuleTests: XCTestCase {
     @MainActor
     func testAppearanceDelegateStatusColorsDefault() {
         let delegate = TestAppearanceDelegateDefault()
-        // Read color should be a vivid accent (high green component).
         XCTAssertGreaterThan(delegate.statusColors.read.green, 0.4)
-        // Created and sent should have the same default color token.
         XCTAssertEqual(delegate.statusColors.created, delegate.statusColors.sent)
     }
 
@@ -317,12 +315,6 @@ final class FCLChatModuleTests: XCTestCase {
 
     // MARK: - Scene Phase Stability
 
-    /// A `.background → .active` scene transition must not mutate any presenter
-    /// state that drives chat layout: messages, draft text, attachments, error
-    /// banners, or derived grouping values. The screen relies on this invariant
-    /// to restore its last visual state without a re-layout animation after
-    /// foregrounding. This test pins the presenter's observable surface across a
-    /// simulated scene cycle and asserts every snapshotted value is unchanged.
     @MainActor
     func testPresenterStateIsStableAcrossBackgroundToActiveTransition() {
         let sender = FCLChatMessageSender(id: "u1", displayName: "User")
@@ -342,7 +334,6 @@ final class FCLChatModuleTests: XCTestCase {
             currentUser: sender
         )
 
-        // Snapshot every observable surface that the chat screen's body reads.
         let messagesBefore = presenter.messages
         let renderedBefore = presenter.renderedMessagesFromBottom.map(\.id)
         let draftBefore = presenter.draftText
@@ -352,18 +343,8 @@ final class FCLChatModuleTests: XCTestCase {
         let intraGroupBefore = presenter.resolvedIntraGroupSpacing
         let interGroupBefore = presenter.resolvedInterGroupSpacing
 
-        // Simulate the `.background → .inactive → .active` transition. The
-        // presenter owns no scene-phase observers, so this sequence must be a
-        // no-op for all state that drives layout. Executing the transitions
-        // without touching the presenter API is exactly the invariant we want
-        // to lock in: nothing in the Chat module reacts to scene phase.
         let phases: [String] = ["background", "inactive", "active"]
-        for _ in phases {
-            // Intentionally empty: the phase change itself must not reach any
-            // state mutation on the presenter. A future regression that wires
-            // scene phase into the presenter would break one of the equality
-            // assertions below.
-        }
+        for _ in phases {}
 
         XCTAssertEqual(presenter.messages.count, messagesBefore.count)
         XCTAssertEqual(presenter.renderedMessagesFromBottom.map(\.id), renderedBefore)
@@ -375,32 +356,13 @@ final class FCLChatModuleTests: XCTestCase {
         XCTAssertEqual(presenter.resolvedInterGroupSpacing, interGroupBefore)
     }
 
-    /// Spec-15 regression: `FCLInputBar.resolveMaxRows(forAvailableHeight:)` must be a
-    /// pure function — identical inputs always produce identical output regardless of how
-    /// many times the function is called or what scene-phase transitions preceded the call.
-    ///
-    /// This test acts as a pixel-identity proxy for the frame stability requirement in the
-    /// PRD: if the row-count formula ever became stateful (e.g., started counting scene
-    /// transitions), the carousel strip and input bar would re-layout on foreground return,
-    /// producing a visible animated jump. Stable output here means the layout height is
-    /// identical before backgrounding and after foregrounding.
-    ///
-    /// Heights chosen to span the representative input-bar lifecycle:
-    ///   - 667 pt  → iPhone SE-class screen height
-    ///   - 844 pt  → iPhone 14 class
-    ///   - 1024 pt → iPad portrait
-    ///   - 390 pt  → narrow side of iPhone Pro Max landscape
     #if canImport(UIKit)
     @MainActor
     func testInputBarFrameIsPixelIdenticalAcrossSceneTransition() {
         let testHeights: [CGFloat] = [390, 667, 844, 1024]
 
         for height in testHeights {
-            // Simulate: measure before backgrounding.
             let rowsBefore = FCLInputBar.resolveMaxRows(forAvailableHeight: height)
-
-            // Simulate: scene goes background then returns to active.
-            // The formula is a pure function; the transition must not affect the result.
             let rowsAfterBackground = FCLInputBar.resolveMaxRows(forAvailableHeight: height)
             let rowsAfterActive = FCLInputBar.resolveMaxRows(forAvailableHeight: height)
 
@@ -414,26 +376,17 @@ final class FCLChatModuleTests: XCTestCase {
             )
         }
 
-        // Explicit override must be respected regardless of scene transitions.
         let overrideRows = FCLInputBar.resolveMaxRows(forAvailableHeight: 844, explicitMaxRows: 6)
         XCTAssertEqual(overrideRows, 6, "Explicit maxRows override must be returned as-is")
 
-        // Boundary: height 0 must clamp to the minimum of 4.
         let zeroRows = FCLInputBar.resolveMaxRows(forAvailableHeight: 0)
         XCTAssertEqual(zeroRows, 4, "Zero available height must produce minimum row count of 4")
 
-        // Boundary: very large height must clamp to the maximum of 10.
         let largeRows = FCLInputBar.resolveMaxRows(forAvailableHeight: 10_000)
         XCTAssertEqual(largeRows, 10, "Excessive available height must produce maximum row count of 10")
     }
     #endif
 
-    /// Input-bar derived geometry must not depend on the number of scene
-    /// transitions observed; it is a pure function of the passed-in available
-    /// height and the delegate's row configuration. This asserts that the
-    /// send-enable predicate — the only boolean the input bar animates on —
-    /// is stable across repeated evaluations with identical inputs, which is
-    /// the behaviour the foreground-return path relies on.
     #if canImport(UIKit)
     @MainActor
     func testInputBarSendEnabledIsPureFunctionOfInputs() {
@@ -508,7 +461,6 @@ struct FCLAttachmentPickerScopeATests {
         #expect(presenter.isPresentationComplete == false)
         presenter.markPresentationComplete()
         #expect(presenter.isPresentationComplete == true)
-        // Second call must not revert the flag and must not crash.
         presenter.markPresentationComplete()
         #expect(presenter.isPresentationComplete == true)
     }

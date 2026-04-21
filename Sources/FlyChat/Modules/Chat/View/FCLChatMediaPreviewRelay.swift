@@ -2,20 +2,14 @@ import CoreGraphics
 
 // MARK: - FCLChatMediaPreviewRelay
 
-/// Concrete ``FCLMediaPreviewSource`` implementation owned by the chat screen.
+/// Reference-type bridge between the chat screen and ``FCLMediaPreviewSource``.
 ///
-/// SwiftUI view structs cannot be `AnyObject`, so the chat screen holds this small
-/// reference-type relay instead of adopting ``FCLMediaPreviewSource`` directly. The
-/// attachment grid reports the window-space frames of visible cells into the relay's
-/// ``frames`` dictionary (keyed by `attachment.id.uuidString`). The chat media
-/// previewer reads those frames on dismiss to animate content back into the
-/// originating cell; if the key is missing the preview collapses to a zero-size
-/// point at the screen center.
+/// SwiftUI view structs cannot be `AnyObject`, so the chat screen holds this relay
+/// instead of conforming directly. The attachment grid populates ``frames`` with
+/// window-space cell rects; the previewer reads them on dismiss for the return animation.
 @MainActor
 final class FCLChatMediaPreviewRelay: FCLMediaPreviewSource {
-    /// Window-space frames of currently-visible attachment cells, keyed by the
-    /// attachment's `uuidString`. Updated as the chat timeline scrolls and as cells
-    /// enter/leave the visible region.
+    /// Window-space frames of visible attachment cells, keyed by `attachment.id.uuidString`.
     var frames: [String: CGRect] = [:]
 
     /// Returns the current window-space frame for the given attachment ID, or `nil`

@@ -39,15 +39,10 @@ struct FCLCameraZoomPresetRing: View {
     // MARK: - Preset row
 
     private var presetRow: some View {
-        // The zoom ring is a floating capsule cluster, not a full-width top bar.
-        // Using .bottom gives the fallback a 28 pt corner radius that approximates
-        // the prototype's borderRadius: 999 capsule shape on iOS 17/18.
         FCLGlassToolbar(placement: .bottom) {
             ForEach(presets, id: \.self) { factor in
                 FCLGlassChip(
                     title: chipLabel(for: factor),
-                    // Active preset: white fill matching the prototype's
-                    // `background: active ? '#fff'` on dark camera chrome.
                     tint: isActive(factor)
                         ? FCLChatColorToken(red: 1.0, green: 1.0, blue: 1.0)
                         : nil,
@@ -67,16 +62,12 @@ struct FCLCameraZoomPresetRing: View {
 
     private func chipLabel(for factor: CGFloat) -> String {
         if isActive(factor) {
-            // Active chip: show current zoom with "×" suffix (unicode multiplication
-            // sign), matching the prototype's `o.replace('x', '×')` for active state.
             let rounded = (currentZoom * 10).rounded() / 10
             if abs(rounded - factor) < 0.05 {
                 return "\(Self.presetLabel(factor))×"
             }
             return String(format: "%.1f×", Double(currentZoom))
         }
-        // Inactive chip: show the numeric label only — no "×" suffix — matching
-        // the prototype's `o.replace('x', '')` for deselected segments.
         return Self.presetLabel(factor)
     }
 
@@ -99,9 +90,6 @@ struct FCLCameraZoomPresetRing: View {
     // MARK: - Slider row
 
     private var sliderRow: some View {
-        // Horizontal drag maps linearly within the legal zoom range. The
-        // base zoom is snapshot at long-press begin; dragging shifts from
-        // there proportional to finger travel across a nominal 240pt band.
         let band: CGFloat = 240
         let span = max(zoomRange.upperBound - zoomRange.lowerBound, 0.01)
 

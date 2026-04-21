@@ -136,7 +136,6 @@ public struct FCLChatBubbleShape: Shape, Sendable, Hashable {
         let er = reducedRadius
         let isRight = side == .right
 
-        // Derive what the bubble's own four corners are (mirrors `path(in:)` logic).
         var tl, tr, bl, br: CGFloat
         switch tailStyle {
         case .none:
@@ -149,7 +148,6 @@ public struct FCLChatBubbleShape: Shape, Sendable, Hashable {
             else        { tl = er; tr = r; bl = r; br = r }
         }
 
-        // Where content is stacked, the shared edge is internal — square those corners.
         if contentAbove { tl = 0; tr = 0 }
         if contentBelow { bl = 0; br = 0 }
 
@@ -266,7 +264,6 @@ struct FCLChatBubbleShape_Previews: PreviewProvider {
         imageContainerCornersPreview
     }
 
-    /// Shows all tail styles on both sides.
     private static var allTailStylesPreview: some View {
         VStack(spacing: 16) {
             ForEach(
@@ -289,7 +286,6 @@ struct FCLChatBubbleShape_Previews: PreviewProvider {
         .previewDisplayName("All Tail Styles × Both Sides")
     }
 
-    /// Demonstrates imageContainerCorners helper output for several scenarios.
     private static var imageContainerCornersPreview: some View {
         let scenarios: [(String, FCLBubbleCorners)] = [
             ("Image-only (right, edged bottom)",

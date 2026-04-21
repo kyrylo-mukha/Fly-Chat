@@ -178,7 +178,7 @@ Root namespace enum that holds SDK-level constants:
 
 ```swift
 public enum FlyChat {
-    public static let version = "0.2.0"
+    public static let version = "0.2.1"
 }
 ```
 

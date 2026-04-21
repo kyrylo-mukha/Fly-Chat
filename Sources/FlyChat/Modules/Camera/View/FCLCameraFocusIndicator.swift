@@ -40,23 +40,18 @@ struct FCLCameraFocusIndicator: View {
                 .stroke(Color.yellow, lineWidth: strokeWidth)
                 .frame(width: size, height: size)
 
-            // Four tick marks, each protruding inward from the midpoint of a side.
-            // Top tick
             Rectangle()
                 .fill(Color.yellow)
                 .frame(width: strokeWidth, height: tickLength)
                 .offset(y: -size / 2 + tickLength / 2)
-            // Bottom tick
             Rectangle()
                 .fill(Color.yellow)
                 .frame(width: strokeWidth, height: tickLength)
                 .offset(y: size / 2 - tickLength / 2)
-            // Leading tick
             Rectangle()
                 .fill(Color.yellow)
                 .frame(width: tickLength, height: strokeWidth)
                 .offset(x: -size / 2 + tickLength / 2)
-            // Trailing tick
             Rectangle()
                 .fill(Color.yellow)
                 .frame(width: tickLength, height: strokeWidth)
@@ -65,17 +60,14 @@ struct FCLCameraFocusIndicator: View {
     }
 
     private func animate() {
-        // Reset to initial state.
         scale = 1.4
         opacity = 0
 
-        // Stage 1: appear and pulse down 1.4 -> 1.0 over 250ms.
         withAnimation(.easeOut(duration: 0.25)) {
             scale = 1.0
             opacity = 1.0
         }
 
-        // Stage 2: slight bounce 1.0 -> 1.05 -> 1.0 over 150ms.
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 250_000_000)
             withAnimation(.easeInOut(duration: 0.075)) {
@@ -86,7 +78,6 @@ struct FCLCameraFocusIndicator: View {
                 scale = 1.0
             }
 
-            // Persist visible for ~1.2s, then fade over 300ms.
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             withAnimation(.easeIn(duration: 0.3)) {
                 opacity = 0

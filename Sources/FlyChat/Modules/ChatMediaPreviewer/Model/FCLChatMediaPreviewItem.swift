@@ -41,10 +41,8 @@ public protocol FCLChatMediaPreviewSourceDelegate: AnyObject, ObservableObject {
 }
 
 public extension FCLChatMediaPreviewSourceDelegate {
-    /// Default implementation: reports no visible frame, triggering the center-collapse fallback.
     func currentFrame(forItemID id: UUID) -> CGRect? { nil }
 
-    /// Default implementation: no-op. Returns `false` to indicate no scroll will occur.
     func ensureVisible(itemID id: UUID, animated: Bool) -> Bool { false }
 }
 

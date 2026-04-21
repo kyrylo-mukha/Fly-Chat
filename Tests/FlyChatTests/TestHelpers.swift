@@ -46,7 +46,6 @@ final class TestChatDelegate: FCLChatDelegate {
 @MainActor
 final class TestLayoutDelegate: FCLLayoutDelegate {
     var incomingSide: FCLChatBubbleSide { .right }
-    // other properties use protocol defaults
 }
 
 #if canImport(UIKit)

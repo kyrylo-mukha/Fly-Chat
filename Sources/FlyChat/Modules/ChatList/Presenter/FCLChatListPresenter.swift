@@ -1,22 +1,12 @@
 import Combine
 import Foundation
 
-/// The presenter for the chat list module, responsible for holding the current list of
-/// chat summaries and forwarding user interactions to the router.
-///
-/// `FCLChatListPresenter` follows the MVP pattern: the view observes its published
-/// `chats` array, and user actions (e.g., tapping a chat row) are forwarded through
-/// the presenter to the injected ``FCLChatListRouting`` router.
-///
-/// This class is `@MainActor`-isolated because it drives SwiftUI view updates.
+/// Presenter for the chat list module; holds the current summaries and forwards interactions to the router.
 @MainActor
 public final class FCLChatListPresenter: ObservableObject {
     /// The current list of chat summaries displayed in the chat list.
-    ///
-    /// Published so that SwiftUI views automatically re-render when the array changes.
     @Published public private(set) var chats: [FCLChatSummary]
 
-    /// The router responsible for handling navigation actions originating from the chat list.
     private let router: (any FCLChatListRouting)?
 
     /// Creates a presenter with an explicit router for navigation.
@@ -32,8 +22,6 @@ public final class FCLChatListPresenter: ObservableObject {
 
     /// Creates a presenter with a closure-based tap handler for convenience.
     ///
-    /// Internally wraps the closure in an ``FCLChatListActionRouter``.
-    ///
     /// - Parameters:
     ///   - chats: The initial array of chat summaries to display.
     ///   - onChatTap: An optional closure invoked when the user taps a chat row.
@@ -47,8 +35,6 @@ public final class FCLChatListPresenter: ObservableObject {
     }
 
     /// Notifies the presenter that the user tapped a specific chat row.
-    ///
-    /// Forwards the selection to the router so it can perform the appropriate navigation.
     ///
     /// - Parameter chat: The chat summary that was tapped.
     public func didTapChat(_ chat: FCLChatSummary) {

@@ -49,9 +49,9 @@ struct FCLCameraPreviewLayerView: UIViewRepresentable {
     /// coordinates and in-flight pinch scales do not leak into post-flip
     /// device configuration.
     var gesturesEnabled: Bool = true
-    /// Scope 08: optional relay that records the preview view reference so
-    /// the close transition can take a Metal-safe `snapshotView(...)` of the
-    /// live preview layer without reaching through the view hierarchy.
+    /// Relay that receives the preview view reference so the close transition
+    /// can take a Metal-safe `snapshotView(afterScreenUpdates:)` without
+    /// traversing the view hierarchy.
     var sourceRelay: FCLCameraSourceRelay?
 
     func makeCoordinator() -> Coordinator {
@@ -77,8 +77,8 @@ struct FCLCameraPreviewLayerView: UIViewRepresentable {
 
         context.coordinator.previewView = view
         context.coordinator.applyGesturesEnabled(gesturesEnabled)
-        // Scope 08: register the preview view with the relay so the close
-        // transition can snapshot the live Metal-backed preview layer.
+        // Register the preview view so the close transition can snapshot
+        // the Metal-backed preview layer via `snapshotView(afterScreenUpdates:)`.
         sourceRelay?.previewView = view
         return view
     }
@@ -106,10 +106,8 @@ struct FCLCameraPreviewLayerView: UIViewRepresentable {
         }
 
         func applyGesturesEnabled(_ enabled: Bool) {
-            // Setting `isEnabled = false` cancels any in-flight gesture and
-            // prevents new touches from being recognized — exactly what is
-            // needed during the flip rotation so pre-flip pinch deltas and
-            // tap-to-focus coordinates do not leak into the post-flip device.
+            // `isEnabled = false` cancels in-flight gestures so pre-flip pinch
+            // deltas and tap-to-focus coordinates cannot reach the post-flip device.
             tapRecognizer?.isEnabled = enabled
             pinchRecognizer?.isEnabled = enabled
         }
@@ -138,9 +136,6 @@ struct FCLCameraPreviewLayerView: UIViewRepresentable {
 
 #if DEBUG
 #Preview("Preview layer placeholder") {
-    // A live preview requires a real AVCaptureSession + device, which is
-    // unavailable in Xcode previews. Show a stand-in so the surrounding
-    // overlay previews have something to render on top of.
     ZStack {
         Color.black
         Text("Camera preview")

@@ -75,7 +75,6 @@ final class FCLAttachmentEditHistoryTests: XCTestCase {
         for i in 0 ..< 5 {
             history.push(makeImage(tag: CGFloat(i)))
         }
-        // Only the most recent 3 snapshots remain, so at most 2 undo steps.
         XCTAssertTrue(history.canUndo)
         _ = history.undo()
         _ = history.undo()

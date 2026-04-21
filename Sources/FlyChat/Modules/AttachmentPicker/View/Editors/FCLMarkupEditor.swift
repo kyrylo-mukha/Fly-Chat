@@ -5,14 +5,8 @@ import UIKit
 
 // MARK: - FCLMarkupEditor
 
-/// Draw-on-image editor built on top of `PencilKit`. The user's strokes are
-/// kept on a `PKCanvasView` overlaid on the source image; committing burns
-/// the drawing into a new bitmap sent to the caller.
-///
-/// Undo/redo is delegated to the canvas view's own `UndoManager`, which is
-/// the source of truth for `PencilKit`. The custom
-/// ``FCLAttachmentEditHistory`` still tracks snapshots so the outer preview
-/// can report "is dirty" consistently between tools.
+/// Draw-on-image editor backed by `PencilKit`. Committing burns strokes into a
+/// new bitmap. Undo/redo delegates to the canvas's own `UndoManager`.
 @MainActor
 struct FCLMarkupEditor: View {
     let original: UIImage
@@ -41,10 +35,6 @@ struct FCLMarkupEditor: View {
         }
         .background(Color.black.ignoresSafeArea())
         .onDisappear {
-            // Clear the canvas and reset undo/redo observability so a
-            // subsequent reuse of this editor (if SwiftUI ever skipped the
-            // caller's `.id()` identity change) cannot inherit strokes or
-            // history from a different asset.
             state.canvas?.drawing = PKDrawing()
             state.canvas?.undoManager?.removeAllActions()
             state.refreshUndoState()
@@ -67,13 +57,7 @@ struct FCLMarkupEditor: View {
                 let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
                 return renderer.image { _ in
                     image.draw(in: bounds)
-                    // Render strokes from the canvas's own local coordinate
-                    // space, then scale that bitmap into the image's native
-                    // rect. Because the canvas is constrained to the
-                    // aspect-fit image rect (see MarkupContainerView), this
-                    // maps stroke positions correctly regardless of container
-                    // aspect.
-                    let strokes = drawing.image(from: canvasBounds, scale: image.scale)
+                        let strokes = drawing.image(from: canvasBounds, scale: image.scale)
                     strokes.draw(in: bounds)
                 }
             }
@@ -84,8 +68,7 @@ struct FCLMarkupEditor: View {
 
 // MARK: - MarkupState
 
-/// Observes canvas undo/redo capability and retains the active `PKCanvasView`
-/// so SwiftUI-driven actions (toolbar buttons, commit) can reach it.
+/// Observes canvas undo/redo state and retains the active `PKCanvasView`.
 @MainActor
 final class MarkupState: ObservableObject {
     @Published var canUndo: Bool = false
@@ -115,9 +98,7 @@ final class MarkupState: ObservableObject {
 
 // MARK: - MarkupCanvasContainer
 
-/// UIKit bridge that hosts a `PKCanvasView` on top of a `UIImageView`. Uses
-/// `PKToolPicker` docked at the bottom of the window for the current first
-/// responder (the canvas).
+/// UIKit bridge hosting a `PKCanvasView` over a `UIImageView` with a docked `PKToolPicker`.
 @MainActor
 struct MarkupCanvasContainer: UIViewRepresentable {
     let image: UIImage
@@ -152,9 +133,6 @@ struct MarkupCanvasContainer: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         let state: MarkupState
-        /// Single tool picker owned by this coordinator for the lifetime of
-        /// the canvas. Created lazily once so repeated `updateUIView` passes
-        /// cannot spin up duplicate pickers.
         private lazy var toolPicker: PKToolPicker = PKToolPicker()
 
         init(state: MarkupState) {
@@ -214,10 +192,8 @@ final class MarkupContainerView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Constrain the PencilKit canvas to the image's aspect-fit rect so
-        // stroke coordinates map 1:1 to the visible image. Otherwise strokes
-        // in the letterboxed whitespace would offset the rendered drawing
-        // relative to the image on commit.
+        // Canvas is constrained to the aspect-fit image rect so stroke coordinates
+        // map 1:1 to the visible image area on commit.
         guard let image = imageView.image, image.size.width > 0, image.size.height > 0 else {
             canvas.frame = bounds
             return
@@ -227,13 +203,11 @@ final class MarkupContainerView: UIView {
         let containerRatio = containerSize.width / max(containerSize.height, 0.001)
         var fit = CGRect.zero
         if imageRatio > containerRatio {
-            // Image is wider than container — full width, letterbox top/bottom.
             fit.size.width = containerSize.width
             fit.size.height = containerSize.width / imageRatio
             fit.origin.x = 0
             fit.origin.y = (containerSize.height - fit.size.height) / 2
         } else {
-            // Image is taller — full height, pillarbox left/right.
             fit.size.height = containerSize.height
             fit.size.width = containerSize.height * imageRatio
             fit.origin.y = 0

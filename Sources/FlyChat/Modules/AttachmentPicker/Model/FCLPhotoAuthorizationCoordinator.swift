@@ -4,30 +4,18 @@ import SwiftUI
 
 // MARK: - FCLPhotoAuthorizationCoordinator
 
-/// Wraps `PHPhotoLibrary` authorization queries and exposes a reactive status
-/// for the attachment picker's permission-state views.
-///
-/// The coordinator is `@MainActor` so all status mutations land on the main
-/// thread and SwiftUI can read `status` directly without crossing isolation
-/// boundaries. The async `requestAuthorization` variant (iOS 14+) is used
-/// instead of the completion-handler overload to keep the call site clean and
-/// avoid callback-queue ambiguity.
+/// Wraps `PHPhotoLibrary` authorization and exposes a reactive status for the
+/// picker's permission-state views.
 @MainActor
 final class FCLPhotoAuthorizationCoordinator: ObservableObject {
 
     // MARK: - Published State
 
-    /// The current photo library authorization status.
-    ///
-    /// Starts as the system-reported status at construction time; callers may
-    /// trigger a live re-check via ``refresh()`` (e.g. on scene-active return).
     @Published private(set) var status: PHAuthorizationStatus
 
     // MARK: - Init
 
     init() {
-        // Read the current status synchronously so the initial render avoids a
-        // flicker to `.notDetermined` on first appear.
         if Self.isRunningInPreview {
             status = .notDetermined
         } else {
@@ -37,11 +25,7 @@ final class FCLPhotoAuthorizationCoordinator: ObservableObject {
 
     // MARK: - API
 
-    /// Requests photo library access when the status is `.notDetermined`; no-ops
-    /// for any other starting status.
-    ///
-    /// Uses the async `requestAuthorization(for:)` overload (iOS 14+) so the
-    /// call never blocks the caller and needs no completion-handler bridging.
+    /// Requests photo library access when status is `.notDetermined`; no-ops otherwise.
     func requestAccessIfNeeded() async {
         guard !Self.isRunningInPreview else { return }
         let current = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -53,10 +37,7 @@ final class FCLPhotoAuthorizationCoordinator: ObservableObject {
         status = granted
     }
 
-    /// Re-reads the current system authorization status without prompting.
-    ///
-    /// Call this whenever the user returns from Settings so the picker reflects
-    /// any permission change they made.
+    /// Re-reads the system authorization status without prompting.
     func refresh() {
         guard !Self.isRunningInPreview else { return }
         status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -99,10 +80,7 @@ private struct FCLPhotoAuthorizationCoordinatorPreviewView: View {
                 .font(.headline)
                 .padding()
         }
-        .onAppear {
-            // Override the coordinator status for preview purposes only.
-            // In production the coordinator reads from PHPhotoLibrary.
-        }
+        .onAppear {}
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(FCLPalette.systemGroupedBackground)
     }

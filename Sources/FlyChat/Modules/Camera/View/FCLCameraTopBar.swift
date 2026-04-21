@@ -41,8 +41,6 @@ struct FCLCameraTopBar: View {
     }
 
     var body: some View {
-        // Three-slot layout: close (leading) · flash pill (center) · overflow (trailing).
-        // Spacers push the slots to the edges and keep the pill floating in the center.
         HStack(spacing: 0) {
             closeButton
             Spacer(minLength: 8)
@@ -97,8 +95,6 @@ struct FCLCameraTopBar: View {
 
     // MARK: - Flash pill
 
-    /// Center pill: SF Symbol glyph + mode label, height 36, horizontal padding 12/14.
-    /// Font: 13 pt semibold, matching the prototype's font-size: 13, font-weight: 600.
     private var flashPill: some View {
         let (image, label) = flashLabel
         return FCLGlassChip(title: label, action: onToggleFlash) {
@@ -128,15 +124,12 @@ struct FCLCameraTopBar: View {
 
     // MARK: - Overflow button
 
-    /// Trailing overflow button (ellipsis). Hidden when no handler is provided;
-    /// an invisible same-size placeholder maintains the leading/center/trailing balance.
     private var overflowButton: some View {
         Group {
             if let onOverflow {
                 FCLGlassIconButton(systemImage: "ellipsis", size: 44, action: onOverflow)
                     .accessibilityLabel("More options")
             } else {
-                // Invisible placeholder keeps the flash pill centered.
                 Color.clear.frame(width: 44, height: 44)
             }
         }

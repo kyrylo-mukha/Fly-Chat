@@ -1,9 +1,7 @@
 #if canImport(UIKit)
 import UIKit
 
-/// An actor-isolated in-memory cache for sender avatar images, keyed by sender ID.
-///
-/// Uses `NSCache` internally for automatic memory-pressure eviction.
+/// Actor-isolated in-memory avatar image cache, keyed by sender ID.
 actor FCLAvatarImageCache {
     private let cache = NSCache<NSString, UIImage>()
 

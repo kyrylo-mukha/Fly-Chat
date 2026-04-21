@@ -28,8 +28,6 @@ struct FCLFileTabView: View {
     @State private var showScanner = false
     @State private var storeRecentFiles: [FCLRecentFile] = []
 
-    // The effective list: delegate takes precedence; store is the fallback.
-    // When search is active, the list is filtered by the presenter's search text.
     private var recentFiles: [FCLRecentFile] {
         let source = delegateRecentFiles.isEmpty ? storeRecentFiles : delegateRecentFiles
         let query = presenter.fileSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -182,8 +180,8 @@ struct FCLFileTabView: View {
 
 // MARK: - FCLFilePhotoPickerBridge
 
-/// A `UIViewControllerRepresentable` bridge to `PHPickerViewController` for selecting a single
-/// photo/video file without compression (original export).
+/// `UIViewControllerRepresentable` bridge to `PHPickerViewController` for a single
+/// original-export photo or video file.
 struct FCLFilePhotoPickerBridge: UIViewControllerRepresentable {
     let onSendFile: (FCLAttachment) -> Void
 
@@ -202,9 +200,7 @@ struct FCLFilePhotoPickerBridge: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, PHPickerViewControllerDelegate, @unchecked Sendable {
         // Safety invariant: onSendFile is always called on the main thread via Task { @MainActor }.
-        // The coordinator is created and retained by UIKit on the main thread.
-        // Follow-up: remove @unchecked Sendable when PHPickerViewControllerDelegate gains
-        // MainActor isolation in a future SDK.
+        // @unchecked Sendable is removed once PHPickerViewControllerDelegate gains MainActor isolation.
         let onSendFile: (FCLAttachment) -> Void
 
         init(onSendFile: @escaping (FCLAttachment) -> Void) {
@@ -217,12 +213,11 @@ struct FCLFilePhotoPickerBridge: UIViewControllerRepresentable {
 
             let isVideo = provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier)
             let typeID = isVideo ? UTType.movie.identifier : UTType.image.identifier
-            // Safety: sendFile is only invoked on the main thread via Task { @MainActor }.
             nonisolated(unsafe) let sendFile = onSendFile
 
             provider.loadFileRepresentation(forTypeIdentifier: typeID) { url, _ in
                 guard let url else { return }
-                // Copy to temp since the provided URL is only valid during this callback.
+                // Copy to a stable temp URL; the provided URL is only valid during this callback.
                 let tempURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent(url.lastPathComponent)
                 try? FileManager.default.removeItem(at: tempURL)
@@ -245,7 +240,7 @@ struct FCLFilePhotoPickerBridge: UIViewControllerRepresentable {
 
 // MARK: - FCLDocumentPickerBridge
 
-/// A `UIViewControllerRepresentable` bridge to `UIDocumentPickerViewController`
+/// `UIViewControllerRepresentable` bridge to `UIDocumentPickerViewController`
 /// for importing arbitrary files.
 struct FCLDocumentPickerBridge: UIViewControllerRepresentable {
     let onSendFile: (FCLAttachment) -> Void
@@ -262,10 +257,8 @@ struct FCLDocumentPickerBridge: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(onSendFile: onSendFile) }
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate, @unchecked Sendable {
-        // Safety invariant: onSendFile is always called on the main thread (delegate callbacks
-        // from UIDocumentPickerViewController are dispatched on the main queue).
-        // Follow-up: remove @unchecked Sendable when UIDocumentPickerDelegate gains
-        // MainActor isolation in a future SDK.
+        // Safety invariant: delegate callbacks dispatch on the main queue.
+        // @unchecked Sendable is removed once UIDocumentPickerDelegate gains MainActor isolation.
         let onSendFile: (FCLAttachment) -> Void
 
         init(onSendFile: @escaping (FCLAttachment) -> Void) {
@@ -296,7 +289,7 @@ struct FCLDocumentPickerBridge: UIViewControllerRepresentable {
 
 // MARK: - FCLDocumentScannerBridge
 
-/// A `UIViewControllerRepresentable` bridge to `VNDocumentCameraViewController`
+/// `UIViewControllerRepresentable` bridge to `VNDocumentCameraViewController`
 /// that renders scanned pages into a single PDF file.
 struct FCLDocumentScannerBridge: UIViewControllerRepresentable {
     let onSendFile: (FCLAttachment) -> Void
@@ -312,10 +305,8 @@ struct FCLDocumentScannerBridge: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(onSendFile: onSendFile) }
 
     final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate, @unchecked Sendable {
-        // Safety invariant: onSendFile is always called on the main thread (delegate callbacks
-        // from VNDocumentCameraViewController are dispatched on the main queue).
-        // Follow-up: remove @unchecked Sendable when VNDocumentCameraViewControllerDelegate
-        // gains MainActor isolation in a future SDK.
+        // Safety invariant: delegate callbacks dispatch on the main queue.
+        // @unchecked Sendable is removed once VNDocumentCameraViewControllerDelegate gains MainActor isolation.
         let onSendFile: (FCLAttachment) -> Void
 
         init(onSendFile: @escaping (FCLAttachment) -> Void) {
@@ -326,7 +317,6 @@ struct FCLDocumentScannerBridge: UIViewControllerRepresentable {
             _ controller: VNDocumentCameraViewController,
             didFinishWith scan: VNDocumentCameraScan
         ) {
-            // VNDocumentCameraViewControllerDelegate is always called on the main thread.
             MainActor.assumeIsolated {
                 controller.dismiss(animated: true)
             }

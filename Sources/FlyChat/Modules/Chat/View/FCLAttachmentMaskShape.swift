@@ -50,10 +50,6 @@ public struct FCLAttachmentMaskShape: Shape, Sendable {
     public func path(in rect: CGRect) -> Path {
         switch mode {
         case let .bubble(_, _, side, tailStyle):
-            // Derive per-corner radii by calling the shared imageContainerCorners helper.
-            // topRadius and bottomRadius stored in the enum are for API documentation purposes;
-            // the actual radii are computed canonically from FCLChatBubbleShape.
-            // The grid is image-only when this mode is used, so no content above or below.
             let corners = FCLChatBubbleShape.imageContainerCorners(
                 side: side,
                 tailStyle: tailStyle,
@@ -69,7 +65,6 @@ public struct FCLAttachmentMaskShape: Shape, Sendable {
             )
 
         case let .topRoundedBottomFlat(topRadius):
-            // Top-left and top-right corners are rounded; bottom edge is straight.
             return roundedRectPath(
                 in: rect,
                 topLeft: topRadius,

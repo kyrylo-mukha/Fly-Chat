@@ -68,7 +68,6 @@ struct FCLPickerTabBar: View {
                     .animation(pillAnimation, value: selectedTab)
                 }
             }
-            // Prototype per-segment height: 56pt.
             .frame(height: 56)
         }
         .opacity(isEnabled ? 1.0 : 0.4)
@@ -111,10 +110,8 @@ private struct FCLPickerTabItem: View {
         Button(action: onTap) {
             VStack(spacing: 3) {
                 item.icon.image
-                    // Prototype: 24pt icon in each tab segment.
                     .font(.system(size: 24))
                 Text(item.title)
-                    // Prototype: 10pt / weight 500 label.
                     .font(.system(size: 10, weight: .medium))
             }
             .padding(6)

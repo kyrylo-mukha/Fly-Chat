@@ -5,31 +5,19 @@ import SwiftUI
 // MARK: - FCLPaletteTests
 
 /// Asserts that every `FCLPalette` property returns a non-`.clear` `Color`.
-///
-/// These tests run on all platforms the package supports. On iOS the properties
-/// return `Color(uiColor:)` values whose components differ from `.clear`; on
-/// macOS they return the static fallback literals — both cases must differ from
-/// `Color.clear` whose RGBA components are all zero.
 final class FCLPaletteTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Extracts the RGBA components of a `Color` in the standard sRGB color
-    /// space. Returns `nil` when the conversion is not possible on the current
-    /// platform (which is never expected in practice for the values under test).
+    /// Returns RGBA components of `color` in sRGB, or `nil` on non-UIKit platforms.
     private func rgba(of color: Color) -> (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat)? {
         #if canImport(UIKit)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         let uiColor = UIColor(color)
-        // Resolve in the trait environment that matches the test device's current
-        // appearance (light by default in the simulator). We just need to confirm
-        // the color is not all-zero (clear), not that it equals a specific shade.
         let resolved = uiColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
         guard resolved.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
         return (r, g, b, a)
         #else
-        // On non-UIKit platforms fall back to CGColor via a temporary NSColor.
-        // The fallback values in FCLPalette are all opaque, so alpha will be 1.0.
         return nil
         #endif
     }
@@ -47,8 +35,7 @@ final class FCLPaletteTests: XCTestCase {
             && components.alpha == 0
         XCTAssertFalse(isClear, "\(name) must not resolve to Color.clear (all-zero RGBA)")
         #else
-        // On macOS the static fallbacks are opaque literals; treat as passing.
-        _ = color // prevent unused-variable warning
+        _ = color
         #endif
     }
 
@@ -99,9 +86,6 @@ final class FCLPaletteTests: XCTestCase {
     // MARK: - Exhaustive property count
 
     func testPaletteExposesAllNineProperties() {
-        // Enumerate the palette surface so a future property addition triggers
-        // a conscious update here. Adjust the expected count when new colors
-        // are added to FCLPalette.
         let colors: [Color] = [
             FCLPalette.systemBackground,
             FCLPalette.secondarySystemBackground,

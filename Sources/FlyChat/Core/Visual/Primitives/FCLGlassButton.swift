@@ -90,10 +90,8 @@ public struct FCLGlassButton<Label: View>: View {
         }
     }
 
-    /// Returns the rim stroke color when `showButtonShapes` is active, `nil` otherwise.
-    ///
-    /// Exposed as `internal` so unit tests can assert that the environment flag
-    /// produces a non-nil stroke without rendering the full view.
+    /// `internal` (not `private`) so unit tests can verify the `showButtonShapes` path
+    /// without rendering the full view.
     static func effectiveRimStroke(
         showButtonShapes: Bool,
         tint: FCLChatColorToken?

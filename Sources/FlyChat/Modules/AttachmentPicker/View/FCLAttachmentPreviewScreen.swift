@@ -6,60 +6,27 @@ import UIKit
 
 // MARK: - FCLAttachmentPreviewScreen
 
-/// Telegram-style attachment preview shown after the user captures or selects
-/// one or more assets.
-///
-/// The layout is a vertical stack:
-/// 1. Media preview area (horizontal pager between assets).
-/// 2. Thumbnail carousel (only when there are 2+ assets), centered with
-///    Photos-like parallax.
-/// 3. Input row: expanding caption field + send button.
-/// 4. Edit toolbar row: rotate/crop + markup stubs.
-/// 5. Optional top-right "+" add-more button when the origin was the camera.
-///
-/// Keyboard behavior:
-/// - Focusing the caption field dims the background slightly and glides the
-///   send button into the text-field row via `matchedGeometryEffect`.
-/// - Tapping any non-interactive area or swiping down dismisses the keyboard
-///   and returns to the baseline layout.
-/// - The caption field rises smoothly with the keyboard using SwiftUI's
-///   built-in keyboard-avoidance (the media area opts out via
-///   `.ignoresSafeArea(.keyboard)` so only the bottom cluster moves).
-///
-/// The screen does not animate its own dismissal — callers decide when to
-/// dismiss the containing modal via the supplied `onSend` / `onCancel` hooks.
+/// Telegram-style attachment preview: media pager, optional thumbnail carousel,
+/// caption input, and edit toolbar. Callers drive dismissal via `onSend`/`onCancel`.
 @MainActor
 struct FCLAttachmentPreviewScreen: View {
     // MARK: Inputs
 
     @ObservedObject var presenter: FCLAttachmentPickerPresenter
     @Binding var captionText: String
-    /// Attachments to render. Supplied by the caller so the screen can work for
-    /// both camera and gallery origins without reading presenter internals.
     let attachments: [FCLAttachment]
-    /// When true, the add-more button is shown in the top-right and invokes
-    /// ``onAddMore``.
     let showsAddMore: Bool
-    /// Chat input's configured max visible line count, fed through the delegate
-    /// to compute this screen's effective max.
     let chatMaxLines: Int
-    /// Optional delegate that can adjust the caption field's max lines.
     weak var inputDelegate: (any FCLAttachmentInputDelegate)?
 
     let onSend: () -> Void
     let onCancel: () -> Void
     let onAddMore: () -> Void
-    /// Invoked when the user taps the rotate/crop toolbar button. Retained for
-    /// backward compatibility with callers that want to observe tool entry;
-    /// the in-place editor is hosted by this screen itself.
+    /// Invoked when the user enters the rotate/crop tool (backward-compat hook).
     let onRotateCrop: () -> Void
-    /// Invoked when the user taps the markup toolbar button. See
-    /// ``onRotateCrop`` for the same backward-compat note.
+    /// Invoked when the user enters the markup tool (backward-compat hook).
     let onMarkup: () -> Void
-    /// Invoked after a tool commits its changes. Receives the asset ID, the
-    /// committed bitmap, and a stable file URL for the burned-in result.
-    /// Owners can use this to replace the underlying ``FCLAttachment`` (its
-    /// `url` and thumbnail) so the send path picks up the edited file.
+    /// Invoked after a tool commits changes so callers can refresh the attachment URL.
     let onImageEdited: (FCLAttachmentEditCommit, UIImage) -> Void
 
     // MARK: State
@@ -68,16 +35,9 @@ struct FCLAttachmentPreviewScreen: View {
     @State private var pageProgress: CGFloat
     @FocusState private var captionFocused: Bool
 
-    /// In-place editor state machine. `.preview` shows the pager; `.editing`
-    /// swaps the pager for the active editor and hides top bar, input row,
-    /// carousel, and edit-toolbar row.
     @State private var editState: FCLAttachmentEditState = .preview
-    /// Locally overridden bitmaps per asset (keyed by asset UUID). Populated
-    /// when a tool commits; consumed by the pager to render the edited
-    /// result immediately without waiting for the owner to update the
-    /// underlying ``FCLAttachment`` URL.
+    /// Per-asset edited bitmaps; updated on tool commit, consumed by the pager.
     @State private var localEdits: [UUID: UIImage] = [:]
-    /// Controls the full-exit confirmation dialog.
     @State private var showsExitConfirm: Bool = false
 
     // MARK: Init
@@ -147,35 +107,20 @@ struct FCLAttachmentPreviewScreen: View {
                           abs(value.translation.width) < 80
                     else { return }
                     if captionFocused {
-                        // Keyboard up → swallow the drag to retract it
-                        // first; the next downward swipe will fall through
-                        // to the dismiss path below.
                         captionFocused = false
                         return
                     }
-                    // Parity with the in-chat preview: when the keyboard is
-                    // already down, a downward drag dismisses the entire
-                    // preview screen instead of being a no-op.
                     onCancel()
                 }
         )
         .animation(.easeOut(duration: 0.22), value: captionFocused)
         .animation(.easeInOut(duration: 0.22), value: editState)
         .onChange(of: attachments.isEmpty) { _, isEmpty in
-            // When the staged asset set empties (send completed, or the user
-            // removed the last capture/selection), drop every per-asset edit
-            // so a subsequent use of this screen starts from a clean slate.
             if isEmpty { localEdits.removeAll() }
         }
         .onChange(of: attachments.map(\.id)) { _, newIDs in
-            // Clamp `selectedAssetID` whenever the staged asset set shrinks
-            // (or reorders) to a state that no longer contains the current
-            // selection. Without this clamp, TabView's selection tag
-            // resolves to nil on the next layout pass — `beginEditing` and
-            // any `selectedAssetID`-driven lookup then operate on a missing
-            // attachment, producing a blank pager and a no-op editor entry.
-            // The clamp also prunes any local edit entries whose owning
-            // asset no longer exists.
+            // Clamp selectedAssetID when the staged set shrinks so TabView's
+            // selection tag never resolves to nil on the next layout pass.
             if !newIDs.contains(selectedAssetID), let firstID = newIDs.first {
                 selectedAssetID = firstID
                 if let idx = newIDs.firstIndex(of: firstID) {
@@ -186,9 +131,6 @@ struct FCLAttachmentPreviewScreen: View {
             localEdits = localEdits.filter { liveSet.contains($0.key) }
         }
         .onDisappear {
-            // Final safety net: releasing the screen always drops the local
-            // edits map. The presenter's matching dictionary is cleared by
-            // the send / cancel code paths on the picker presenter itself.
             localEdits.removeAll()
         }
         .confirmationDialog(
@@ -208,9 +150,7 @@ struct FCLAttachmentPreviewScreen: View {
 
     // MARK: - Dirty check
 
-    /// The preview is "dirty" if the user has produced any committed edit,
-    /// typed a caption, or has 2+ selected assets staged. Tapping the full
-    /// exit button while dirty triggers a confirmation dialog.
+    /// Returns `true` when the exit button should trigger a confirmation dialog.
     private var isFlowDirty: Bool {
         if !localEdits.isEmpty { return true }
         if !captionText.isEmpty { return true }
@@ -218,14 +158,11 @@ struct FCLAttachmentPreviewScreen: View {
         return false
     }
 
-    /// Shared handler for the X button. In editing, first discards the tool
-    /// (returns to `.preview`) and falls through to the preview exit rules.
     private func handleFullExit() {
         if isEditing {
             withAnimation(.easeInOut(duration: 0.22)) {
                 editState = .preview
             }
-            // After discarding the tool, re-evaluate against preview rules.
         }
         if isFlowDirty {
             showsExitConfirm = true
@@ -255,10 +192,8 @@ struct FCLAttachmentPreviewScreen: View {
                     .transition(.opacity)
             }
         }
-        // Pin the whole vertical stack against the bottom edge so the media
-        // pager, thumbnail carousel, and edit toolbar do not lift or re-layout
-        // when the keyboard appears. Only the inputRow — hosted in the
-        // safeAreaInset below — rises with the keyboard.
+        // Only the inputRow (in safeAreaInset) rises with the keyboard;
+        // the pager and carousel stay pinned to the bottom edge.
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             inputRow
@@ -307,8 +242,6 @@ struct FCLAttachmentPreviewScreen: View {
         )
 
         return VStack(spacing: 6) {
-            // "+" add-more sits above the text field, trailing. Only visible
-            // when `showsAddMore` and not focused (avoid clutter while typing).
             if showsAddMore && !captionFocused {
                 HStack {
                     Spacer()
@@ -333,22 +266,13 @@ struct FCLAttachmentPreviewScreen: View {
                     .tint(.white)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .padding(.trailing, 48) // persistent reserved space for the glide send button
-                    // Use 0.22 white when focused so the caption field reads
-                    // against the dim overlay instead of dissolving into it;
-                    // idle state stays at 0.14 to match the unfocused chrome
-                    // weight.
+                    .padding(.trailing, 48)
                     .background(Color.white.opacity(captionFocused ? 0.22 : 0.14))
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .overlay(alignment: .bottomTrailing) {
-                // Single persistent send button. Glides between the edit-toolbar
-                // row (unfocused) and the text-field row (focused) via a
-                // vertical offset. Keeping one instance mounted avoids the
-                // branch-and-reinsert jump that matchedGeometryEffect produces
-                // when paired with `transition(.identity)`.
                 sendButton
                     .padding(.trailing, 16)
                     .padding(.bottom, captionFocused ? 10 : 12)
@@ -358,18 +282,11 @@ struct FCLAttachmentPreviewScreen: View {
         }
     }
 
-    /// Approximate height of the edit toolbar row (icon frame + bottom
-    /// padding). Used to drive the send button's glide offset.
+    /// Approximate edit toolbar row height; drives the send button's glide offset.
     private static let editToolbarHeight: CGFloat = 52
 
-    /// Drop caption focus *before* invoking `onSend`. The sheet
-    /// owner reacts to send by dismissing the picker modal; if the
-    /// `@FocusState` is still `true` at that moment, SwiftUI's focus
-    /// cascade can re-resolve focus on a transient UIResponder during
-    /// the dismiss transaction, which momentarily re-shows the keyboard
-    /// in the chat view behind the cover. Forcing focus to `false` first
-    /// guarantees the keyboard is already torn down before dismissal
-    /// begins, eliminating the post-send keyboard flash.
+    /// Drops caption focus before invoking `onSend` to prevent a post-dismiss
+    /// keyboard flash caused by SwiftUI re-resolving focus during the dismiss transaction.
     private func performSend() {
         if captionFocused { captionFocused = false }
         onSend()
@@ -427,9 +344,6 @@ struct FCLAttachmentPreviewScreen: View {
                         finishEditing(commit: false, tool: tool, assetID: assetID, image: image)
                     }
                 )
-                // Force a fresh editor identity per asset so the editor's
-                // @StateObject history cannot bleed across different source
-                // images. See FCLRotateCropEditor.HistoryBox.
                 .id(assetID)
             case .markup:
                 FCLMarkupEditor(
@@ -444,7 +358,6 @@ struct FCLAttachmentPreviewScreen: View {
                 .id(assetID)
             }
         } else {
-            // Defensive fallback: unknown state → pop back to preview.
             Color.black.onAppear { editState = .preview }
         }
     }
@@ -468,8 +381,6 @@ struct FCLAttachmentPreviewScreen: View {
                 let commitInfo = FCLAttachmentEditCommit(assetID: assetID, tool: tool, fileURL: url)
                 onImageEdited(commitInfo, image)
             }
-            // Mirror into the presenter's String-keyed cache so existing
-            // send-path lookups see the edit too.
             presenter.setEditedImage(image, for: assetID.uuidString)
         }
         withAnimation(.easeInOut(duration: 0.22)) {
@@ -477,9 +388,7 @@ struct FCLAttachmentPreviewScreen: View {
         }
     }
 
-    /// Returns the current best source image for `attachment`: the most
-    /// recently committed local edit wins; otherwise the presenter's cached
-    /// edited bitmap; otherwise the attachment's thumbnail or its raw file.
+    /// Returns the best source image for `attachment`: local edit > presenter cache > thumbnail > raw file.
     private func sourceImage(for attachment: FCLAttachment) -> UIImage? {
         if let edited = localEdits[attachment.id] { return edited }
         if let cached = presenter.editedImage(for: attachment.id.uuidString) { return cached }
@@ -511,10 +420,8 @@ struct FCLAttachmentPreviewScreen: View {
 
 // MARK: - FCLAttachmentPreviewPage
 
-/// Renders a single attachment (image or video thumbnail w/ play affordance)
-/// inside the preview pager. Images use aspect-fit to match system Photos
-/// behavior. Video playback is wired in a follow-up task; for now the first
-/// frame is shown with a play icon overlay.
+/// Renders a single attachment inside the preview pager. Videos show the first
+/// frame with a play icon overlay.
 @MainActor
 private struct FCLAttachmentPreviewPage: View {
     let attachment: FCLAttachment
@@ -526,13 +433,6 @@ private struct FCLAttachmentPreviewPage: View {
             Color.black
 
             if let image = effectiveImage {
-                // Wrap the rendered bitmap in a UIScrollView so each
-                // page supports pinch-zoom and double-tap-zoom (min 1.0,
-                // max 3.0). When zoomScale > 1 the inner scroll view's pan
-                // recognizer naturally outranks the surrounding TabView's
-                // paging recognizer (the TabView only wins when the inner
-                // content is already at its leading/trailing edge), giving
-                // Photos-like behavior without an explicit paging gate.
                 FCLZoomableImageView(image: image)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -577,10 +477,6 @@ private struct FCLAttachmentPreviewPage: View {
             let asset = AVURLAsset(url: url)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
-            // Cap the produced bitmap so first-frame decoding never
-            // hitches on oversized source media (e.g. 4K HDR clips). The
-            // generator scales aspect-fit into this bounding box before
-            // returning the CGImage.
             generator.maximumSize = CGSize(width: 1920, height: 1920)
             let time = CMTime(seconds: 0.1, preferredTimescale: 600)
             do {
@@ -595,13 +491,7 @@ private struct FCLAttachmentPreviewPage: View {
 
 // MARK: - FCLZoomableImageView
 
-/// SwiftUI wrapper around a `UIScrollView` that hosts a single
-/// `UIImageView` and supports pinch + double-tap zoom in the range
-/// `1.0 ... 3.0`. The view is intentionally simple: it does not own any
-/// per-asset state beyond what the contained `UIImageView` carries, so
-/// `FCLAttachmentPreviewScreen`'s pager can reuse the same SwiftUI surface
-/// across pages without leaking zoom between assets (each page mounts a
-/// fresh representable identity via the parent `ForEach`).
+/// SwiftUI wrapper around a `UIScrollView` with pinch and double-tap zoom (1.0–3.0).
 @MainActor
 private struct FCLZoomableImageView: UIViewRepresentable {
     let image: UIImage
@@ -618,9 +508,7 @@ private struct FCLZoomableImageView: UIViewRepresentable {
         scrollView.delegate = context.coordinator
         scrollView.backgroundColor = .clear
         scrollView.contentInsetAdjustmentBehavior = .never
-        // Match Photos: no rubber-banding off the leading/trailing edges
-        // when at min zoom, so horizontal pans cleanly hand off to the
-        // surrounding TabView pager.
+        // Disable horizontal bounce at min zoom so panning hands off cleanly to the TabView pager.
         scrollView.alwaysBounceHorizontal = false
         scrollView.alwaysBounceVertical = false
 
@@ -631,8 +519,6 @@ private struct FCLZoomableImageView: UIViewRepresentable {
         scrollView.addSubview(imageView)
         context.coordinator.imageView = imageView
 
-        // Pin image view to the scroll view's content layout guide so it
-        // tracks the scroll view's bounds and zooms cleanly.
         NSLayoutConstraint.activate([
             imageView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
@@ -642,7 +528,6 @@ private struct FCLZoomableImageView: UIViewRepresentable {
             imageView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor)
         ])
 
-        // Double-tap toggles between min zoom and 2× centered on the tap.
         let doubleTap = UITapGestureRecognizer(
             target: context.coordinator,
             action: #selector(Coordinator.handleDoubleTap(_:))
@@ -654,10 +539,6 @@ private struct FCLZoomableImageView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIScrollView, context: Context) {
-        // Idempotent: only swap the image when the source bitmap actually
-        // changed. SwiftUI may re-invoke `updateUIView` for unrelated
-        // ancestor invalidations; guarding here prevents the zoom scale
-        // from being reset on every parent re-render.
         if context.coordinator.imageView?.image !== image {
             context.coordinator.imageView?.image = image
             uiView.zoomScale = uiView.minimumZoomScale

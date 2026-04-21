@@ -1,19 +1,9 @@
 import Foundation
 import SwiftUI
 
-/// The main chat list screen that displays a scrollable list of conversation summaries.
-///
-/// `FCLChatListScreen` observes an ``FCLChatListPresenter`` and renders each chat summary
-/// as a tappable row. When the chat list is empty, an informational empty-state placeholder
-/// is shown instead.
-///
-/// The screen delegates user interactions (e.g., row taps) to the presenter, which in turn
-/// routes them through the configured ``FCLChatListRouting`` implementation.
+/// The main chat list screen; renders a scrollable list of conversation summaries or an empty state.
 public struct FCLChatListScreen: View {
-    /// The presenter that provides the chat data and handles user interactions.
     @ObservedObject private var presenter: FCLChatListPresenter
-
-    /// An optional delegate for customizing chat UI elements such as avatars.
     private let delegate: (any FCLChatDelegate)?
 
     /// Creates a new chat list screen.

@@ -45,13 +45,8 @@ public enum FCLAttachmentEditState: Equatable, Sendable {
 
 // MARK: - FCLAttachmentEditCommit
 
-/// The result of committing an in-place edit. Passed up to the screen's owner
-/// so the underlying ``FCLAttachment`` (and its file URL) can be refreshed.
-///
-/// The `fileURL` points to a freshly written image inside the package's
-/// scratch directory (see ``FCLAttachmentEditScratch``). The send path is
-/// responsible for attaching that URL — or a further compressed copy of it —
-/// when the user taps send.
+/// The result of committing an in-place edit, passed to the screen owner so the
+/// underlying ``FCLAttachment`` can be refreshed with the new file URL.
 public struct FCLAttachmentEditCommit: Sendable {
     public let assetID: UUID
     public let tool: FCLAttachmentEditTool
@@ -66,10 +61,10 @@ public struct FCLAttachmentEditCommit: Sendable {
 
 // MARK: - FCLAttachmentEditScratch
 
-/// Helpers for writing committed edits to the package's scratch directory
-/// so the send path can pick up the edited bitmap from a stable URL.
+/// Writes committed edits to the package scratch directory so the send path
+/// can read the edited bitmap from a stable URL.
 enum FCLAttachmentEditScratch {
-    /// `tmp/FlyChat/AttachmentEdits/` — created lazily.
+    /// Returns `tmp/FlyChat/AttachmentEdits/`, creating it if needed.
     static func directory() -> URL {
         let base = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("FlyChat", isDirectory: true)
@@ -78,9 +73,7 @@ enum FCLAttachmentEditScratch {
         return base
     }
 
-    /// Writes `image` as JPEG (quality 0.92) into the scratch directory and
-    /// returns the resulting URL. Each call produces a unique file name so
-    /// downstream caches are invalidated.
+    /// Writes `image` as JPEG (quality 0.92) to the scratch directory and returns the URL.
     static func writeJPEG(_ image: UIImage, assetID: UUID) -> URL? {
         guard let data = image.jpegData(compressionQuality: 0.92) else { return nil }
         let name = "\(assetID.uuidString)-\(Int(Date().timeIntervalSince1970 * 1000)).jpg"

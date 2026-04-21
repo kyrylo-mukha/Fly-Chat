@@ -68,9 +68,6 @@ struct FCLPickerZoomDestination: ViewModifier {
 // MARK: - Previews
 
 #if DEBUG
-// Previews exercise the iOS 17 / macOS 14 fallback no-op path of both
-// modifiers; the iOS 18+ / macOS 15+ zoom behavior is sheet-presentation-driven
-// and cannot be observed in a static `#Preview` host.
 
 #Preview("ZoomSource — fallback no-op") {
     FCLPickerZoomTransitionPreviewHost { namespace in

@@ -3,93 +3,45 @@
 import CoreGraphics
 import Foundation
 
-/// Actor-isolated owner of camera zoom state.
-///
-/// `FCLCameraZoomController` encapsulates the active `AVCaptureDevice`, its
-/// legal zoom range, the set of user-facing preset factors derived from the
-/// device's constituent lenses, and the bookkeeping needed to drive smooth
-/// `ramp(toVideoZoomFactor:withRate:)` transitions with a rate chosen from
-/// pinch velocity.
-///
-/// Concurrency model:
-/// - The controller is an `actor`: all mutation of the bound device and of
-///   the current zoom factor happens on the actor's executor.
-/// - `AVCaptureDevice` is not `Sendable`. It is stored as
-///   `nonisolated(unsafe)` with the invariant that every `lockForConfiguration`
-///   / `ramp(...)` / direct `videoZoomFactor` write runs inside the actor.
-/// - UI receives display values via a MainActor-isolated `AsyncStream<CGFloat>`
-///   returned from `displayValues()`. Each `setZoom` / `ramp` tick yields the
-///   current clamped factor; consumers transform that into `@Published` state
-///   on the main actor.
-///
-/// The controller intentionally does NOT know about photo / video capture
-/// modes or recording state — presenters gate whether to animate by passing
-/// `animated: false` (or a short rate) while recording is in progress.
+/// Actor-isolated owner of `AVCaptureDevice` zoom state.
+/// Drives `ramp(toVideoZoomFactor:withRate:)` and direct assignments; exposes
+/// an `AsyncStream<CGFloat>` of display values for MainActor consumers.
 actor FCLCameraZoomController {
 
     // MARK: - Public types
 
     struct DeviceSnapshot: Sendable {
-        /// Minimum legal zoom factor for the current device (typically 1.0
-        /// for single-lens or 0.5 equivalent for virtual multi-cam devices).
         let minFactor: CGFloat
-        /// Maximum legal zoom factor. Read from
-        /// `maxAvailableVideoZoomFactor` (device-reported safe ceiling).
         let maxFactor: CGFloat
-        /// Factors at which the virtual multi-cam device switches between
-        /// constituent lenses when zooming out. Empty on single-lens devices.
         let switchOverFactors: [CGFloat]
-        /// Preset factors to show in the ring, in display order.
-        /// Always includes `1.0`; `0.5` only if ultra-wide is present;
-        /// `2.0` and `3.0` only if a telephoto lens is present. When the
-        /// device reports a `videoZoomFactorUpscaleThreshold` lower than a
-        /// preset target, the preset is clamped to the threshold so the ring
-        /// does not offer a value that forces digital upscaling.
         let presetFactors: [CGFloat]
-        /// Multiplier that maps "user-visible" zoom (where 1x corresponds to
-        /// the device's default wide field of view) to the raw
-        /// `videoZoomFactor` expected by AVCaptureDevice. For a virtual dual
-        /// / triple camera whose base is 0.5x ultra-wide, the device's raw
-        /// 1.0 factor corresponds to 0.5x user zoom, so the multiplier is 2.
-        /// For a plain wide camera, the multiplier is 1.
+        /// Ratio of raw `videoZoomFactor` to user-visible zoom.
+        /// For a dual/triple camera whose widest constituent is ultra-wide (0.5×),
+        /// `userToDeviceScale` is 2; for a plain wide camera it is 1.
         let userToDeviceScale: CGFloat
-        /// User-visible upscale threshold, or `nil` when the device does not
-        /// report one. Above this factor, the device begins digital upscaling.
-        /// Exposed so the preset ring (and any future HUD affordance) can
-        /// render a "max without upscale" marker.
+        /// User-visible zoom factor above which the device begins digital upscaling,
+        /// or `nil` when the active format does not report a threshold.
         let upscaleThresholdUser: CGFloat?
     }
 
     // MARK: - Stored state
 
-    /// Bound device. `nonisolated(unsafe)` because `AVCaptureDevice` is not
-    /// `Sendable`; all reads/writes happen on the actor's executor — see the
-    /// invariant in the type-level doc comment.
+    /// `nonisolated(unsafe)` because `AVCaptureDevice` is not `Sendable`;
+    /// every `lockForConfiguration` / `ramp(...)` / `videoZoomFactor` write
+    /// runs on the actor's executor.
     nonisolated(unsafe) private var device: AVCaptureDevice?
 
-    /// Cached snapshot of the currently bound device. Refreshed on every
-    /// `bind(device:)` call.
     private var snapshot: DeviceSnapshot?
-
-    /// Current zoom factor in **user-visible** units (e.g., 0.5, 1.0, 2.0).
     private var userZoom: CGFloat = 1.0
-
-    /// Continuation for the display-value stream. Stored so `finish()` can be
-    /// called on `reset()` / teardown.
     private var displayContinuation: AsyncStream<CGFloat>.Continuation?
 
     // MARK: - Lifecycle
 
     init() {}
 
-    /// Binds a capture device and refreshes the cached snapshot. Resets the
-    /// internal user zoom to 1.0 and yields it to any active consumers so the
-    /// UI re-syncs after a device flip.
-    ///
-    /// The `sending` parameter transfers ownership of the (non-`Sendable`)
-    /// `AVCaptureDevice?` into the actor's executor so callers can hand off
-    /// the device from a `nonisolated` context (e.g. the camera session queue)
-    /// without triggering a strict-concurrency race diagnostic.
+    /// Binds a capture device, refreshes the snapshot, and resets user zoom to 1.0.
+    /// The `sending` label transfers ownership of the non-`Sendable` device across
+    /// the actor boundary without a strict-concurrency diagnostic.
     func bind(device newDevice: sending AVCaptureDevice?) {
         device = newDevice
         snapshot = newDevice.map { Self.makeSnapshot(for: $0) }
@@ -97,15 +49,12 @@ actor FCLCameraZoomController {
         displayContinuation?.yield(1.0)
     }
 
-    /// Returns the active snapshot. `nil` until `bind(device:)` has been
-    /// called with a non-nil device.
     func currentSnapshot() -> DeviceSnapshot? { snapshot }
 
-    /// Returns the current user-visible zoom factor.
     func currentZoom() -> CGFloat { userZoom }
 
-    /// Produces an `AsyncStream` of user-visible zoom display values. Multiple
-    /// calls install a single continuation; the prior stream is finished.
+    /// Returns a stream of user-visible zoom display values.
+    /// Subsequent calls replace the active stream; the prior one is finished.
     func displayValues() -> AsyncStream<CGFloat> {
         displayContinuation?.finish()
         let (stream, continuation) = AsyncStream<CGFloat>.makeStream(
@@ -116,7 +65,6 @@ actor FCLCameraZoomController {
         return stream
     }
 
-    /// Stops the active display-values stream, if any.
     func finishStream() {
         displayContinuation?.finish()
         displayContinuation = nil
@@ -124,11 +72,8 @@ actor FCLCameraZoomController {
 
     // MARK: - Zoom operations
 
-    /// Applies a zoom factor (user-visible units). When `animated` is true,
-    /// uses `ramp(toVideoZoomFactor:withRate:)` with a rate derived from the
-    /// magnitude of the change; when false, sets `videoZoomFactor` directly.
-    /// The rate can be overridden via `rateOverride` for velocity-driven
-    /// pinches and for recording-in-progress presets (pass a small rate).
+    /// Applies a zoom factor in user-visible units.
+    /// `animated` chooses between `ramp(toVideoZoomFactor:withRate:)` and direct assignment.
     func setZoom(_ factor: CGFloat, animated: Bool, rateOverride: Float? = nil) {
         guard let device, let snapshot else { return }
         let clampedUser = Self.clamp(
@@ -158,26 +103,19 @@ actor FCLCameraZoomController {
             }
             device.unlockForConfiguration()
         } catch {
-            // Lock failures are swallowed; the UI simply stays at the previous
-            // display value and the next gesture tick will retry.
             return
         }
         userZoom = clampedUser
         displayContinuation?.yield(clampedUser)
     }
 
-    /// Applies a pinch delta. `scale` is the cumulative pinch scale since
-    /// gesture start. `base` is the user-zoom factor at gesture start.
-    /// `velocity` is the pinch recognizer's reported velocity (in `1/s`).
-    /// `exponential` controls whether to apply the `pow(scale, 2.0)` curve
-    /// (disabled for reduce-motion).
-    ///
-    /// Scope 06: when the magnitude of `velocity` exceeds the fast-pinch
-    /// threshold (20 pt/s), an animated ramp is issued with a rate derived
-    /// from the velocity magnitude so fast pinches land via a smooth
-    /// `ramp(toVideoZoomFactor:withRate:)` envelope. Slow pinches fall
-    /// through to the existing direct-assignment path because the pinch is
-    /// already a continuous gesture.
+    /// Applies a pinch gesture update.
+    /// - Parameters:
+    ///   - base: user-zoom factor at gesture start.
+    ///   - scale: cumulative pinch scale since gesture start.
+    ///   - velocity: pinch recognizer velocity (1/s); fast pinches trigger an animated ramp.
+    ///   - exponential: when `true`, applies a `pow(scale, 2.0)` curve for a perceptual feel
+    ///     matching iOS Camera; disabled for reduce-motion.
     func applyPinch(
         base: CGFloat,
         scale: CGFloat,
@@ -186,20 +124,11 @@ actor FCLCameraZoomController {
     ) {
         let curved: CGFloat
         if exponential {
-            // Exponential mapping amplifies small scale changes near the
-            // ends of the device range, matching iOS Camera's feel. Using
-            // `pow(scale, 2.0)` of the incremental scale produces an
-            // acceleration curve where a 10 % pinch grows into a
-            // 21 % zoom delta — perceptually closer to the system app
-            // than a linear 1:1 mapping.
             curved = pow(max(scale, 0.0001), 2.0)
         } else {
             curved = scale
         }
         let target = base * curved
-        // Scope 06: fast pinches shape the ramp rate from the gesture
-        // velocity; slow pinches stay on the direct-assignment path so the
-        // preview tracks the finger movement 1:1 without overshoot.
         let velocityMagnitude = abs(velocity)
         if velocityMagnitude > Self.fastPinchVelocityThreshold {
             let rate = Self.rateFromVelocity(velocity)
@@ -209,22 +138,13 @@ actor FCLCameraZoomController {
         }
     }
 
-    /// Pinch-velocity magnitude (points/sec) above which `applyPinch` shifts
-    /// to an animated `ramp(toVideoZoomFactor:withRate:)` call. Below the
-    /// threshold the zoom tracks the finger 1:1 via direct assignment.
     static let fastPinchVelocityThreshold: CGFloat = 20.0
 
-    /// Maps pinch-velocity magnitude to an AVFoundation ramp rate (doublings
-    /// per second). Empirically tuned to give fast pinches a snappy envelope
-    /// (rate ≈ 8 at `|v|` ≈ 480 pt/s) while keeping slow ramps gentle (rate
-    /// floor = 1) and protecting the device from runaway ramps (rate ceiling
-    /// = 32).
     static func rateFromVelocity(_ v: CGFloat) -> Float {
         max(1.0, min(32.0, Float(abs(v) / 60)))
     }
 
-    /// Cancels an in-flight ramp, if any. Used when a new input supersedes
-    /// a prior animated preset tap.
+    /// Cancels any in-flight `ramp(toVideoZoomFactor:withRate:)`.
     func cancelRamp() {
         guard let device else { return }
         do {
@@ -248,18 +168,12 @@ actor FCLCameraZoomController {
         min(max(factor, minFactor), maxFactor)
     }
 
-    /// Chooses a `ramp` rate (zoom-factor doublings per second) appropriate
-    /// for the magnitude of the change. Small preset jumps (e.g. 1x → 2x)
-    /// should feel snappy; large jumps (e.g. 0.5x → 3x) should still land in
-    /// under half a second.
     private static func defaultRate(from start: CGFloat, to target: CGFloat) -> Float {
-        // Rate is expressed as doublings-per-second of `videoZoomFactor`.
-        // Empirically tuned to match the iOS system Camera preset-tap feel.
+        // Doublings-per-second of `videoZoomFactor`; empirically tuned to match
+        // the iOS Camera preset-tap feel: small jumps ≈ 8 dps, large jumps ≈ 4 dps.
         let ratio = max(start, target) / max(min(start, target), 0.0001)
-        // Small changes (< 1.5x ratio) → rate ~ 8 doublings/s (fast but smooth).
-        // Large changes (> 4x ratio)   → rate ~ 4 doublings/s.
         let clampedRatio = max(1.0, min(ratio, 8.0))
-        let normalized = (clampedRatio - 1.0) / 7.0 // 0 (tiny) ... 1 (huge)
+        let normalized = (clampedRatio - 1.0) / 7.0
         return Float(8.0 - 4.0 * normalized)
     }
 
@@ -269,13 +183,9 @@ actor FCLCameraZoomController {
         let rawSwitchOvers = device.virtualDeviceSwitchOverVideoZoomFactors
             .map { CGFloat(truncating: $0) }
 
-        // Determine the base "user 1x" anchor. Virtual multi-cam devices
-        // expose raw videoZoomFactor starting at 1.0 for their widest
-        // constituent (often ultra-wide 0.5x). iOS Camera displays 1x at the
-        // standard wide lens — which is the first switch-over factor on a
-        // dual/triple camera, or 1.0 on a plain wide camera.
+        // The first switch-over factor maps raw 1.0 → user 1.0 (wide lens anchor).
+        // On plain single-lens cameras there are no switch-overs, so the scale is 1.
         let baseFactor: CGFloat = rawSwitchOvers.first ?? 1.0
-        // Ratio of raw device factor to user-visible factor.
         let userToDeviceScale = baseFactor
 
         let minDeviceFactor = CGFloat(device.minAvailableVideoZoomFactor)
@@ -283,13 +193,9 @@ actor FCLCameraZoomController {
         let minUserFactor = minDeviceFactor / userToDeviceScale
         let maxUserFactor = maxDeviceFactor / userToDeviceScale
 
-        // Scope 06: `videoZoomFactorUpscaleThreshold` marks the raw device
-        // factor above which the device begins digital upscaling. On telephoto
-        // devices the threshold often lives inside the 2x/3x preset band, so
-        // presets above it force undesirable digital zoom. Convert the raw
-        // threshold to user-visible units and clamp preset targets below it.
-        // The property lives on `AVCaptureDevice.Format`, not on the device
-        // itself — read it from the currently active format.
+        // `videoZoomFactorUpscaleThreshold` lives on `AVCaptureDevice.Format`
+        // (not on the device itself); convert to user-visible units so the preset
+        // ring can clamp presets that would otherwise force digital upscaling.
         let rawUpscaleThreshold = CGFloat(device.activeFormat.videoZoomFactorUpscaleThreshold)
         let upscaleThresholdUser: CGFloat?
         if rawUpscaleThreshold > 0,
@@ -300,8 +206,6 @@ actor FCLCameraZoomController {
             upscaleThresholdUser = nil
         }
 
-        // Lens detection via constituent devices for virtual cameras, or via
-        // the device's own deviceType for single-lens cameras.
         let constituents = device.constituentDevices
         let deviceTypes: [AVCaptureDevice.DeviceType]
         if constituents.isEmpty {
@@ -322,9 +226,6 @@ actor FCLCameraZoomController {
             if maxUserFactor >= 3.0 { presets.append(3.0) }
         }
 
-        // Clamp preset targets to the upscale threshold when it is defined
-        // and below the preset's target. This prevents the ring from offering
-        // a value that would force digital upscaling across a lens boundary.
         if let threshold = upscaleThresholdUser {
             presets = presets.map { preset in
                 preset > threshold ? threshold : preset

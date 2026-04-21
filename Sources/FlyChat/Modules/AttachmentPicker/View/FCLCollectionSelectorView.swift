@@ -83,18 +83,12 @@ private struct FCLCollectionListPopover: View {
         }
         .frame(minWidth: 240, idealWidth: 260)
         .fixedSize(horizontal: false, vertical: true)
-        // Constrain height so the popover does not fill the whole screen on
-        // devices with many albums; allow the ScrollView to kick in above limit.
         .frame(maxHeight: 400)
     }
 }
 
 // MARK: - CollectionRow
 
-/// A single row inside `FCLCollectionListPopover`.
-///
-/// Layout: `HStack { title/count VStack — checkmark (if selected) — thumbnail }`
-/// Height: intrinsic (~56 pt via vertical padding + 44 pt thumbnail).
 private struct CollectionRow: View {
     let collection: FCLAssetCollection
     let isSelected: Bool
@@ -104,7 +98,6 @@ private struct CollectionRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 12) {
-                // Leading: title + count
                 VStack(alignment: .leading, spacing: 2) {
                     Text(collection.title)
                         .font(.body)
@@ -116,14 +109,12 @@ private struct CollectionRow: View {
 
                 Spacer(minLength: 0)
 
-                // Checkmark for the currently selected row
                 if isSelected {
                     Image(systemName: "checkmark")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.tint)
                 }
 
-                // Trailing: thumbnail
                 thumbnailView
                     .frame(width: 44, height: 44)
                     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
@@ -234,8 +225,6 @@ private struct FCLCollectionSelectorPreviewWrapper: View {
     }
 }
 
-/// Renders just the popover content directly (without tapping the chip) so
-/// the list is visible in canvas without interaction.
 @MainActor
 private struct FCLCollectionPopoverPreviewWrapper: View {
     let selectedIndex: Int
@@ -258,7 +247,6 @@ private struct FCLCollectionPopoverPreviewWrapper: View {
     }
 }
 
-/// Simulates the `.limited` auth state — selector is hidden, only banner is shown.
 private struct FCLCollectionSelectorLimitedPreview: View {
     var body: some View {
         VStack(spacing: 0) {

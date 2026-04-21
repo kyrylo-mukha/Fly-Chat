@@ -132,7 +132,6 @@ final class FCLVisualStyleTests: XCTestCase {
         )
         XCTAssertNotNil(withTint)
         XCTAssertNotNil(withoutTint)
-        // Both are non-nil; tint-based vs primary-based colors differ in value.
         XCTAssertNotEqual(withTint, withoutTint)
     }
 

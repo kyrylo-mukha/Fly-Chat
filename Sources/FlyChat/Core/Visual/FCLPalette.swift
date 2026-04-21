@@ -22,8 +22,6 @@ enum FCLPalette {
 
     // MARK: - Background Colors
 
-    /// Equivalent to `UIColor.systemBackground` — the primary background for
-    /// screens and views; adapts between white (light) and near-black (dark).
     static var systemBackground: Color {
         #if canImport(UIKit)
         Color(uiColor: .systemBackground)
@@ -32,8 +30,6 @@ enum FCLPalette {
         #endif
     }
 
-    /// Equivalent to `UIColor.secondarySystemBackground` — used for grouped
-    /// list headers, secondary panels, and inset cards.
     static var secondarySystemBackground: Color {
         #if canImport(UIKit)
         Color(uiColor: .secondarySystemBackground)
@@ -42,8 +38,6 @@ enum FCLPalette {
         #endif
     }
 
-    /// Equivalent to `UIColor.systemGroupedBackground` — the outermost
-    /// background for inset-grouped list screens.
     static var systemGroupedBackground: Color {
         #if canImport(UIKit)
         Color(uiColor: .systemGroupedBackground)
@@ -54,8 +48,6 @@ enum FCLPalette {
 
     // MARK: - Label Colors
 
-    /// Equivalent to `UIColor.label` — the primary text / icon color; black
-    /// in light mode, white in dark mode.
     static var label: Color {
         #if canImport(UIKit)
         Color(uiColor: .label)
@@ -64,8 +56,6 @@ enum FCLPalette {
         #endif
     }
 
-    /// Equivalent to `UIColor.secondaryLabel` — used for supporting text and
-    /// secondary icon tints.
     static var secondaryLabel: Color {
         #if canImport(UIKit)
         Color(uiColor: .secondaryLabel)
@@ -74,8 +64,6 @@ enum FCLPalette {
         #endif
     }
 
-    /// Equivalent to `UIColor.tertiaryLabel` — used for placeholder text and
-    /// the least prominent labels.
     static var tertiaryLabel: Color {
         #if canImport(UIKit)
         Color(uiColor: .tertiaryLabel)
@@ -86,8 +74,6 @@ enum FCLPalette {
 
     // MARK: - Fill Colors
 
-    /// Equivalent to `UIColor.tertiarySystemFill` — used for thin strokes and
-    /// placeholder thumbnail backgrounds.
     static var tertiarySystemFill: Color {
         #if canImport(UIKit)
         Color(uiColor: .tertiarySystemFill)
@@ -96,8 +82,6 @@ enum FCLPalette {
         #endif
     }
 
-    /// Equivalent to `UIColor.secondarySystemFill` — used for control
-    /// backgrounds such as chips and tags.
     static var secondarySystemFill: Color {
         #if canImport(UIKit)
         Color(uiColor: .secondarySystemFill)
@@ -108,8 +92,6 @@ enum FCLPalette {
 
     // MARK: - Gray Colors
 
-    /// Equivalent to `UIColor.systemGray3` — a mid-range gray used for
-    /// disabled control states.
     static var systemGray3: Color {
         #if canImport(UIKit)
         Color(uiColor: .systemGray3)

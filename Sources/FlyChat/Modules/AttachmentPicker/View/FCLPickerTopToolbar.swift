@@ -54,9 +54,6 @@ struct FCLPickerTopToolbar: View {
             centerSlot
                 .frame(maxWidth: .infinity)
 
-            // The trailing slot hosts either a fixed-size icon button (44×44)
-            // or a variable-width selection-count chip — allow it to size
-            // intrinsically and constrain only the minimum hit area.
             trailingSlot
                 .frame(minWidth: 44, minHeight: 44)
         }
@@ -83,9 +80,6 @@ struct FCLPickerTopToolbar: View {
             )
             .accessibilityLabel("Search files")
         case .gallery:
-            // Prototype: when ≥1 asset selected, show a blue-tinted glass chip
-            // with a checkmark and the count. When nothing is selected, show an
-            // invisible placeholder so the close/source-pill layout stays centered.
             galleryTrailingView
         case .custom:
             Color.clear
@@ -196,7 +190,6 @@ private struct FCLPickerTopToolbarPreviewHost: View {
 
     var body: some View {
         ZStack {
-            // Transparent-over-gallery — simulate the sheet background.
             FCLPalette.systemGroupedBackground.ignoresSafeArea()
             VStack {
                 FCLPickerTopToolbar(

@@ -17,9 +17,7 @@ public protocol FCLChatRouting {
 ///
 /// Useful when the host app prefers simple closures over a full protocol conformance.
 public final class FCLChatActionRouter: FCLChatRouting {
-    /// Closure invoked when a message is sent, or `nil` to ignore.
     private let onSendMessage: ((FCLChatMessage) -> Void)?
-    /// Closure invoked when a message is deleted, or `nil` to ignore.
     private let onDeleteMessage: ((FCLChatMessage) -> Void)?
 
     /// Creates a new action router with optional closure handlers.

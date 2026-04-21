@@ -55,10 +55,8 @@ func fclMediaPreviewAspectFit(aspectRatio: CGFloat, in bounds: CGRect) -> CGRect
     let boundsRatio = bounds.width / bounds.height
     let size: CGSize
     if aspectRatio > boundsRatio {
-        // Content wider than container — fill width.
         size = CGSize(width: bounds.width, height: bounds.width / aspectRatio)
     } else {
-        // Content taller than (or equal to) container — fill height.
         size = CGSize(width: bounds.height * aspectRatio, height: bounds.height)
     }
     let origin = CGPoint(

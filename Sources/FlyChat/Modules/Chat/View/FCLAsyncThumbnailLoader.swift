@@ -2,9 +2,7 @@
 import Foundation
 import UIKit
 
-/// Asynchronous, cached loader for attachment thumbnails.
-/// Reads bytes from `attachment.url` off the main actor and decodes a downscaled `UIImage`.
-/// Cached by attachment ID in an `NSCache` to avoid repeat work.
+/// Asynchronous, `NSCache`-backed loader that decodes downscaled thumbnails from attachment URLs.
 final actor FCLAsyncThumbnailLoader {
     static let shared = FCLAsyncThumbnailLoader()
 
