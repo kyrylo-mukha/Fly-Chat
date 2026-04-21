@@ -22,7 +22,7 @@ A lightweight Swift Package for building chat features in iOS apps.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/kyrylo-mukha/Fly-Chat", from: "0.1.0")
+    .package(url: "https://github.com/kyrylo-mukha/Fly-Chat", from: "0.2.2")
 ],
 targets: [
     .target(
