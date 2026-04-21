@@ -23,11 +23,15 @@ FlyChat treats its visual identity as an engineered aesthetic, not a product bra
 | Radii | `Sources/FlyChat/Modules/Chat/View/FCLChatBubbleShape.swift` and primitive files | [Tokens.md](Tokens.md) |
 | Spacing | Delegate defaults in `Sources/FlyChat/Core/Delegate/FCLDelegateDefaults.swift` | [Tokens.md](Tokens.md) |
 | Motion | `Sources/FlyChat/Core/Visual/FCLVisualStyle.swift`, picker zoom transition, camera animator | [Tokens.md](Tokens.md) |
-| Components | `Sources/FlyChat/Core/Visual/Primitives/` and `FCLChatBubbleShape.swift` | [Components.md](Components.md) |
-| Patterns | Module views in `Sources/FlyChat/Modules/Chat/`, `AttachmentPicker/`, `Camera/`, `ChatMediaPreviewer/` | [Patterns.md](Patterns.md) |
+| Components | `Sources/FlyChat/Core/Visual/Primitives/`, `FCLChatBubbleShape.swift`, and `FCLAvatarView.swift` | [Components.md](Components.md) |
+| Patterns | Module views in `Sources/FlyChat/Modules/Chat/`, `ChatList/`, `AttachmentPicker/`, `Camera/`, `ChatMediaPreviewer/` | [Patterns.md](Patterns.md) |
 | Accessibility | `Sources/FlyChat/Core/Visual/FCLVisualStyle.swift:105-140` and primitive fallback bodies | [AccessibilityMatrix.md](AccessibilityMatrix.md) |
 
 Every claim in the detail files is backed by a source citation. When code and doc disagree, the code wins; the doc is updated in the same pass.
+
+## Iconography
+
+FlyChat uses Apple's **SF Symbols** (version 5+) exclusively for library-owned iconography. Access is through `Image(systemName:)` in SwiftUI and `UIImage(systemName:)` in UIKit; no PNG or SVG icon set ships with the package. The library does not use emoji or Unicode icon glyphs in its own strings. The `read` status glyph is a single exception — it renders via a custom `FCLDoubleCheckmarkShape` path rather than an SF Symbol because the shape animates. Host apps override the three message-status icons through `FCLChatStatusIcons` on `FCLAppearanceDelegate`; other library-chosen symbols (`paperclip`, `arrow.up.circle.fill`, `camera`, `bolt`, `xmark`, `ellipsis`) are fixed and not customizable.
 
 ## How to use this folder
 

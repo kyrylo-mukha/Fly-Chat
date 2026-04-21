@@ -308,7 +308,7 @@ struct FCLGlassFallbackBackground<S: InsettableShape>: View {
                         startPoint: .top,
                         endPoint: .bottom
                     ),
-                    lineWidth: 1
+                    lineWidth: 0.5
                 )
             }
     }

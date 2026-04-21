@@ -24,8 +24,8 @@ enum FCLAppearanceDefaults {
     /// Default outgoing bubble color: blue (RGB 0.0, 0.48, 1.0).
     static let senderBubbleColor = FCLChatColorToken(red: 0.0, green: 0.48, blue: 1.0)
 
-    /// Default incoming bubble color: light gray (RGB 0.90, 0.91, 0.94).
-    static let receiverBubbleColor = FCLChatColorToken(red: 0.90, green: 0.91, blue: 0.94)
+    /// Default incoming bubble color: iMessage-exact receiver fill (RGB 0.914, 0.914, 0.922).
+    static let receiverBubbleColor = FCLChatColorToken(red: 0.914, green: 0.914, blue: 0.922)
 
     /// Default outgoing text color: white.
     static let senderTextColor = FCLChatColorToken(red: 1, green: 1, blue: 1)

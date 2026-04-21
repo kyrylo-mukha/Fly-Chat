@@ -1,6 +1,6 @@
 # Patterns
 
-Patterns are larger compositions built from the primitives in [Components.md](Components.md). Each pattern spans one or more modules, carries its own layout and interaction contract, and plays a specific role in the chat experience. The six patterns below cover the full visible surface of FlyChat.
+Patterns are larger compositions built from the primitives in [Components.md](Components.md). Each pattern spans one or more modules, carries its own layout and interaction contract, and plays a specific role in the chat experience. The seven patterns below cover the full visible surface of FlyChat.
 
 ## Chat timeline
 
@@ -73,3 +73,15 @@ Patterns are larger compositions built from the primitives in [Components.md](Co
 **Source pointers.** `Sources/FlyChat/Modules/ChatMediaPreviewer/View/FCLChatMediaPreviewScreen.swift`, `Sources/FlyChat/Modules/ChatMediaPreviewer/View/FCLChatPreviewerCarouselStrip.swift`, `Sources/FlyChat/Modules/ChatMediaPreviewer/FCLMediaPreviewTransition.swift`.
 
 **Related vault pages.** [[media-previewer]], [[preview-transition]], [[preview-module-split]].
+
+## Chat list
+
+**Affected modules.** `ChatList`.
+
+**Layout spec.** iOS large-title navigation: title `"Chats"` at `34pt` weight `.bold`, letter-spacing `-0.02em`. An Edit button (leading, label-colored) and a compose button (trailing, square glyph on `secondarySystemFill`). A search bar below the title sits on `secondarySystemFill` with a `10pt` rounded corner and a leading `magnifyingglass` SF Symbol. Rows carry: a circular `FCLAvatarView` sized to `52pt`, a stacked title (`17pt` semibold, `-0.01em` tracking) and last-message preview (`15pt` secondary label, two-line clamp with ellipsis), a trailing column with a relative timestamp (`13pt` secondary label) and a chevron-right glyph. An unread badge — solid iOS-blue pill with white semibold count — sits between the preview and the time column when the unread count is greater than zero. Rows are separated by a `0.5pt` hairline in `secondaryLabel @ 0.18`, inset `80pt` from the leading edge so the divider starts after the avatar column. An empty-state label renders when a live search returns zero rows.
+
+**Interaction model.** Tapping a row forwards to `FCLChatScreen` through the presenter's routing edge. Typing in the search field filters rows live (case-insensitive match on sender name and last-message content). The Edit button toggles a host-supplied multi-select mode; the compose button is also a host-supplied action.
+
+**Source pointers.** `Sources/FlyChat/Modules/ChatList/View/FCLChatListScreen.swift`, `Sources/FlyChat/Modules/ChatList/Model/FCLChatSummary.swift`, `Sources/FlyChat/Modules/ChatList/Presenter/FCLChatListPresenter.swift`.
+
+**Related vault pages.** [[chat-list]], [[FCLChatListScreen]], [[FCLChatSummary]], [[avatar-system]].

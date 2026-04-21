@@ -37,7 +37,7 @@ final class FCLCoreTests: XCTestCase {
 
     func testAppearanceDefaultValues() {
         XCTAssertEqual(FCLAppearanceDefaults.senderBubbleColor, FCLChatColorToken(red: 0.0, green: 0.48, blue: 1.0))
-        XCTAssertEqual(FCLAppearanceDefaults.receiverBubbleColor, FCLChatColorToken(red: 0.90, green: 0.91, blue: 0.94))
+        XCTAssertEqual(FCLAppearanceDefaults.receiverBubbleColor, FCLChatColorToken(red: 0.914, green: 0.914, blue: 0.922))
         XCTAssertEqual(FCLAppearanceDefaults.senderTextColor, FCLChatColorToken(red: 1, green: 1, blue: 1))
         XCTAssertEqual(FCLAppearanceDefaults.receiverTextColor, FCLChatColorToken(red: 0.08, green: 0.08, blue: 0.09))
         XCTAssertEqual(FCLAppearanceDefaults.messageFont, FCLChatMessageFontConfiguration())

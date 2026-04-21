@@ -24,15 +24,23 @@ The nine `FCLPalette` roles map to UIKit semantic colors via `Color(uiColor:)`. 
 
 `FCLChatColorToken` is a `Sendable`, `Hashable` struct carrying four `Double` components clamped to `0...1`. Its source is `Sources/FlyChat/Modules/Chat/View/FCLChatStyleConfiguration.swift:10-40`. A host app constructs tokens with `FCLChatColorToken(red:green:blue:alpha:)` (alpha defaults to `1`) and the library converts to SwiftUI `Color` via the computed `.color` property.
 
-Consumer slots:
+Consumer slots with their library defaults:
 
-- **Bubble colors** — sender and recipient bubble fills, supplied by `FCLAppearanceDelegate`.
-- **Bubble text colors** — text on sender and recipient bubbles.
-- **Tail color** — follows the bubble color by default; overridable.
-- **Status colors** — created / sent / read glyph tints (see [Message Status](../MessageStatus.md)).
-- **Input bar background** — opaque fallback when the visual style resolves to `.default` or when `accessibilityReduceTransparency` is on.
+| Slot | Default | Source |
+|---|---|---|
+| Sender (outgoing) bubble | `FCLChatColorToken(0.0, 0.48, 1.0)` — iOS system blue | `FCLAppearanceDefaults.senderBubbleColor`. |
+| Receiver (incoming) bubble | `FCLChatColorToken(0.914, 0.914, 0.922)` — iMessage-exact receiver fill | `FCLAppearanceDefaults.receiverBubbleColor`. |
+| Sender text | `FCLChatColorToken(1, 1, 1)` — white | `FCLAppearanceDefaults.senderTextColor`. |
+| Receiver text | `FCLChatColorToken(0.08, 0.08, 0.09)` — near-black | `FCLAppearanceDefaults.receiverTextColor`. |
+| Bubble tail | Inherits bubble color | Rendered as a per-corner radius delta, not a separate fill; no dedicated slot. |
+| Status created | `FCLChatColorToken(1, 1, 1, 0.6)` — white @ 60% | `FCLAppearanceDefaults.statusColors.created`. |
+| Status sent | `FCLChatColorToken(1, 1, 1, 0.6)` — white @ 60% | `FCLAppearanceDefaults.statusColors.sent`. |
+| Status read | `FCLChatColorToken(0.27, 0.78, 0.47)` — vivid green | `FCLAppearanceDefaults.statusColors.read`. |
+| Input bar background (opaque fallback) | `FCLChatColorToken(0.93, 0.94, 0.96)` — light neutral gray | `FCLInputDefaults.backgroundColor`. |
+| Input bar field background | `FCLChatColorToken(1, 1, 1)` — white | `FCLInputDefaults.fieldBackgroundColor`. |
+| Reduced-transparency fallback | `FCLChatColorToken(0.93, 0.94, 0.96)` — light neutral gray | `FCLVisualStyleDefaults.reducedTransparencyBackground`. |
 
-Every slot has a defaulted value through `FCLDelegateDefaults` (internal), so conformers only override what they need.
+See [Message Status](../MessageStatus.md) for how the status color tokens are consumed by the glyph renderer. Every slot has a defaulted value through `FCLDelegateDefaults` (internal), so conformers only override what they need.
 
 ## Typography tokens
 
@@ -65,11 +73,18 @@ Typography roles within the library:
 
 | Token | Default | Source |
 |---|---|---|
-| Bubble max-width ratio | Clamped to `0.55...0.9` | Layout delegate defaults. |
-| Group spacing | Larger gap between groups, tighter inside | `FCLChatLayout` in `FCLDelegateDefaults`. |
-| Bubble inner padding | Horizontal 12, vertical 8 | Tuned to keep short strings on one line with trailing timestamp. |
-| Chrome inner padding | 8 pt around glass contents | Applied by every glass primitive. |
-| Hit-target minimum | 44 pt | Enforced on `FCLGlassIconButton` and interactive primitives. |
+| Bubble max-width ratio | `0.78` (clamped to `0.55...0.9`) | `FCLLayoutDefaults.maxBubbleWidthRatio`. |
+| Intra-group vertical spacing | `4pt` | `FCLLayoutDefaults.intraGroupSpacing`. |
+| Inter-group vertical spacing | `12pt` | `FCLLayoutDefaults.interGroupSpacing`. |
+| Bubble inner padding | `12pt` horizontal, `8pt` vertical | Tuned to keep short strings on one line with the trailing timestamp. |
+| Chrome inner padding | `8pt` around glass contents | Applied by every glass primitive. |
+| Input bar content insets | `8pt` vertical, `10pt` horizontal | `FCLInputDefaults.contentInsets`. |
+| Input bar element spacing | `8pt` between elements | `FCLInputDefaults.elementSpacing`. |
+| Attachment grid outer inset | `1pt` on all sides | `FCLChatLayout.attachmentInset` — fixed, non-customizable. |
+| Attachment grid inter-cell gap | `1pt` | `FCLAppearanceDefaults.attachmentItemSpacing`. |
+| Avatar size | `40pt` diameter | `FCLAvatarDefaults.avatarSize`. |
+| Minimum bubble height | `40pt` | `FCLAppearanceDefaults.minimumBubbleHeight`. |
+| Hit-target minimum | `44pt` | Enforced on `FCLGlassIconButton` and interactive primitives. |
 
 ## Motion tokens
 

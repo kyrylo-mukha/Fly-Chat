@@ -1,6 +1,6 @@
 # Components
 
-The seven components below are the composable foundation of every visible surface in FlyChat. Six live under `Sources/FlyChat/Core/Visual/Primitives/` as `FCLGlass*` primitives; the seventh, `FCLChatBubbleShape`, lives with the chat module because it is inherently chat-specific. Every chrome surface in the library — the input bar, camera bars, picker toolbars, attachment preview bars, the previewer carousel — is built from these. Each primitive resolves its rendering branch through `FCLVisualStyleResolver`, honoring `accessibilityReduceTransparency` as a short-circuit to the opaque branch.
+The eight components below are the composable foundation of every visible surface in FlyChat. Six live under `Sources/FlyChat/Core/Visual/Primitives/` as `FCLGlass*` primitives; the other two — `FCLChatBubbleShape` and `FCLAvatarView` — live inside their respective modules because they are inherently module-specific. Every chrome surface in the library — the input bar, camera bars, picker toolbars, attachment preview bars, the previewer carousel — is built from the glass primitives. Each primitive resolves its rendering branch through `FCLVisualStyleResolver`, honoring `accessibilityReduceTransparency` as a short-circuit to the opaque branch.
 
 ## `FCLGlassContainer`
 
@@ -189,6 +189,33 @@ Supporting types: `FCLChatBubbleSide` (`.left` / `.right`), `FCLBubbleTailEdge` 
 **Source.** `Sources/FlyChat/Modules/Chat/View/FCLChatBubbleShape.swift:70-102`.
 
 **Related vault page.** [[FCLChatBubbleShape]].
+
+## `FCLAvatarView`
+
+**Purpose.** Circular avatar view used across chat and chat-list surfaces. Resolves an image through the avatar delegate chain, with a deterministic HSL-colored acronym fallback when no image is available.
+
+**Public API.**
+
+```swift
+public init(
+    senderID: String,
+    displayName: String,
+    size: CGFloat = 40,
+    imageSource: FCLImageSource? = nil
+)
+```
+
+**States.** Resolved image (final state) and acronym fallback (initial state, plus any image-resolution failure). The view crossfades between states when the bound `senderID` changes.
+
+**Variants.** Size is configurable (default `40pt`, matching `FCLAvatarDefaults.avatarSize`). Acronym fallback derives initials from the first two space-separated tokens of `displayName`, rendered at `38%` of the avatar size in white on a deterministic HSL fill hashed from `senderID`. The full resolution chain — URL → custom → acronym — is documented under [Avatar System](../AvatarSystem/Overview.md).
+
+**iOS 26 native behavior.** No glass interaction; avatars are opaque fills and system `Image` renders.
+
+**iOS 17/18 fallback behavior.** Identical to iOS 26 — `FCLAvatarView` has no material dependency.
+
+**Source.** `Sources/FlyChat/Modules/Chat/View/FCLAvatarView.swift`.
+
+**Related vault page.** [[FCLAvatarView]], [[avatar-system]].
 
 ## Adding a new primitive
 
