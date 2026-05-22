@@ -45,11 +45,6 @@ public struct FCLChatScreen: View {
     private var inputShowAttachButton: Bool { delegate?.input?.showAttachButton ?? FCLInputDefaults.showAttachButton }
     private var inputAttachmentThumbnailSize: CGFloat { delegate?.input?.attachmentThumbnailSize ?? FCLInputDefaults.attachmentThumbnailSize }
     private var inputContainerMode: FCLInputBarContainerMode { delegate?.input?.containerMode ?? FCLInputDefaults.containerMode }
-    /// Reads the deprecated ``FCLInputDelegate/liquidGlass`` flag for backward compatibility only.
-    /// New hosts should use ``FCLChatDelegate/visualStyle`` instead.
-    private var inputLiquidGlass: Bool { delegate?.input?.liquidGlass ?? FCLInputDefaults.liquidGlass }
-    private var inputBackgroundColor: FCLChatColorToken { delegate?.input?.backgroundColor ?? FCLInputDefaults.backgroundColor }
-    private var inputFieldBackgroundColor: FCLChatColorToken { delegate?.input?.fieldBackgroundColor ?? FCLInputDefaults.fieldBackgroundColor }
     private var inputFieldCornerRadius: CGFloat { delegate?.input?.fieldCornerRadius ?? FCLInputDefaults.fieldCornerRadius }
     private var inputContentInsets: FCLEdgeInsets { delegate?.input?.contentInsets ?? FCLInputDefaults.contentInsets }
     private var inputElementSpacing: CGFloat { delegate?.input?.elementSpacing ?? FCLInputDefaults.elementSpacing }
@@ -106,121 +101,121 @@ public struct FCLChatScreen: View {
     @Namespace private var mediaHeroNamespace
 
     public var body: some View {
-        VStack(spacing: 0) {
-            messagesList(availableWidth: screenWidth)
-            inputBarSection
-        }
-        .transaction { transaction in
-            if isReturningFromBackground {
-                transaction.disablesAnimations = true
+        messagesList(availableWidth: screenWidth)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                inputBarSection
             }
-        }
-        .fclInstallVisualStyleDelegate(delegate?.visualStyle)
-        .background(FCLPalette.systemBackground)
-        .background(
-            GeometryReader { proxy in
-                Color.clear
-                    .preference(key: FCLChatScreenSizeKey.self, value: proxy.size)
-            }
-        )
-        .onPreferenceChange(FCLChatScreenSizeKey.self) { newSize in
-            var transaction = Transaction()
-            if isReturningFromBackground {
-                transaction.disablesAnimations = true
-            }
-            withTransaction(transaction) {
-                if abs(newSize.width - screenWidth) > 0.5 {
-                    screenWidth = newSize.width
-                }
-                if abs(newSize.height - screenHeight) > 0.5 {
-                    screenHeight = newSize.height
+            .background(FCLPalette.systemBackground)
+            .transaction { transaction in
+                if isReturningFromBackground {
+                    transaction.disablesAnimations = true
                 }
             }
-        }
-        .onAppear {
-            #if canImport(UIKit)
-            previewRouter.source = previewRelay
-            let relay = previewRelay
-            presenter.frameProvider = { id in relay.mediaPreviewFrame(forAssetID: id.uuidString) }
-            #endif
-            guard !didConfigureListAppearance else { return }
-            #if canImport(UIKit)
-            if UIApplication.shared.applicationState != .background {
-                configureListAppearance()
-                didConfigureListAppearance = true
-            }
-            #else
-            configureListAppearance()
-            didConfigureListAppearance = true
-            #endif
-        }
-        .onChange(of: scenePhase, initial: false) { _, newPhase in
-            switch newPhase {
-            case .active:
-                if isReturningFromBackground == false {
-                    isReturningFromBackground = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        isReturningFromBackground = false
+            .fclInstallVisualStyleDelegate(delegate?.visualStyle)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .preference(key: FCLChatScreenSizeKey.self, value: proxy.size)
+                }
+            )
+            .onPreferenceChange(FCLChatScreenSizeKey.self) { newSize in
+                var transaction = Transaction()
+                if isReturningFromBackground {
+                    transaction.disablesAnimations = true
+                }
+                withTransaction(transaction) {
+                    if abs(newSize.width - screenWidth) > 0.5 {
+                        screenWidth = newSize.width
+                    }
+                    if abs(newSize.height - screenHeight) > 0.5 {
+                        screenHeight = newSize.height
                     }
                 }
-                if !didConfigureListAppearance {
+            }
+            .onAppear {
+                #if canImport(UIKit)
+                previewRouter.source = previewRelay
+                let relay = previewRelay
+                presenter.frameProvider = { id in relay.mediaPreviewFrame(forAssetID: id.uuidString) }
+                #endif
+                guard !didConfigureListAppearance else { return }
+                #if canImport(UIKit)
+                if UIApplication.shared.applicationState != .background {
                     configureListAppearance()
                     didConfigureListAppearance = true
                 }
-            case .background, .inactive:
-                break
-            @unknown default:
-                break
+                #else
+                configureListAppearance()
+                didConfigureListAppearance = true
+                #endif
             }
-        }
-        #if canImport(UIKit)
-        .fclTransparentFullScreenCover(
-            isPresented: Binding(
-                get: { previewAttachmentID != nil },
-                set: { if !$0 {
-                    withTransaction(Transaction(animation: nil)) {
-                        previewAttachmentID = nil
-                        previewRouter.presenter.activeAttachmentID = nil
+            .onChange(of: scenePhase, initial: false) { _, newPhase in
+                switch newPhase {
+                case .active:
+                    if isReturningFromBackground == false {
+                        isReturningFromBackground = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            isReturningFromBackground = false
+                        }
                     }
-                } }
-            )
-        ) {
-            if let attachmentID = previewAttachmentID {
-                FCLMediaPreviewView(
-                    presenter: presenter,
-                    initialAttachmentID: attachmentID,
-                    namespace: mediaHeroNamespace,
-                    onDismiss: {
+                    if !didConfigureListAppearance {
+                        configureListAppearance()
+                        didConfigureListAppearance = true
+                    }
+                case .background, .inactive:
+                    break
+                @unknown default:
+                    break
+                }
+            }
+            #if canImport(UIKit)
+            .fclTransparentFullScreenCover(
+                isPresented: Binding(
+                    get: { previewAttachmentID != nil },
+                    set: { if !$0 {
                         withTransaction(Transaction(animation: nil)) {
                             previewAttachmentID = nil
                             previewRouter.presenter.activeAttachmentID = nil
                         }
-                    },
-                    source: previewRelay
+                    } }
                 )
-            }
-        }
-        .onChange(of: previewRouter.presenter.activeAttachmentID) { _, newID in
-            if let id = newID, previewAttachmentID == nil {
-                previewAttachmentID = id
-            } else if newID == nil {
-                withTransaction(Transaction(animation: nil)) {
-                    previewAttachmentID = nil
+            ) {
+                if let attachmentID = previewAttachmentID {
+                    FCLMediaPreviewView(
+                        presenter: presenter,
+                        initialAttachmentID: attachmentID,
+                        namespace: mediaHeroNamespace,
+                        onDismiss: {
+                            withTransaction(Transaction(animation: nil)) {
+                                previewAttachmentID = nil
+                                previewRouter.presenter.activeAttachmentID = nil
+                            }
+                        },
+                        source: previewRelay
+                    )
                 }
             }
-        }
-        #endif
-        .overlay(alignment: .top) {
-            if let errorMessage = presenter.lastSendError {
-                FCLChatSendErrorToast(message: errorMessage) {
-                    presenter.lastSendError = nil
+            .onChange(of: previewRouter.presenter.activeAttachmentID) { _, newID in
+                if let id = newID, previewAttachmentID == nil {
+                    previewAttachmentID = id
+                } else if newID == nil {
+                    withTransaction(Transaction(animation: nil)) {
+                        previewAttachmentID = nil
+                    }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .animation(.easeOut(duration: 0.2), value: presenter.lastSendError)
             }
-        }
+            #endif
+            .overlay(alignment: .top) {
+                if let errorMessage = presenter.lastSendError {
+                    FCLChatSendErrorToast(message: errorMessage) {
+                        presenter.lastSendError = nil
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.easeOut(duration: 0.2), value: presenter.lastSendError)
+                }
+            }
     }
 
     private func messagesList(availableWidth: CGFloat) -> some View {
@@ -316,9 +311,6 @@ public struct FCLChatScreen: View {
                 showAttachButton: inputShowAttachButton,
                 attachmentThumbnailSize: inputAttachmentThumbnailSize,
                 containerMode: inputContainerMode,
-                liquidGlass: inputLiquidGlass,
-                backgroundColor: inputBackgroundColor,
-                fieldBackgroundColor: inputFieldBackgroundColor,
                 fieldCornerRadius: inputFieldCornerRadius,
                 contentInsets: inputContentInsets,
                 elementSpacing: inputElementSpacing,

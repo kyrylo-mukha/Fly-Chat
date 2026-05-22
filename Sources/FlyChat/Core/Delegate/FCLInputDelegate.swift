@@ -40,11 +40,6 @@ public protocol FCLInputDelegate: AnyObject {
     @available(*, deprecated, message: "Use FCLVisualStyleDelegate via FCLChatDelegate.visualStyle")
     var liquidGlass: Bool { get }
 
-    /// The background color of the entire input bar container area.
-    ///
-    /// Default: light gray (`FCLInputDefaults.backgroundColor`).
-    var backgroundColor: FCLChatColorToken { get }
-
     /// The background color of the text input field itself.
     ///
     /// Default: white (`FCLInputDefaults.fieldBackgroundColor`).
@@ -90,7 +85,6 @@ public extension FCLInputDelegate {
     var containerMode: FCLInputBarContainerMode { FCLInputDefaults.containerMode }
     @available(*, deprecated, message: "Use FCLVisualStyleDelegate via FCLChatDelegate.visualStyle")
     var liquidGlass: Bool { FCLInputDefaults.liquidGlass }
-    var backgroundColor: FCLChatColorToken { FCLInputDefaults.backgroundColor }
     var fieldBackgroundColor: FCLChatColorToken { FCLInputDefaults.fieldBackgroundColor }
     var fieldCornerRadius: CGFloat { FCLInputDefaults.fieldCornerRadius }
     var lineHeight: CGFloat? { FCLInputDefaults.lineHeight }

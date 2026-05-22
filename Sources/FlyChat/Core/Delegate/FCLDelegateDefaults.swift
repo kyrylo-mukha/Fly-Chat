@@ -74,7 +74,6 @@ enum FCLInputDefaults {
     static let showAttachButton = true
     static let containerMode: FCLInputBarContainerMode = .fieldOnlyRounded
     static let liquidGlass = false
-    static let backgroundColor = FCLChatColorToken(red: 0.93, green: 0.94, blue: 0.96)
     static let fieldBackgroundColor = FCLChatColorToken(red: 1, green: 1, blue: 1)
     /// 22pt = half of the 44pt minimum hit target, producing a full-pill shape.
     static let fieldCornerRadius: CGFloat = 22

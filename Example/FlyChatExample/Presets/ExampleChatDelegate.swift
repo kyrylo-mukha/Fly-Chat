@@ -60,18 +60,15 @@ final class ExampleLayout: FCLLayoutDelegate {
 final class ExampleInput: FCLInputDelegate {
     let placeholderText: String
     let containerMode: FCLInputBarContainerMode
-    let backgroundColor: FCLChatColorToken
     let fieldBackgroundColor: FCLChatColorToken
 
     init(
         placeholderText: String,
         containerMode: FCLInputBarContainerMode,
-        backgroundColor: FCLChatColorToken,
         fieldBackgroundColor: FCLChatColorToken
     ) {
         self.placeholderText = placeholderText
         self.containerMode = containerMode
-        self.backgroundColor = backgroundColor
         self.fieldBackgroundColor = fieldBackgroundColor
     }
 }

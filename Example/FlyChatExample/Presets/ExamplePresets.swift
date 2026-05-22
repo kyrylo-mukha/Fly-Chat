@@ -24,7 +24,6 @@ enum ExamplePresets {
             input: ExampleInput(
                 placeholderText: "Message",
                 containerMode: .allInRounded(),
-                backgroundColor: FCLChatColorToken(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0),
                 fieldBackgroundColor: FCLChatColorToken(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.0)
             ),
             visualStyle: ExampleVisualStyle(style: .liquidGlass)
@@ -45,7 +44,6 @@ enum ExamplePresets {
             input: ExampleInput(
                 placeholderText: "Message",
                 containerMode: .fieldOnlyRounded,
-                backgroundColor: FCLChatColorToken(red: 0.96, green: 0.96, blue: 0.98),
                 fieldBackgroundColor: FCLChatColorToken(red: 1.0, green: 1.0, blue: 1.0)
             ),
             visualStyle: ExampleVisualStyle(style: .default)
