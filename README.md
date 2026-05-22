@@ -112,6 +112,7 @@ The microphone key is only required when `isCameraVideoEnabled` is `true` (the d
 - [Editor Tools](Documentation/EditorTools.md) — rotate/crop and markup, history, dirty-exit confirm
 - [Preview Transition](Documentation/PreviewTransition.md) — chat media previewer module, aspect-fit, and parallax strip
 - [Architecture](Documentation/Architecture.md)
+- [Example App](Documentation/ExampleApp.md) — runnable UIKit demo with Liquid Glass and Solid styles
 
 ## Quick Start
 
@@ -204,6 +205,14 @@ FCLUIKitBridge.makeChatViewController(
 ```
 
 > For detailed guides on delegates, avatars, attachments, context menus, and UIKit integration, see the [Documentation](#documentation) section above.
+
+## Example App
+
+A runnable UIKit example lives in [`Example/`](Example/). Open
+`Example/FlyChatExample.xcodeproj` and run the `FlyChatExample` scheme. The entry screen offers two
+integration styles — **Liquid Glass** and **Solid Backgrounds** — each wiring the documented
+`FCLUIKitBridge` wrappers into a themed chat list and conversation. See
+[Example App](Documentation/ExampleApp.md) for details.
 
 ## License
 
