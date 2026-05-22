@@ -2,14 +2,17 @@ import SwiftUI
 
 /// Rectangular glass surface with configurable corner radius.
 ///
-/// On iOS 26+ uses `.glassEffect(.regular, in:)`. On iOS 17/18 composites the
-/// shared fallback "glass stack" (material + tint overlay + inner highlight +
-/// edge stroke + outer shadow). When `\.accessibilityReduceTransparency` is
-/// `true`, the material is replaced with an opaque fill taken from
+/// On iOS 26+ uses `.glassEffect(.regular, in:)`, upgrading to
+/// `.regular.interactive(true)` when `interactive` is set (e.g. the chat
+/// composer capsule). On iOS 17/18 composites the shared fallback "glass stack"
+/// (`UIVisualEffectView` blur + tint overlay + inner highlight + edge stroke +
+/// outer shadow). When `\.accessibilityReduceTransparency` is `true`, the blur
+/// is replaced with an opaque fill taken from
 /// ``FCLVisualStyleDelegate/reducedTransparencyBackground``.
 public struct FCLGlassContainer<Content: View>: View {
     private let cornerRadius: CGFloat
     private let tintOverride: FCLChatColorToken?
+    private let interactive: Bool
     private let content: Content
 
     @Environment(\.fclExplicitVisualStyle) private var explicitStyle
@@ -26,10 +29,12 @@ public struct FCLGlassContainer<Content: View>: View {
     public init(
         cornerRadius: CGFloat = 16,
         tint: FCLChatColorToken? = nil,
+        interactive: Bool = false,
         @ViewBuilder content: () -> Content
     ) {
         self.cornerRadius = cornerRadius
         self.tintOverride = tint
+        self.interactive = interactive
         self.content = content()
     }
 
@@ -47,7 +52,7 @@ public struct FCLGlassContainer<Content: View>: View {
             #if os(iOS)
             if #available(iOS 26, *) {
                 content
-                    .glassEffect(.regular, in: shape)
+                    .glassEffect(interactive ? .regular.interactive(true) : .regular, in: shape)
             } else {
                 fallback(shape: shape, tint: tint)
             }

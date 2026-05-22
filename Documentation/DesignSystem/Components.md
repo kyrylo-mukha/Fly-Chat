@@ -22,7 +22,7 @@ public init(
 
 **iOS 26 native behavior.** Applies `.glassEffect(_:in:)` with the rounded rectangle shape. Wraps children for proper `GlassEffectContainer` merging when multiple primitives are grouped at the call site.
 
-**iOS 17/18 fallback behavior.** Composes `FCLGlassFallbackBackground` (ultra-thin material, optional tint overlay, top inner highlight gradient, edge stroke) inside the rounded rectangle. An outer shadow is applied by callers that want the floating affordance.
+**iOS 17/18 fallback behavior.** Composes `FCLGlassFallbackBackground` (a `UIVisualEffectView` blur via `FCLBlurEffectView`, optional tint overlay, top inner highlight gradient, edge stroke) inside the rounded rectangle. An outer shadow is applied by callers that want the floating affordance.
 
 **Source.** `Sources/FlyChat/Core/Visual/Primitives/FCLGlassContainer.swift:26-34`.
 
@@ -49,7 +49,7 @@ public init(
 
 **iOS 26 native behavior.** Label is placed over a native glass background; press feedback is the system-provided response to `Button` interactions.
 
-**iOS 17/18 fallback behavior.** Layered material + tint + inner highlight + edge stroke inside the continuous rounded rectangle; rim stroke appears when `accessibilityShowButtonShapes` is on.
+**iOS 17/18 fallback behavior.** `UIVisualEffectView` blur + tint + inner highlight + edge stroke inside the continuous rounded rectangle; rim stroke appears when `accessibilityShowButtonShapes` is on.
 
 **Source.** `Sources/FlyChat/Core/Visual/Primitives/FCLGlassButton.swift:29-39`.
 
@@ -57,7 +57,7 @@ public init(
 
 ## `FCLGlassIconButton`
 
-**Purpose.** 44-point square icon button used for close, overflow, and toolbar actions.
+**Purpose.** 44-point circular icon button used for send, attach, close, overflow, and toolbar actions. On iOS 26 it renders clear `.glass` when untinted and prominent filled `.glassProminent` when a tint is supplied.
 
 **Public API.**
 

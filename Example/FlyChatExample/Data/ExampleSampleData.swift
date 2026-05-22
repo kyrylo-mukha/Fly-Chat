@@ -45,10 +45,16 @@ enum ExampleSampleData {
             id: chat.senderID, displayName: chat.title
         )
         return [
+            FCLChatMessage(text: "Morning! Did you get a chance to look at the deck?", direction: .incoming, sender: other),
+            FCLChatMessage(text: "Yeah, went through it last night. Slide 7 is 🔥", direction: .outgoing, sender: currentUser, status: .read),
+            FCLChatMessage(text: "Right? I reworked the whole flow section.", direction: .incoming, sender: other),
+            FCLChatMessage(text: "It reads so much cleaner now.", direction: .outgoing, sender: currentUser, status: .read),
             FCLChatMessage(text: "Hey! Are we still on for today?", direction: .incoming, sender: other),
             FCLChatMessage(text: "Absolutely. I just wrapped up the last task on my end.", direction: .outgoing, sender: currentUser, status: .read),
             FCLChatMessage(text: "Perfect. I was a little worried the deadline would slip, but this is great news.", direction: .incoming, sender: other),
             FCLChatMessage(text: "No slip. Want to grab a coffee and go over the details before the call?", direction: .outgoing, sender: currentUser, status: .read),
+            FCLChatMessage(text: "Sounds good — the place on 5th?", direction: .incoming, sender: other),
+            FCLChatMessage(text: "Perfect. I'll grab a table by the window.", direction: .outgoing, sender: currentUser, status: .read),
             FCLChatMessage(text: chat.lastMessage, direction: .incoming, sender: other),
         ]
     }

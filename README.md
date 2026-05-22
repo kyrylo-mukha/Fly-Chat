@@ -76,8 +76,8 @@ The microphone key is only required when `isCameraVideoEnabled` is `true` (the d
 - [x] Built-In Recent Files Tracking (Last 20 Sent Files, UserDefaults-Persisted, Fallback When Delegate Does Not Supply a List)
 - [x] Media Compression Configuration (Max Dimension, JPEG Quality, Video Preset)
 - [x] Custom Attachment Tabs via Delegate for Host-App-Provided Picker Screens
-- [x] Auto-Expanding Input Bar with Configurable Container Modes
-- [x] Liquid Glass Visual-Style System with Per-Instance Override, iOS 26 Native + iOS 17 / 18 Fallback, and Six Reusable Primitives
+- [x] Floating Telegram-Style Glass Composer (Round Attach Button, Auto-Expanding Glass Capsule, Prominent Send Button) over a Transparent, Scroll-Through Timeline
+- [x] Liquid Glass Visual-Style System with Per-Instance Override, iOS 26 Native + iOS 17 / 18 `UIVisualEffectView` Fallback, and Six Reusable Primitives
 - [x] Delegate-Driven Context Menu Actions per Message
 - [x] Zero-Config Delegate Architecture with Composable Protocols
 - [x] Chat List Screen with Avatar, Unread Badge, and Routing

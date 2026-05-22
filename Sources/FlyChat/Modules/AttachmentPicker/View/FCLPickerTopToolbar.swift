@@ -92,12 +92,13 @@ struct FCLPickerTopToolbar: View {
         if presenter.selectedAssets.count > 0 {
             FCLGlassChip(
                 title: "\(presenter.selectedAssets.count)",
-                tint: FCLChatColorToken(red: 0.0, green: 0.48, blue: 1.0)
-            ) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white)
-            }
+                tint: FCLChatColorToken(red: 0.0, green: 0.48, blue: 1.0),
+                accessory: {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            )
             .accessibilityLabel("\(presenter.selectedAssets.count) selected")
             .transition(.scale(scale: 0.85).combined(with: .opacity))
         } else {

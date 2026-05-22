@@ -3,24 +3,20 @@ import SwiftUI
 
 /// The built-in message input bar displayed at the bottom of the chat screen on iOS.
 ///
-/// `FCLInputBar` renders an expanding text field, an optional attachment button,
-/// a send button, and an attachment preview strip. It supports multiple container
-/// modes (`.allInRounded`, `.fieldOnlyRounded`, `.custom`) and optional liquid glass
-/// background effects on iOS 26+.
+/// `FCLInputBar` renders a floating, Telegram-style composer: a circular glass
+/// attachment button, a rounded glass text capsule that grows with the draft, and a
+/// circular glass send button. The elements float over the timeline with no background
+/// plate, so chat content shows through and scrolls beneath the glass. Glass rendering
+/// is driven by the library-wide ``FCLVisualStyleDelegate`` — native Liquid Glass on
+/// iOS 26+, a `UIVisualEffectView` fallback on iOS 17/18.
 ///
 /// This view is used internally by ``FCLChatScreen`` when no custom input bar is provided.
 struct FCLInputBar: View {
     @Binding private var draftText: String
     private let placeholderText: String
     private let maxRows: Int?
-    private let lineHeight: CGFloat?
     private let returnKeySends: Bool
     private let showAttachButton: Bool
-    private let attachmentThumbnailSize: CGFloat
-    private let containerMode: FCLInputBarContainerMode
-    private let liquidGlass: Bool
-    private let backgroundColor: FCLChatColorToken
-    private let fieldBackgroundColor: FCLChatColorToken
     private let fieldCornerRadius: CGFloat
     private let contentInsets: FCLEdgeInsets
     private let elementSpacing: CGFloat
@@ -42,42 +38,30 @@ struct FCLInputBar: View {
     ///
     /// - Parameters:
     ///   - draftText: Binding to the current draft message text.
-    ///   - delegate: Optional delegate providing attachment picker configuration.
+    ///   - delegate: Optional delegate providing appearance and attachment configuration.
     ///   - presenter: The chat presenter used to route attachment sends.
     ///   - placeholderText: Placeholder text shown when the field is empty.
     ///   - maxRows: Maximum visible text rows before scrolling. `nil` for auto-calculation.
-    ///   - lineHeight: Explicit line height override. `nil` uses the font's native line height.
-    ///   - returnKeySends: Whether Return key sends the message.
+    ///   - returnKeySends: Whether the Return key sends the message.
     ///   - showAttachButton: Whether to show the attachment button.
-    ///   - attachmentThumbnailSize: Thumbnail size for attachment previews.
-    ///   - containerMode: Visual grouping mode for the input bar elements.
-    ///   - liquidGlass: Whether to use liquid glass / blur background.
-    ///   - backgroundColor: Background color of the input bar container.
-    ///   - fieldBackgroundColor: Background color of the text field.
-    ///   - fieldCornerRadius: Corner radius of the text field.
-    ///   - contentInsets: Padding insets around the input bar content.
-    ///   - elementSpacing: Spacing between input bar elements.
+    ///   - fieldCornerRadius: Corner radius of the glass text capsule.
+    ///   - contentInsets: Padding around the floating composer row.
+    ///   - elementSpacing: Spacing between the composer elements.
     ///   - font: Font configuration for the input text.
     ///   - minimumTextLength: Minimum character count to enable the send button.
     ///   - availableHeight: Total screen height for auto row calculation.
     ///   - composerFocusBinding: Focus binding hoisted from ``FCLChatScreen`` so
     ///     timeline tap and drag handlers can dismiss the composer keyboard
     ///     declaratively via SwiftUI's `@FocusState`.
-    ///   - onSend: Callback invoked on send action.
+    ///   - onSend: Callback invoked on the send action.
     init(
         draftText: Binding<String>,
         delegate: (any FCLChatDelegate)?,
         presenter: FCLChatPresenter,
         placeholderText: String = FCLInputDefaults.placeholderText,
         maxRows: Int? = FCLInputDefaults.maxRows,
-        lineHeight: CGFloat? = FCLInputDefaults.lineHeight,
         returnKeySends: Bool = FCLInputDefaults.returnKeySends,
         showAttachButton: Bool = FCLInputDefaults.showAttachButton,
-        attachmentThumbnailSize: CGFloat = FCLInputDefaults.attachmentThumbnailSize,
-        containerMode: FCLInputBarContainerMode = FCLInputDefaults.containerMode,
-        liquidGlass: Bool = FCLInputDefaults.liquidGlass,
-        backgroundColor: FCLChatColorToken = FCLInputDefaults.backgroundColor,
-        fieldBackgroundColor: FCLChatColorToken = FCLInputDefaults.fieldBackgroundColor,
         fieldCornerRadius: CGFloat = FCLInputDefaults.fieldCornerRadius,
         contentInsets: FCLEdgeInsets = FCLInputDefaults.contentInsets,
         elementSpacing: CGFloat = FCLInputDefaults.elementSpacing,
@@ -92,14 +76,8 @@ struct FCLInputBar: View {
         self.presenter = presenter
         self.placeholderText = placeholderText
         self.maxRows = maxRows
-        self.lineHeight = lineHeight
         self.returnKeySends = returnKeySends
         self.showAttachButton = showAttachButton
-        self.attachmentThumbnailSize = attachmentThumbnailSize
-        self.containerMode = containerMode
-        self.liquidGlass = liquidGlass
-        self.backgroundColor = backgroundColor
-        self.fieldBackgroundColor = fieldBackgroundColor
         self.fieldCornerRadius = fieldCornerRadius
         self.contentInsets = contentInsets
         self.elementSpacing = elementSpacing
@@ -110,7 +88,7 @@ struct FCLInputBar: View {
         self.onSend = onSend
     }
 
-    public var body: some View {
+    var body: some View {
         let resolvedMaxRows = resolveMaxRows(forAvailableHeight: availableHeight)
         inputBarContent(resolvedMaxRows: resolvedMaxRows)
     }
@@ -134,13 +112,12 @@ struct FCLInputBar: View {
 
     @ViewBuilder
     private func inputBarContent(resolvedMaxRows: Int) -> some View {
-        FCLGlassContainer(cornerRadius: 0, tint: nil) {
-            VStack(spacing: 0) {
-                inputRow(resolvedMaxRows: resolvedMaxRows)
-                    .padding(contentInsets.edgeInsets)
-            }
+        HStack(alignment: .bottom, spacing: elementSpacing) {
+            attachButtonIfNeeded
+            composerField(resolvedMaxRows: resolvedMaxRows)
+            sendButton
         }
-        .modifier(FCLInputBarLegacyLiquidGlassOverride(optedIn: liquidGlass))
+        .padding(contentInsets.edgeInsets)
         .sheet(isPresented: $showAttachmentPicker) {
             FCLAttachmentPickerHost(
                 chatPresenter: presenter,
@@ -157,46 +134,17 @@ struct FCLInputBar: View {
     }
 
     @ViewBuilder
-    private func inputRow(resolvedMaxRows: Int) -> some View {
-        switch containerMode {
-        case .allInRounded(let insets):
-            HStack(alignment: .bottom, spacing: elementSpacing) {
-                attachButtonIfNeeded
-                composerField(resolvedMaxRows: resolvedMaxRows)
-                sendButton
-            }
-            .padding(insets.edgeInsets)
-            .background(fieldBackgroundColor.color)
-            .cornerRadius(fieldCornerRadius)
-
-        case .fieldOnlyRounded:
-            HStack(alignment: .bottom, spacing: elementSpacing) {
-                attachButtonIfNeeded
-                composerField(resolvedMaxRows: resolvedMaxRows)
-                    .background(fieldBackgroundColor.color)
-                    .cornerRadius(fieldCornerRadius)
-                sendButton
-            }
-
-        case .custom:
-            HStack(alignment: .bottom, spacing: elementSpacing) {
-                attachButtonIfNeeded
-                composerField(resolvedMaxRows: resolvedMaxRows)
-                sendButton
-            }
-        }
-    }
-
-    @ViewBuilder
     private func composerField(resolvedMaxRows: Int) -> some View {
-        TextField(placeholderText, text: $draftText, axis: .vertical)
-            .lineLimit(1...resolvedMaxRows)
-            .font(font.font)
-            .focused(composerFocusBinding)
-            .submitLabel(returnKeySends ? .send : .return)
-            .onSubmit { if returnKeySends { onSend() } }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+        FCLGlassContainer(cornerRadius: fieldCornerRadius, interactive: true) {
+            TextField(placeholderText, text: $draftText, axis: .vertical)
+                .lineLimit(1...resolvedMaxRows)
+                .font(font.font)
+                .focused(composerFocusBinding)
+                .submitLabel(returnKeySends ? .send : .return)
+                .onSubmit { if returnKeySends { onSend() } }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+        }
     }
 
     @ViewBuilder
@@ -208,8 +156,8 @@ struct FCLInputBar: View {
                 action: { presentAttachmentPicker() }
             )
             .accessibilityLabel("Attach file")
-            /// The transition source is attached to an invisible `Circle` so the zoom originates
-            /// from the paperclip's visual bounds, not from `.buttonStyle(.glass)`'s padded frame.
+            // Zoom source on an invisible 44pt circle so the picker zoom originates from the
+            // paperclip's visual bounds, not from the glass button's padded frame.
             .background(
                 Circle()
                     .fill(Color.clear)
@@ -239,6 +187,12 @@ struct FCLInputBar: View {
         hasAttachments || text.trimmingCharacters(in: .whitespacesAndNewlines).count >= minimumLength
     }
 
+    /// Send-button tint: the host's outgoing-bubble color, so the prominent glass
+    /// send circle matches the conversation's accent.
+    private var sendTint: FCLChatColorToken {
+        delegate?.appearance?.senderBubbleColor ?? FCLAppearanceDefaults.senderBubbleColor
+    }
+
     private var sendButton: some View {
         let enabled = Self.isSendEnabled(
             text: draftText,
@@ -248,30 +202,13 @@ struct FCLInputBar: View {
         return FCLGlassIconButton(
             systemImage: "paperplane.fill",
             size: 44,
-            tint: FCLAppearanceDefaults.senderBubbleColor,
+            tint: sendTint,
             action: onSend
         )
         .opacity(enabled ? 1.0 : 0.4)
         .allowsHitTesting(enabled)
         .animation(.easeInOut(duration: 0.2), value: enabled)
         .accessibilityLabel("Send message")
-    }
-}
-
-// MARK: - Legacy Liquid Glass Override
-
-/// Applies `.fclVisualStyle(.liquidGlass)` only when the host explicitly opted into the deprecated
-/// `FCLInputDelegate.liquidGlass` flag; `false` is treated as "no opinion" so the installed
-/// `FCLVisualStyleDelegate` takes precedence.
-private struct FCLInputBarLegacyLiquidGlassOverride: ViewModifier {
-    let optedIn: Bool
-
-    func body(content: Content) -> some View {
-        if optedIn {
-            content.fclVisualStyle(.liquidGlass)
-        } else {
-            content
-        }
     }
 }
 
@@ -358,6 +295,10 @@ private struct FCLInputBarPreviewWrapper: View {
             availableHeight: 700,
             composerFocusBinding: $composerFocused,
             onSend: {}
+        )
+        .background(
+            LinearGradient(colors: [.blue.opacity(0.25), .purple.opacity(0.25)],
+                           startPoint: .top, endPoint: .bottom)
         )
     }
 }

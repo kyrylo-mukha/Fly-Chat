@@ -153,7 +153,9 @@ The presenter applies `min(max(ratio, 0.55), 0.9)` so any value you return is cl
 
 ## 3. Custom Input Delegate
 
-`FCLInputDelegate` gives you fine-grained control over the input bar: placeholder text, text constraints, visual modes, liquid glass, colors, corner radius, content insets, and more.
+`FCLInputDelegate` gives you fine-grained control over the input bar: placeholder text, text constraints, attach-button visibility, corner radius, content insets, and more.
+
+> **Composer rework.** The built-in input bar is now a floating, Telegram-style glass composer (round attach button, glass text capsule, prominent send button) with no background plate, layered over a scroll-through timeline. Glass vs opaque is governed by `FCLVisualStyleDelegate` / `.fclVisualStyle(_:)`. The layout-era properties `containerMode`, `liquidGlass`, `backgroundColor`, `fieldBackgroundColor`, `lineHeight`, and `attachmentThumbnailSize` remain on the protocol for source compatibility but no longer affect the floating composer. Still applied: `placeholderText`, `minimumTextLength`, `maxRows`, `showAttachButton`, `fieldCornerRadius`, `returnKeySends`, `contentInsets`, `elementSpacing`.
 
 ### Protocol Reference
 
@@ -214,9 +216,8 @@ final class MyInputConfig: FCLInputDelegate {
         .allInRounded(insets: FCLEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 6))
     }
 
-    // Liquid glass background behind the entire input bar.
-    // iOS 26+: .glassEffect(), iOS 15+: .ultraThinMaterial, iOS 13-14: UIBlurEffect.
-    // When false, backgroundColor is used instead.
+    // Deprecated and inert in the floating composer (see the note above);
+    // glass vs opaque is resolved through FCLVisualStyleDelegate.
     var liquidGlass: Bool { false }
 
     // Solid color behind the entire input bar (used when liquidGlass is false).
@@ -251,21 +252,18 @@ final class MyInputConfig: FCLInputDelegate {
 }
 ```
 
-### Container Modes Visual Summary
+### Composer Layout
 
 ```
-.fieldOnlyRounded:
-  [ (clip) ]  [ ============ text field ============ ]  [ (send) ]
-               ^--- rounded background on field only
-
-.allInRounded(insets:):
-  [  (clip)   ============ text field ============   (send)  ]
-  ^--- single rounded background wraps everything
-
-.custom:
-  [ (clip) ]  [ text field ]  [ (send) ]
-  ^--- no automatic background; style via delegate colors
+[ (attach) ]   ( ===== glass text capsule ===== )   [ (send) ]
+  circle glass        rounded glass, grows             circle glass
+                      with the draft                   (prominent, tinted)
 ```
+
+The composer floats over the timeline with no background plate; chat cells scroll
+beneath the glass. `containerMode` no longer changes this layout — it is retained
+only for source compatibility. Switch between glass (`.liquidGlass`) and opaque
+(`.default`) element fills via `FCLVisualStyleDelegate` / `.fclVisualStyle(_:)`.
 
 ---
 

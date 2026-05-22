@@ -40,16 +40,8 @@ public struct FCLChatScreen: View {
     private var inputPlaceholderText: String { delegate?.input?.placeholderText ?? FCLInputDefaults.placeholderText }
     private var inputMinimumTextLength: Int { delegate?.input?.minimumTextLength ?? FCLInputDefaults.minimumTextLength }
     private var inputMaxRows: Int? { delegate?.input?.maxRows ?? FCLInputDefaults.maxRows }
-    private var inputLineHeight: CGFloat? { delegate?.input?.lineHeight ?? FCLInputDefaults.lineHeight }
     private var inputReturnKeySends: Bool { delegate?.input?.returnKeySends ?? FCLInputDefaults.returnKeySends }
     private var inputShowAttachButton: Bool { delegate?.input?.showAttachButton ?? FCLInputDefaults.showAttachButton }
-    private var inputAttachmentThumbnailSize: CGFloat { delegate?.input?.attachmentThumbnailSize ?? FCLInputDefaults.attachmentThumbnailSize }
-    private var inputContainerMode: FCLInputBarContainerMode { delegate?.input?.containerMode ?? FCLInputDefaults.containerMode }
-    /// Reads the deprecated ``FCLInputDelegate/liquidGlass`` flag for backward compatibility only.
-    /// New hosts should use ``FCLChatDelegate/visualStyle`` instead.
-    private var inputLiquidGlass: Bool { delegate?.input?.liquidGlass ?? FCLInputDefaults.liquidGlass }
-    private var inputBackgroundColor: FCLChatColorToken { delegate?.input?.backgroundColor ?? FCLInputDefaults.backgroundColor }
-    private var inputFieldBackgroundColor: FCLChatColorToken { delegate?.input?.fieldBackgroundColor ?? FCLInputDefaults.fieldBackgroundColor }
     private var inputFieldCornerRadius: CGFloat { delegate?.input?.fieldCornerRadius ?? FCLInputDefaults.fieldCornerRadius }
     private var inputContentInsets: FCLEdgeInsets { delegate?.input?.contentInsets ?? FCLInputDefaults.contentInsets }
     private var inputElementSpacing: CGFloat { delegate?.input?.elementSpacing ?? FCLInputDefaults.elementSpacing }
@@ -86,6 +78,10 @@ public struct FCLChatScreen: View {
 
     @State private var screenHeight: CGFloat = 700
     @State private var screenWidth: CGFloat = 375
+    /// Measured height of the floating input bar; reserved as a clear spacer at the
+    /// bottom of the timeline so the newest message rests above the bar while older
+    /// cells scroll beneath the glass.
+    @State private var inputBarHeight: CGFloat = 0
     /// Hoisted composer focus state. Timeline tap and drag handlers set this to `false` to
     /// dismiss the keyboard via `@FocusState` instead of a UIKit `resignFirstResponder` call.
     @FocusState private var isComposerFocused: Bool
@@ -106,11 +102,24 @@ public struct FCLChatScreen: View {
     @Namespace private var mediaHeroNamespace
 
     public var body: some View {
-        VStack(spacing: 0) {
-            messagesList(availableWidth: screenWidth)
-            inputBarSection
-        }
-        .transaction { transaction in
+        messagesList(availableWidth: screenWidth)
+            .overlay(alignment: .bottom) {
+                inputBarSection
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: FCLInputBarHeightKey.self,
+                                value: proxy.size.height
+                            )
+                        }
+                    )
+                    .onPreferenceChange(FCLInputBarHeightKey.self) { height in
+                        if abs(height - inputBarHeight) > 0.5 {
+                            inputBarHeight = height
+                        }
+                    }
+            }
+            .transaction { transaction in
             if isReturningFromBackground {
                 transaction.disablesAnimations = true
             }
@@ -235,6 +244,11 @@ public struct FCLChatScreen: View {
 
         return List {
             Section {
+                Color.clear
+                    .frame(height: inputBarHeight)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 ForEach(presenter.renderedMessagesFromBottom) { message in
                     let spacing = presenter.spacing(after: message)
                     FCLChatMessageRow(
@@ -291,6 +305,7 @@ public struct FCLChatScreen: View {
             .hideFCLChatSectionSeparatorsIfAvailable()
         }
         .listStyle(PlainListStyle())
+        .scrollContentBackground(.hidden)
         .modifier(FCLBottomAnchoredChatModifier())
         .onTapGesture(perform: dismissKeyboard)
         .simultaneousGesture(
@@ -311,14 +326,8 @@ public struct FCLChatScreen: View {
                 presenter: presenter,
                 placeholderText: inputPlaceholderText,
                 maxRows: inputMaxRows,
-                lineHeight: inputLineHeight,
                 returnKeySends: inputReturnKeySends,
                 showAttachButton: inputShowAttachButton,
-                attachmentThumbnailSize: inputAttachmentThumbnailSize,
-                containerMode: inputContainerMode,
-                liquidGlass: inputLiquidGlass,
-                backgroundColor: inputBackgroundColor,
-                fieldBackgroundColor: inputFieldBackgroundColor,
                 fieldCornerRadius: inputFieldCornerRadius,
                 contentInsets: inputContentInsets,
                 elementSpacing: inputElementSpacing,
@@ -397,6 +406,15 @@ private struct FCLChatScreenSizeKey: PreferenceKey {
         if next != .zero {
             value = next
         }
+    }
+}
+
+/// Reports the floating input bar's measured height up to ``FCLChatScreen`` so the
+/// timeline can reserve a matching bottom spacer.
+private struct FCLInputBarHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

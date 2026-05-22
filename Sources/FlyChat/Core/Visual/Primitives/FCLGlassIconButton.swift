@@ -2,9 +2,10 @@ import SwiftUI
 
 /// Circular icon button with a glass surface.
 ///
-/// On iOS 26+ renders an SF Symbol inside a `.buttonStyle(.glass)` button. On
-/// iOS 17/18 composites the shared fallback glass stack on a `Circle` shape,
-/// with a slightly more pronounced press-shrink (0.9) than the pill button.
+/// On iOS 26+ renders an SF Symbol inside a glass button — `.glass` when untinted
+/// (clear) or `.glassProminent` when a `tint` is supplied (filled, e.g. a send
+/// button). On iOS 17/18 composites the shared fallback glass stack on a `Circle`
+/// shape, with a slightly more pronounced press-shrink (0.9) than the pill button.
 /// Default size is 44 × 44 to meet Apple's minimum hit-target guideline.
 public struct FCLGlassIconButton: View {
     private let systemImage: String
@@ -53,15 +54,22 @@ public struct FCLGlassIconButton: View {
             case .liquidGlassNative:
                 #if os(iOS)
                 if #available(iOS 26, *) {
-                    return AnyView(
-                        Button(action: action) {
-                            Image(systemName: systemImage)
-                                .frame(width: size, height: size)
-                        }
-                        .buttonStyle(.glass)
-                        .tint(tint?.color)
-                        .clipShape(Circle())
-                    )
+                    let label = Image(systemName: systemImage)
+                        .frame(width: size, height: size)
+                    if Self.prefersProminentGlass(tint: tint), let tintColor = tint?.color {
+                        return AnyView(
+                            Button(action: action) { label }
+                                .buttonStyle(.glassProminent)
+                                .tint(tintColor)
+                                .clipShape(Circle())
+                        )
+                    } else {
+                        return AnyView(
+                            Button(action: action) { label }
+                                .buttonStyle(.glass)
+                                .clipShape(Circle())
+                        )
+                    }
                 } else {
                     return AnyView(fallback(tint: tint))
                 }
@@ -102,6 +110,12 @@ public struct FCLGlassIconButton: View {
     ) -> Color? {
         guard showButtonShapes else { return nil }
         return tint?.color ?? Color.primary
+    }
+
+    /// Native iOS 26 renders prominent (filled) glass when a `tint` is supplied
+    /// (e.g. a send button) and clear `.glass` otherwise. `internal` for unit tests.
+    static func prefersProminentGlass(tint: FCLChatColorToken?) -> Bool {
+        tint != nil
     }
 
     @ViewBuilder

@@ -258,7 +258,11 @@ extension View {
 // MARK: - Shared fallback recipe
 
 /// Shared iOS 17/18 fallback "glass stack" for any `InsettableShape`.
-/// Layer order: material → tint overlay → top inner highlight → edge stroke.
+///
+/// Layer order: a `UIVisualEffectView` blur (clipped to `shape`) → tint overlay →
+/// top inner highlight → edge highlight stroke. Callers add the outer shadow. When
+/// `reduceTransparency` is `true` the blur is replaced with an opaque fill from
+/// ``FCLVisualStyleDelegate/reducedTransparencyBackground`` so content stays legible.
 struct FCLGlassFallbackBackground<S: InsettableShape>: View {
     let shape: S
     let tint: FCLChatColorToken?
@@ -268,8 +272,7 @@ struct FCLGlassFallbackBackground<S: InsettableShape>: View {
     let legibilityWeight: LegibilityWeight?
 
     var body: some View {
-        shape
-            .fill(base)
+        glassBase
             .overlay {
                 if let tint {
                     shape.fill(tint.color.opacity(tintOpacity))
@@ -302,11 +305,19 @@ struct FCLGlassFallbackBackground<S: InsettableShape>: View {
             }
     }
 
-    private var base: AnyShapeStyle {
+    /// Blur material on iOS (via `UIVisualEffectView`), SwiftUI material on the
+    /// macOS compile target, opaque fill when transparency is reduced.
+    @ViewBuilder
+    private var glassBase: some View {
         if reduceTransparency {
-            return AnyShapeStyle(reducedTransparencyBackground.color)
+            shape.fill(reducedTransparencyBackground.color)
         } else {
-            return AnyShapeStyle(.ultraThinMaterial)
+            #if canImport(UIKit)
+            FCLBlurEffectView(.systemUltraThinMaterial)
+                .clipShape(shape)
+            #else
+            shape.fill(.ultraThinMaterial)
+            #endif
         }
     }
 

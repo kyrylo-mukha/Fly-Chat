@@ -166,4 +166,21 @@ final class FCLVisualStyleTests: XCTestCase {
         )
         XCTAssertNotNil(color, "A rim stroke color must be produced when showButtonShapes is true")
     }
+
+    // MARK: - Native glass prominence (iOS 26)
+
+    func testIconButtonPrefersProminentGlassWhenTinted() {
+        let tint = FCLChatColorToken(red: 0.0, green: 0.48, blue: 1.0)
+        XCTAssertTrue(
+            FCLGlassIconButton.prefersProminentGlass(tint: tint),
+            "A tinted icon button (e.g. send) uses prominent filled glass on iOS 26."
+        )
+    }
+
+    func testIconButtonPrefersClearGlassWhenUntinted() {
+        XCTAssertFalse(
+            FCLGlassIconButton.prefersProminentGlass(tint: nil),
+            "An untinted icon button (e.g. attach) uses clear glass on iOS 26."
+        )
+    }
 }
