@@ -23,7 +23,7 @@ enum ExamplePresets {
             layout: ExampleLayout(incomingSide: .left, outgoingSide: .right),
             input: ExampleInput(
                 placeholderText: "Message",
-                containerMode: .allInRounded(),
+                containerMode: .fieldOnlyRounded,
                 backgroundColor: FCLChatColorToken(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0),
                 fieldBackgroundColor: FCLChatColorToken(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.0)
             ),

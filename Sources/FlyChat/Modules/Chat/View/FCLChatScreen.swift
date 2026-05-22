@@ -97,6 +97,7 @@ public struct FCLChatScreen: View {
     /// arriving in this window are applied with `disablesAnimations = true` to suppress
     /// the visible input-bar relayout regression.
     @State private var isReturningFromBackground = false
+    @State private var inputBarHeight: CGFloat = 0
 
     #if canImport(UIKit)
     @State private var previewAttachmentID: UUID?
@@ -106,7 +107,7 @@ public struct FCLChatScreen: View {
     @Namespace private var mediaHeroNamespace
 
     public var body: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             messagesList(availableWidth: screenWidth)
             inputBarSection
         }
@@ -235,6 +236,7 @@ public struct FCLChatScreen: View {
 
         return List {
             Section {
+                inputBarClearanceRow
                 ForEach(presenter.renderedMessagesFromBottom) { message in
                     let spacing = presenter.spacing(after: message)
                     FCLChatMessageRow(
@@ -300,9 +302,22 @@ public struct FCLChatScreen: View {
     }
 
     @ViewBuilder
+    private var inputBarClearanceRow: some View {
+        if inputBarHeight > 0 {
+            Color.clear
+                .frame(height: inputBarHeight)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .hideFCLChatRowSeparatorsIfAvailable()
+        }
+    }
+
+    @ViewBuilder
     private var inputBarSection: some View {
         if let custom = customInputBar {
             custom
+                .modifier(FCLInputBarHeightReporter())
+                .onPreferenceChange(FCLInputBarHeightKey.self) { inputBarHeight = $0 }
         } else {
             #if canImport(UIKit)
             FCLInputBar(
@@ -328,6 +343,8 @@ public struct FCLChatScreen: View {
                 composerFocusBinding: $isComposerFocused,
                 onSend: presenter.sendDraft
             )
+            .modifier(FCLInputBarHeightReporter())
+            .onPreferenceChange(FCLInputBarHeightKey.self) { inputBarHeight = $0 }
             #else
             macOSComposer
             #endif
@@ -397,6 +414,23 @@ private struct FCLChatScreenSizeKey: PreferenceKey {
         if next != .zero {
             value = next
         }
+    }
+}
+
+private struct FCLInputBarHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct FCLInputBarHeightReporter: ViewModifier {
+    func body(content: Content) -> some View {
+        content.background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: FCLInputBarHeightKey.self, value: proxy.size.height)
+            }
+        )
     }
 }
 

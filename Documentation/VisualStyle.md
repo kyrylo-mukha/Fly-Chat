@@ -4,7 +4,7 @@ FlyChat exposes a small, composable visual-style system that describes how trans
 
 The system supports three styles:
 
-- **Liquid Glass** — the iOS 26 native material, with a SwiftUI-only fallback on iOS 17 / 18 that reproduces the silhouette and depth using layered `.ultraThinMaterial`, stroke, and shadow.
+- **Liquid Glass** — the iOS 26 native UIKit glass material, with a `UIVisualEffectView` / `UIBlurEffect` fallback on iOS 17 / 18 that keeps the same silhouettes and lets content behind the controls remain visible.
 - **Default** — an opaque surface drawn from the appearance delegate's color tokens.
 - **System** — adaptive light/dark surfaces based on the active color scheme.
 
@@ -20,7 +20,7 @@ public enum FCLVisualStyle: Sendable, Hashable {
 
 | Case | Description |
 |---|---|
-| `.liquidGlass` | Glass silhouette. iOS 26+ uses the native `.glassEffect` modifier; iOS 17 / 18 render an equivalent layered material. This is the package default. |
+| `.liquidGlass` | Glass silhouette. iOS 26+ uses native `UIGlassEffect`; iOS 17 / 18 use a `UIVisualEffectView` blur fallback. This is the package default. |
 | `.default` | Opaque surface using `FCLAppearanceDelegate` color tokens. |
 | `.system` | Uses system materials that adapt to the active color scheme. |
 
@@ -31,7 +31,7 @@ The visual style is resolved per surface through a dedicated delegate slot.
 ```swift
 @MainActor
 public protocol FCLVisualStyleDelegate: AnyObject {
-    var visualStyle: FCLVisualStyle { get }
+    var style: FCLVisualStyle { get }
 }
 ```
 
@@ -47,7 +47,7 @@ public protocol FCLChatDelegate: AnyObject {
 Resolution is performed by `FCLVisualStyleResolver`, which applies the following precedence:
 
 1. **Explicit value.** When a view is given an explicit style via `.fclVisualStyle(_:)`, that value wins for that view and its descendants.
-2. **Delegate value.** If no explicit value is set, the resolver falls back to `FCLVisualStyleDelegate.visualStyle`.
+2. **Delegate value.** If no explicit value is set, the resolver falls back to `FCLVisualStyleDelegate.style`.
 3. **Default.** If neither is supplied, the resolver returns `.liquidGlass`.
 
 The resolver is a pure value type; it is safe to construct per call site.
@@ -58,17 +58,29 @@ Six SwiftUI primitives under `Sources/FlyChat/Core/Visual/Primitives/` share the
 
 | Primitive | Purpose |
 |---|---|
-| `FCLGlassContainer` | Base rounded container. Renders an iOS 26 glass effect or the material fallback and exposes padding / corner radius. Use as the background for toolbars and bars. |
+| `FCLGlassContainer` | Base rounded container. Renders an iOS 26 glass effect or the UIKit blur fallback and exposes padding / corner radius. Use as the background for toolbars and bars. |
 | `FCLGlassButton` | Full-width or inline button. Applies the glass silhouette to a label, including pressed / disabled states. |
 | `FCLGlassIconButton` | 44-point square icon button. Used for close buttons, overflow glyphs, and toolbar actions. |
-| `FCLGlassToolbar` | Horizontal toolbar container. Groups glass controls inside a single container so the iOS 26 native glass effect merges them. |
+| `FCLGlassToolbar` | Horizontal toolbar container. Groups chrome inside one rounded glass surface. |
 | `FCLGlassTextField` | Text field wrapped in a glass surface. Used by the picker caption row and search fields. |
 | `FCLGlassChip` | Small rounded chip for segmented controls, filter tokens, and the camera zoom presets. |
 
+Most primitives also accept `surfaceStyle: FCLGlassSurfaceStyle = .regular`:
+
+```swift
+public enum FCLGlassSurfaceStyle: Sendable, Hashable {
+    case regular
+    case clear
+}
+```
+
+Use `.regular` for persistent chrome that needs stronger separation, such as picker bars, camera controls, and toolbars. Use `.clear` for lightweight controls over busy content, such as chat composer buttons, compact floating fields, and surfaces that should stay visually close to the native iOS 26 Liquid Glass input style. On iOS 26 this maps to `UIGlassEffect.Style`; on the iOS 17 / 18 fallback the silhouette, blur, rim, and transparency rules remain unchanged.
+
 ### iOS 26 Native vs iOS 17 / 18 Fallback
 
-- On iOS 26 and later, `.liquidGlass` maps directly to the system `.glassEffect` modifier. Multiple adjacent primitives wrapped in a `FCLGlassToolbar` or `GlassEffectContainer` are drawn as one unified surface.
-- On iOS 17 and iOS 18, the same primitives use a layered rendering: `.ultraThinMaterial`, a 0.5pt stroke, and a subtle shadow. The silhouettes and corner radii match so that layout and hit-testing stay identical across versions.
+- On iOS 26 and later, `.liquidGlass` maps to UIKit's native `UIGlassEffect` hosted in `UIVisualEffectView`. Interactive controls opt into `isInteractive`.
+- On iOS 17 and iOS 18, the same primitives use `UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))` with the same clipped shape, rim, and hit target. No opaque fill is painted behind glass controls.
+- The built-in chat input bar is overlaid on top of the message list. On iOS 26 the chat composer uses native UIKit `UIGlassEffect` surfaces hosted in `UIVisualEffectView`, with an additional system-color occlusion layer inside each control so fast-scrolling chat cells cannot leave stale glass artifacts under the attachment button, composer field, or send button. It intentionally avoids SwiftUI `.glassEffect` / `GlassEffectContainer` in this screen. On iOS 17 / 18 it keeps the `UIVisualEffectView` blur fallback. No full-width input background or separator is painted.
 
 No host-side gating is required; the primitive branches internally.
 
@@ -101,7 +113,7 @@ New glass or chrome primitives must live under `Sources/FlyChat/Core/Visual/Prim
 
 ## Migration Note
 
-`FCLInputDelegate.liquidGlass` is deprecated. The flag is still honored when the host explicitly sets it to `true` — in that case it routes through the new `FCLVisualStyleDelegate` pipeline as a per-instance glass override. Setting the flag to `false` (or omitting it) now means *no opinion*: the input bar inherits the library default (`.liquidGlass`) instead of being forced onto the opaque path, so new installs get glass automatically. Hosts that want an opaque input bar should supply an `FCLVisualStyleDelegate` whose `visualStyle` returns `.default` or apply `.fclVisualStyle(.default)` to the chat screen. The internal `FCLInputBarBackground` type has been removed; the input bar now composes `FCLGlassContainer` with the rest of the chrome.
+`FCLInputDelegate.liquidGlass` is deprecated. The flag is still honored when the host explicitly sets it to `true` — in that case it routes through the new `FCLVisualStyleDelegate` pipeline as a per-instance glass override. Setting the flag to `false` (or omitting it) now means *no opinion*: the input bar inherits the library default (`.liquidGlass`) instead of being forced onto the opaque path, so new installs get glass automatically. Hosts that want an opaque input bar should supply an `FCLVisualStyleDelegate` whose `style` returns `.default` or apply `.fclVisualStyle(.default)` to the chat screen. The old input-bar background layer has been removed; glass mode renders only the attachment button, composer field, and send button surfaces.
 
 `FCLInputDelegate.backgroundColor` continues to act as the opaque fallback when the resolved style is `.default` or when `accessibilityReduceTransparency` is on. It is not painted as a tint on top of glass; applying the legacy light-gray default over the material would desaturate glass into a flat rectangle.
 

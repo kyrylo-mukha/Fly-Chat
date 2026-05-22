@@ -5,8 +5,8 @@ import SwiftUI
 ///
 /// `FCLInputBar` renders an expanding text field, an optional attachment button,
 /// a send button, and an attachment preview strip. It supports multiple container
-/// modes (`.allInRounded`, `.fieldOnlyRounded`, `.custom`) and optional liquid glass
-/// background effects on iOS 26+.
+/// modes (`.allInRounded`, `.fieldOnlyRounded`, `.custom`) and liquid glass
+/// surfaces on iOS 26+ with UIKit blur fallback below iOS 26.
 ///
 /// This view is used internally by ``FCLChatScreen`` when no custom input bar is provided.
 struct FCLInputBar: View {
@@ -29,6 +29,14 @@ struct FCLInputBar: View {
     private let onSend: () -> Void
     @State private var showAttachmentPicker = false
     @State private var pickerDetent: PresentationDetent = .medium
+    @GestureState private var composerPressed = false
+    @Environment(\.fclExplicitVisualStyle) private var explicitStyle
+    @Environment(\.fclDelegateVisualStyle) private var delegateStyle
+    @Environment(\.fclReducedTransparencyBackground) private var reducedBackground
+    @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
+    @Environment(\.fclPreviewReduceTransparency) private var previewReduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.legibilityWeight) private var legibilityWeight
     /// Hoisted from ``FCLChatScreen`` so timeline tap and drag handlers can dismiss the keyboard
     /// via `@FocusState` instead of a UIKit `resignFirstResponder` call.
     private let composerFocusBinding: FocusState<Bool>.Binding
@@ -37,6 +45,7 @@ struct FCLInputBar: View {
     private let delegate: (any FCLChatDelegate)?
     @ObservedObject private var presenter: FCLChatPresenter
     private let availableHeight: CGFloat
+    private let glassControlHeight: CGFloat = 44
 
     /// Creates an input bar with the given configuration.
     ///
@@ -115,6 +124,28 @@ struct FCLInputBar: View {
         inputBarContent(resolvedMaxRows: resolvedMaxRows)
     }
 
+    private var reduceTransparency: Bool { previewReduceTransparency ?? systemReduceTransparency }
+
+    private var nativeInputGlassTint: FCLChatColorToken {
+        colorScheme == .dark
+            ? FCLChatColorToken(red: 0.20, green: 0.21, blue: 0.23, alpha: 0.48)
+            : FCLChatColorToken(red: 0.98, green: 0.99, blue: 1.00, alpha: 0.62)
+    }
+
+    private var nativeInputGlassOcclusion: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.10)
+            : Color.white.opacity(0.28)
+    }
+
+    private var resolvedStyle: FCLResolvedVisualStyle {
+        FCLVisualStyleResolver.resolve(
+            explicit: explicitStyle,
+            delegate: delegateStyle,
+            reduceTransparency: reduceTransparency
+        )
+    }
+
     private func resolveMaxRows(forAvailableHeight height: CGFloat) -> Int {
         FCLInputBar.resolveMaxRows(forAvailableHeight: height, explicitMaxRows: maxRows)
     }
@@ -134,12 +165,11 @@ struct FCLInputBar: View {
 
     @ViewBuilder
     private func inputBarContent(resolvedMaxRows: Int) -> some View {
-        FCLGlassContainer(cornerRadius: 0, tint: nil) {
-            VStack(spacing: 0) {
-                inputRow(resolvedMaxRows: resolvedMaxRows)
-                    .padding(contentInsets.edgeInsets)
-            }
+        VStack(spacing: 0) {
+            inputRow(resolvedMaxRows: resolvedMaxRows)
+                .padding(contentInsets.edgeInsets)
         }
+        .background(inputBarBackground)
         .modifier(FCLInputBarLegacyLiquidGlassOverride(optedIn: liquidGlass))
         .sheet(isPresented: $showAttachmentPicker) {
             FCLAttachmentPickerHost(
@@ -157,7 +187,167 @@ struct FCLInputBar: View {
     }
 
     @ViewBuilder
+    private var inputBarBackground: some View {
+        if resolvedStyle == .opaque {
+            backgroundColor.color
+        } else {
+            Color.clear
+        }
+    }
+
+    @ViewBuilder
     private func inputRow(resolvedMaxRows: Int) -> some View {
+        switch resolvedStyle {
+        case .liquidGlassNative, .liquidGlassFallback:
+            glassInputRow(resolvedMaxRows: resolvedMaxRows)
+        case .opaque:
+            opaqueInputRow(resolvedMaxRows: resolvedMaxRows)
+        }
+    }
+
+    @ViewBuilder
+    private func glassInputRow(resolvedMaxRows: Int) -> some View {
+        #if os(iOS)
+        if #available(iOS 26, *), resolvedStyle == .liquidGlassNative {
+            nativeLiquidGlassInputRow(resolvedMaxRows: resolvedMaxRows)
+        } else {
+            fallbackGlassInputRow(resolvedMaxRows: resolvedMaxRows)
+        }
+        #else
+        fallbackGlassInputRow(resolvedMaxRows: resolvedMaxRows)
+        #endif
+    }
+
+    @available(iOS 26, *)
+    @ViewBuilder
+    private func nativeLiquidGlassInputRow(resolvedMaxRows: Int) -> some View {
+        HStack(alignment: .bottom, spacing: elementSpacing) {
+            if showAttachButton {
+                nativeInputIconButton(
+                    systemImage: "paperclip",
+                    foregroundStyle: AnyShapeStyle(FCLPalette.label),
+                    isEnabled: true,
+                    action: { presentAttachmentPicker() }
+                )
+                .accessibilityLabel("Attach file")
+                .background(
+                    Circle()
+                        .fill(Color.clear)
+                        .frame(width: glassControlHeight, height: glassControlHeight)
+                        .allowsHitTesting(false)
+                        .modifier(FCLPickerZoomSource(
+                            sourceID: "FCLAttachmentPicker",
+                            namespace: pickerNamespace
+                        ))
+                )
+            }
+
+            let composerShape = RoundedRectangle(cornerRadius: fieldCornerRadius, style: .continuous)
+            composerField(resolvedMaxRows: resolvedMaxRows)
+                .frame(minHeight: glassControlHeight, alignment: .center)
+                .background(nativeInputGlassBackground(shape: composerShape, isInteractive: true))
+                .clipShape(composerShape)
+                .contentShape(composerShape)
+                .scaleEffect(composerPressed ? 1.018 : 1.0)
+                .animation(.spring(response: 0.22, dampingFraction: 0.84), value: composerPressed)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .updating($composerPressed) { _, state, _ in
+                            state = true
+                        }
+                )
+
+            nativeInputIconButton(
+                systemImage: "paperplane.fill",
+                foregroundStyle: AnyShapeStyle(isSendButtonEnabled ? FCLAppearanceDefaults.senderBubbleColor.color : FCLPalette.tertiaryLabel),
+                isEnabled: isSendButtonEnabled,
+                action: { sendIfEnabled() }
+            )
+            .animation(.easeInOut(duration: 0.2), value: isSendButtonEnabled)
+            .accessibilityLabel("Send message")
+        }
+        .frame(minHeight: glassControlHeight, alignment: .bottom)
+    }
+
+    @available(iOS 26, *)
+    private func nativeInputIconButton(
+        systemImage: String,
+        foregroundStyle: AnyShapeStyle,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: {
+            guard isEnabled else { return }
+            action()
+        }) {
+            Image(systemName: systemImage)
+                .foregroundStyle(foregroundStyle)
+                .frame(width: glassControlHeight, height: glassControlHeight)
+        }
+        .buttonStyle(FCLNativeInputIconButtonStyle(
+            size: glassControlHeight,
+            tint: nativeInputGlassTint,
+            occlusion: nativeInputGlassOcclusion,
+            isEnabled: isEnabled,
+            reduceTransparency: reduceTransparency,
+            reducedTransparencyBackground: reducedBackground,
+            colorScheme: colorScheme,
+            legibilityWeight: legibilityWeight
+        ))
+        .contentShape(Circle())
+        .disabled(!isEnabled)
+        .frame(width: glassControlHeight, height: glassControlHeight, alignment: .bottom)
+    }
+
+    @available(iOS 26, *)
+    private func nativeInputGlassBackground<S: InsettableShape>(
+        shape: S,
+        isInteractive: Bool
+    ) -> some View {
+        ZStack {
+            FCLLiquidGlassSurface(
+                shape: shape,
+                tint: nativeInputGlassTint,
+                isInteractive: isInteractive,
+                surfaceStyle: .regular,
+                resolvedStyle: .liquidGlassNative,
+                reduceTransparency: reduceTransparency,
+                reducedTransparencyBackground: reducedBackground,
+                colorScheme: colorScheme,
+                legibilityWeight: legibilityWeight
+            )
+            shape.fill(nativeInputGlassOcclusion)
+        }
+        .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+    }
+
+    @ViewBuilder
+    private func fallbackGlassInputRow(resolvedMaxRows: Int) -> some View {
+        HStack(alignment: .bottom, spacing: elementSpacing) {
+            attachButtonIfNeeded
+            composerField(resolvedMaxRows: resolvedMaxRows)
+                .frame(minHeight: glassControlHeight, alignment: .center)
+                .background(
+                    FCLLiquidGlassSurface(
+                        shape: RoundedRectangle(cornerRadius: fieldCornerRadius, style: .continuous),
+                        tint: nil,
+                        isInteractive: true,
+                        surfaceStyle: .clear,
+                        resolvedStyle: resolvedStyle,
+                        reduceTransparency: reduceTransparency,
+                        reducedTransparencyBackground: reducedBackground,
+                        colorScheme: colorScheme,
+                        legibilityWeight: legibilityWeight
+                    )
+                    .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+                )
+            sendButton
+        }
+        .frame(minHeight: glassControlHeight, alignment: .bottom)
+    }
+
+    @ViewBuilder
+    private func opaqueInputRow(resolvedMaxRows: Int) -> some View {
         switch containerMode {
         case .allInRounded(let insets):
             HStack(alignment: .bottom, spacing: elementSpacing) {
@@ -194,7 +384,7 @@ struct FCLInputBar: View {
             .font(font.font)
             .focused(composerFocusBinding)
             .submitLabel(returnKeySends ? .send : .return)
-            .onSubmit { if returnKeySends { onSend() } }
+            .onSubmit { if returnKeySends { sendIfEnabled() } }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
     }
@@ -204,12 +394,13 @@ struct FCLInputBar: View {
         if showAttachButton {
             FCLGlassIconButton(
                 systemImage: "paperclip",
-                size: 44,
+                size: glassControlHeight,
                 action: { presentAttachmentPicker() }
             )
+            .frame(width: glassControlHeight, height: glassControlHeight, alignment: .bottom)
             .accessibilityLabel("Attach file")
             /// The transition source is attached to an invisible `Circle` so the zoom originates
-            /// from the paperclip's visual bounds, not from `.buttonStyle(.glass)`'s padded frame.
+            /// from the paperclip's visual bounds.
             .background(
                 Circle()
                     .fill(Color.clear)
@@ -240,21 +431,32 @@ struct FCLInputBar: View {
     }
 
     private var sendButton: some View {
-        let enabled = Self.isSendEnabled(
-            text: draftText,
-            minimumLength: minimumTextLength,
-            hasAttachments: false
-        )
+        let enabled = isSendButtonEnabled
         return FCLGlassIconButton(
             systemImage: "paperplane.fill",
-            size: 44,
-            tint: FCLAppearanceDefaults.senderBubbleColor,
-            action: onSend
+            size: glassControlHeight,
+            tint: nil,
+            action: { sendIfEnabled() }
         )
+        .foregroundStyle(FCLAppearanceDefaults.senderBubbleColor.color)
+        .frame(width: glassControlHeight, height: glassControlHeight, alignment: .bottom)
         .opacity(enabled ? 1.0 : 0.4)
         .allowsHitTesting(enabled)
         .animation(.easeInOut(duration: 0.2), value: enabled)
         .accessibilityLabel("Send message")
+    }
+
+    private var isSendButtonEnabled: Bool {
+        Self.isSendEnabled(
+            text: draftText,
+            minimumLength: minimumTextLength,
+            hasAttachments: false
+        )
+    }
+
+    private func sendIfEnabled() {
+        guard isSendButtonEnabled else { return }
+        onSend()
     }
 }
 
@@ -272,6 +474,46 @@ private struct FCLInputBarLegacyLiquidGlassOverride: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+private struct FCLNativeInputIconButtonStyle: ButtonStyle {
+    let size: CGFloat
+    let tint: FCLChatColorToken
+    let occlusion: Color
+    let isEnabled: Bool
+    let reduceTransparency: Bool
+    let reducedTransparencyBackground: FCLChatColorToken
+    let colorScheme: ColorScheme
+    let legibilityWeight: LegibilityWeight?
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                ZStack {
+                    FCLLiquidGlassSurface(
+                        shape: Circle(),
+                        tint: tint,
+                        isInteractive: isEnabled,
+                        surfaceStyle: .regular,
+                        resolvedStyle: .liquidGlassNative,
+                        reduceTransparency: reduceTransparency,
+                        reducedTransparencyBackground: reducedTransparencyBackground,
+                        colorScheme: colorScheme,
+                        legibilityWeight: legibilityWeight
+                    )
+                    Circle().fill(occlusion)
+                }
+                .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+            )
+            .clipShape(Circle())
+            .opacity(isEnabled ? 1.0 : 0.42)
+            .scaleEffect(configuration.isPressed && isEnabled ? 1.08 : 1.0)
+            .animation(
+                .spring(response: 0.22, dampingFraction: 0.84),
+                value: configuration.isPressed
+            )
+            .frame(width: size, height: size)
     }
 }
 

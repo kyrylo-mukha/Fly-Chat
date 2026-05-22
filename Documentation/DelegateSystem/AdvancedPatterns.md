@@ -214,9 +214,9 @@ final class MyInputConfig: FCLInputDelegate {
         .allInRounded(insets: FCLEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 6))
     }
 
-    // Liquid glass background behind the entire input bar.
-    // iOS 26+: .glassEffect(), iOS 15+: .ultraThinMaterial, iOS 13-14: UIBlurEffect.
-    // When false, backgroundColor is used instead.
+    // Deprecated compatibility flag. Prefer FCLVisualStyleDelegate.
+    // iOS 26 uses native UIGlassEffect; iOS 17/18 use UIVisualEffectView blur fallback.
+    // When false, the library-wide visual style decides the input appearance.
     var liquidGlass: Bool { false }
 
     // Solid color behind the entire input bar (used when liquidGlass is false).

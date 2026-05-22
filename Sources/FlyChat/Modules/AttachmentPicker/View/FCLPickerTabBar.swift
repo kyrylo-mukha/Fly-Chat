@@ -92,10 +92,14 @@ private struct FCLPickerTabItem: View {
 
     @Environment(\.fclExplicitVisualStyle) private var explicitStyle
     @Environment(\.fclDelegateVisualStyle) private var delegateStyle
+    @Environment(\.fclDelegateVisualTint) private var delegateTint
+    @Environment(\.fclReducedTransparencyBackground) private var reducedBackground
     @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.fclPreviewReduceTransparency) private var previewReduceTransparency
     @Environment(\.fclPreviewReduceMotion) private var previewReduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.legibilityWeight) private var legibilityWeight
 
     private var reduceTransparency: Bool { previewReduceTransparency ?? systemReduceTransparency }
     private var reduceMotion: Bool { previewReduceMotion ?? systemReduceMotion }
@@ -134,25 +138,21 @@ private struct FCLPickerTabItem: View {
     private func selectedPillBackground(for resolved: FCLResolvedVisualStyle) -> some View {
         let shape = Capsule(style: .continuous)
         switch resolved {
-        case .liquidGlassNative:
-            #if os(iOS)
-            if #available(iOS 26, *) {
-                shape.glassEffect(.regular, in: shape)
-            } else {
-                fallbackPill(shape: shape)
-            }
-            #else
-            fallbackPill(shape: shape)
-            #endif
-        case .liquidGlassFallback, .opaque:
-            fallbackPill(shape: shape)
+        case .liquidGlassNative, .liquidGlassFallback:
+            FCLLiquidGlassSurface(
+                shape: shape,
+                tint: delegateTint,
+                isInteractive: false,
+                surfaceStyle: .regular,
+                resolvedStyle: resolved,
+                reduceTransparency: reduceTransparency,
+                reducedTransparencyBackground: reducedBackground,
+                colorScheme: colorScheme,
+                legibilityWeight: legibilityWeight
+            )
+        case .opaque:
+            shape.fill((delegateTint ?? reducedBackground).color)
         }
-    }
-
-    private func fallbackPill(shape: Capsule) -> some View {
-        shape
-            .fill(Color.white.opacity(0.22))
-            .overlay(shape.strokeBorder(Color.white.opacity(0.30), lineWidth: 0.5))
     }
 }
 

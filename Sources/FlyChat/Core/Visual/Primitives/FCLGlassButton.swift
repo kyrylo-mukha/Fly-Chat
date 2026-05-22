@@ -2,12 +2,13 @@ import SwiftUI
 
 /// Capsule-shaped glass button.
 ///
-/// On iOS 26+ uses the native `.buttonStyle(.glass)`. On iOS 17/18 composites
-/// the shared fallback "glass stack" on a capsule and applies a press-shrink
+/// On iOS 26+ uses UIKit's native `UIGlassEffect`. On iOS 17/18 it falls back
+/// to a `UIBlurEffect`-backed `UIVisualEffectView` and applies a press-shrink
 /// spring that honors `\.accessibilityReduceMotion`.
 public struct FCLGlassButton<Label: View>: View {
     private let role: ButtonRole?
     private let tintOverride: FCLChatColorToken?
+    private let surfaceStyle: FCLGlassSurfaceStyle
     private let action: () -> Void
     private let label: Label
 
@@ -29,11 +30,13 @@ public struct FCLGlassButton<Label: View>: View {
     public init(
         role: ButtonRole? = nil,
         tint: FCLChatColorToken? = nil,
+        surfaceStyle: FCLGlassSurfaceStyle = .regular,
         action: @escaping () -> Void,
         @ViewBuilder label: () -> Label
     ) {
         self.role = role
         self.tintOverride = tint
+        self.surfaceStyle = surfaceStyle
         self.action = action
         self.label = label()
     }
@@ -49,24 +52,8 @@ public struct FCLGlassButton<Label: View>: View {
 
         let core: AnyView = {
             switch resolved {
-            case .liquidGlassNative:
-                #if os(iOS)
-                if #available(iOS 26, *) {
-                    return AnyView(
-                        Button(role: role, action: action) {
-                            label.padding(.horizontal, 14).padding(.vertical, 10)
-                        }
-                        .buttonStyle(.glass)
-                        .tint(tint?.color)
-                    )
-                } else {
-                    return AnyView(fallbackButton(tint: tint))
-                }
-                #else
-                return AnyView(fallbackButton(tint: tint))
-                #endif
-            case .liquidGlassFallback:
-                return AnyView(fallbackButton(tint: tint))
+            case .liquidGlassNative, .liquidGlassFallback:
+                return AnyView(glassButton(tint: tint, resolved: resolved))
             case .opaque:
                 return AnyView(
                     Button(role: role, action: action) {
@@ -101,12 +88,14 @@ public struct FCLGlassButton<Label: View>: View {
     }
 
     @ViewBuilder
-    private func fallbackButton(tint: FCLChatColorToken?) -> some View {
+    private func glassButton(tint: FCLChatColorToken?, resolved: FCLResolvedVisualStyle) -> some View {
         Button(role: role, action: action) {
             label.padding(.horizontal, 14).padding(.vertical, 10)
         }
-        .buttonStyle(FCLGlassFallbackButtonStyle(
+        .buttonStyle(FCLGlassButtonStyle(
             tint: tint,
+            surfaceStyle: surfaceStyle,
+            resolvedStyle: resolved,
             reduceTransparency: reduceTransparency,
             reducedTransparencyBackground: reducedBackground,
             reduceMotion: reduceMotion,
@@ -118,8 +107,10 @@ public struct FCLGlassButton<Label: View>: View {
 
 // MARK: - Fallback styles
 
-struct FCLGlassFallbackButtonStyle: ButtonStyle {
+struct FCLGlassButtonStyle: ButtonStyle {
     let tint: FCLChatColorToken?
+    let surfaceStyle: FCLGlassSurfaceStyle
+    let resolvedStyle: FCLResolvedVisualStyle
     let reduceTransparency: Bool
     let reducedTransparencyBackground: FCLChatColorToken
     let reduceMotion: Bool
@@ -130,9 +121,12 @@ struct FCLGlassFallbackButtonStyle: ButtonStyle {
         let shape = Capsule(style: .continuous)
         return configuration.label
             .background(
-                FCLGlassFallbackBackground(
+                FCLLiquidGlassSurface(
                     shape: shape,
                     tint: tint,
+                    isInteractive: true,
+                    surfaceStyle: surfaceStyle,
+                    resolvedStyle: resolvedStyle,
                     reduceTransparency: reduceTransparency,
                     reducedTransparencyBackground: reducedTransparencyBackground,
                     colorScheme: colorScheme,

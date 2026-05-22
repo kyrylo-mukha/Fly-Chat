@@ -7,8 +7,8 @@ FlyChat's visual primitives branch on five iOS environment inputs. This page enu
 - **`accessibilityReduceTransparency`** — when `true`, `FCLVisualStyleResolver` short-circuits every case to `.opaque`. Glass materials are replaced by the `reducedTransparencyBackground` token color (default RGB `0.93, 0.94, 0.96`, host-configurable via `FCLVisualStyleDelegate`).
 - **`accessibilityReduceMotion`** — disables parallax and depth-based animations inside glass surfaces. Static content still renders on the opaque fallback.
 - **`accessibilityShowButtonShapes`** — interactive primitives (`FCLGlassButton`, `FCLGlassIconButton`, `FCLGlassChip` when an `action` is bound) render a visible rim stroke above the resolved background, sized to the hit target.
-- **`colorScheme`** — drives the tint-opacity and top-stroke-opacity constants inside `FCLGlassFallbackBackground`. Tint opacity is `0.12` in dark mode and `0.18` in light; the top highlight gradient also adapts.
-- **`legibilityWeight`** — when `.bold`, the top-stroke opacity rises from `0.35` to `0.55` in the fallback recipe, ensuring the primitive's edge stays visible against busy backgrounds.
+- **`colorScheme`** — drives the rim and highlight opacity around UIKit-backed glass surfaces so the edge remains readable in light and dark appearances.
+- **`legibilityWeight`** — when `.bold`, the top-stroke opacity rises so the primitive's edge stays visible against busy backgrounds.
 
 ## Resolution precedence
 

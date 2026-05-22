@@ -217,11 +217,11 @@ The `Visual` namespace holds the visual-style system that drives every chrome su
 | `Primitives/FCLGlassContainer.swift` | `FCLGlassContainer` | Base rounded glass container used as a background for toolbars and bars. |
 | `Primitives/FCLGlassButton.swift` | `FCLGlassButton` | Text / label button with glass silhouette. |
 | `Primitives/FCLGlassIconButton.swift` | `FCLGlassIconButton` | 44pt square icon button for close, overflow, and toolbar actions. |
-| `Primitives/FCLGlassToolbar.swift` | `FCLGlassToolbar` | Horizontal toolbar container; merges primitives into a single glass surface on iOS 26. |
+| `Primitives/FCLGlassToolbar.swift` | `FCLGlassToolbar` | Horizontal toolbar container rendered over a single glass surface. |
 | `Primitives/FCLGlassTextField.swift` | `FCLGlassTextField` | Glass-wrapped text field used by picker caption and search rows. |
 | `Primitives/FCLGlassChip.swift` | `FCLGlassChip` | Small rounded chip for segmented controls, camera zoom presets, and filter tokens. |
 
-Every primitive reads the resolved style from the environment and branches internally between the iOS 26 native `.glassEffect` path and the iOS 17 / 18 material fallback. See [VisualStyle.md](VisualStyle.md).
+Every primitive reads the resolved style from the environment and branches internally between the iOS 26 native `UIGlassEffect` path and the iOS 17 / 18 `UIVisualEffectView` blur fallback. See [VisualStyle.md](VisualStyle.md).
 
 ### Media/
 

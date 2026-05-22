@@ -2,13 +2,14 @@ import SwiftUI
 
 /// Capsule-shaped chip with an optional leading accessory and trailing badge.
 ///
-/// On iOS 26+ composites the content inside a `.glassEffect(.regular.interactive(true), in: Capsule())`.
-/// On iOS 17/18 composites the shared fallback glass stack on a capsule. Tapping
-/// the chip plays a subtle press-shrink (0.95) when `action` is non-nil.
+/// On iOS 26+ composites the content over UIKit's native `UIGlassEffect`. On
+/// iOS 17/18 it falls back to a `UIBlurEffect`-backed `UIVisualEffectView`.
+/// Tapping the chip plays a subtle press-shrink (0.95) when `action` is non-nil.
 public struct FCLGlassChip<Accessory: View>: View {
     private let title: String
     private let badgeCount: Int?
     private let tintOverride: FCLChatColorToken?
+    private let surfaceStyle: FCLGlassSurfaceStyle
     private let action: (() -> Void)?
     private let accessory: Accessory
 
@@ -31,12 +32,14 @@ public struct FCLGlassChip<Accessory: View>: View {
         title: String,
         badgeCount: Int? = nil,
         tint: FCLChatColorToken? = nil,
+        surfaceStyle: FCLGlassSurfaceStyle = .regular,
         action: (() -> Void)? = nil,
         @ViewBuilder accessory: () -> Accessory = { EmptyView() }
     ) {
         self.title = title
         self.badgeCount = badgeCount
         self.tintOverride = tint
+        self.surfaceStyle = surfaceStyle
         self.action = action
         self.accessory = accessory()
     }
@@ -72,21 +75,8 @@ public struct FCLGlassChip<Accessory: View>: View {
 
         let background: AnyView = {
             switch resolved {
-            case .liquidGlassNative:
-                #if os(iOS)
-                if #available(iOS 26, *) {
-                    return AnyView(
-                        shape.fill(Color.clear)
-                            .glassEffect(.regular.interactive(action != nil), in: shape)
-                    )
-                } else {
-                    return AnyView(fallbackBackground(shape: shape, tint: tint))
-                }
-                #else
-                return AnyView(fallbackBackground(shape: shape, tint: tint))
-                #endif
-            case .liquidGlassFallback:
-                return AnyView(fallbackBackground(shape: shape, tint: tint))
+            case .liquidGlassNative, .liquidGlassFallback:
+                return AnyView(glassBackground(shape: shape, tint: tint, resolved: resolved))
             case .opaque:
                 return AnyView(shape.fill((tint ?? reducedBackground).color))
             }
@@ -121,10 +111,17 @@ public struct FCLGlassChip<Accessory: View>: View {
     }
 
     @ViewBuilder
-    private func fallbackBackground(shape: Capsule, tint: FCLChatColorToken?) -> some View {
-        FCLGlassFallbackBackground(
+    private func glassBackground(
+        shape: Capsule,
+        tint: FCLChatColorToken?,
+        resolved: FCLResolvedVisualStyle
+    ) -> some View {
+        FCLLiquidGlassSurface(
             shape: shape,
             tint: tint,
+            isInteractive: action != nil,
+            surfaceStyle: surfaceStyle,
+            resolvedStyle: resolved,
             reduceTransparency: reduceTransparency,
             reducedTransparencyBackground: reducedBackground,
             colorScheme: colorScheme,

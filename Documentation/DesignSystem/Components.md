@@ -12,17 +12,18 @@ The eight components below are the composable foundation of every visible surfac
 public init(
     cornerRadius: CGFloat = 16,
     tint: FCLChatColorToken? = nil,
+    surfaceStyle: FCLGlassSurfaceStyle = .regular,
     @ViewBuilder content: () -> Content
 )
 ```
 
 **States.** No interactive states; the container is a passive background.
 
-**Variants.** Arbitrary content via `@ViewBuilder`; configurable corner radius (default 16pt, continuous); optional tint layered over the glass.
+**Variants.** Arbitrary content via `@ViewBuilder`; configurable corner radius (default 16pt, continuous); optional tint layered over the glass; `surfaceStyle: .regular | .clear` for standard or lightweight native iOS 26 glass.
 
-**iOS 26 native behavior.** Applies `.glassEffect(_:in:)` with the rounded rectangle shape. Wraps children for proper `GlassEffectContainer` merging when multiple primitives are grouped at the call site.
+**iOS 26 native behavior.** Hosts UIKit `UIGlassEffect` in `UIVisualEffectView`, clipped to the rounded rectangle shape.
 
-**iOS 17/18 fallback behavior.** Composes `FCLGlassFallbackBackground` (ultra-thin material, optional tint overlay, top inner highlight gradient, edge stroke) inside the rounded rectangle. An outer shadow is applied by callers that want the floating affordance.
+**iOS 17/18 fallback behavior.** Hosts `UIBlurEffect(style: .systemUltraThinMaterial)` in `UIVisualEffectView`, clipped to the same shape. An outer shadow is applied by callers that want the floating affordance.
 
 **Source.** `Sources/FlyChat/Core/Visual/Primitives/FCLGlassContainer.swift:26-34`.
 
@@ -38,6 +39,7 @@ public init(
 public init(
     role: ButtonRole? = nil,
     tint: FCLChatColorToken? = nil,
+    surfaceStyle: FCLGlassSurfaceStyle = .regular,
     action: @escaping () -> Void,
     @ViewBuilder label: () -> Label
 )
@@ -45,11 +47,11 @@ public init(
 
 **States.** Default, pressed (reduced fill opacity), disabled (dimmed content, hit testing preserved by SwiftUI).
 
-**Variants.** Standard / destructive (via `role: .destructive`); tinted fill; content-driven layout via the `label` view builder.
+**Variants.** Standard / destructive (via `role: .destructive`); tinted fill; `.regular` or `.clear` glass strength; content-driven layout via the `label` view builder.
 
 **iOS 26 native behavior.** Label is placed over a native glass background; press feedback is the system-provided response to `Button` interactions.
 
-**iOS 17/18 fallback behavior.** Layered material + tint + inner highlight + edge stroke inside the continuous rounded rectangle; rim stroke appears when `accessibilityShowButtonShapes` is on.
+**iOS 17/18 fallback behavior.** UIKit blur + tint + inner highlight + edge stroke inside the continuous rounded rectangle; rim stroke appears when `accessibilityShowButtonShapes` is on.
 
 **Source.** `Sources/FlyChat/Core/Visual/Primitives/FCLGlassButton.swift:29-39`.
 
@@ -66,13 +68,14 @@ public init(
     systemImage: String,
     size: CGFloat = 44,
     tint: FCLChatColorToken? = nil,
+    surfaceStyle: FCLGlassSurfaceStyle = .regular,
     action: @escaping () -> Void
 )
 ```
 
 **States.** Default, pressed, disabled.
 
-**Variants.** Any SF Symbol via `systemImage`; adjustable size (default 44pt to meet the hit-target minimum); optional tint.
+**Variants.** Any SF Symbol via `systemImage`; adjustable size (default 44pt to meet the hit-target minimum); optional tint; `.regular` or `.clear` glass strength. Chat composer buttons use `.clear` on iOS 26 so they stay translucent when active instead of becoming an opaque filled circle.
 
 **iOS 26 native behavior.** Symbol centered over native glass circle; press feedback follows `Button` conventions.
 
@@ -100,9 +103,9 @@ public init(
 
 **Variants.** `placement: .top | .bottom` for shadow direction and corner emphasis; arbitrary child content.
 
-**iOS 26 native behavior.** Wraps children in `GlassEffectContainer` so adjacent `FCLGlass*` primitives visually merge into one morphing surface. `glassEffectID` / `glassEffectUnion` semantics are honored per child.
+**iOS 26 native behavior.** Renders children over one rounded UIKit `UIGlassEffect` surface.
 
-**iOS 17/18 fallback behavior.** Single background from the shared fallback recipe; children render on top without glass merging (no native primitive to merge against).
+**iOS 17/18 fallback behavior.** Renders children over one rounded `UIVisualEffectView` blur surface.
 
 **Source.** `Sources/FlyChat/Core/Visual/Primitives/FCLGlassToolbar.swift:38-46`.
 
@@ -119,17 +122,18 @@ public init(
     text: Binding<String>,
     placeholder: String,
     cornerRadius: CGFloat = 18,
-    tint: FCLChatColorToken? = nil
+    tint: FCLChatColorToken? = nil,
+    surfaceStyle: FCLGlassSurfaceStyle = .regular
 )
 ```
 
 **States.** Default, focused (via `@FocusState` at the call site; the primitive itself is driven by the binding).
 
-**Variants.** Configurable corner radius (default 18pt, continuous); tint.
+**Variants.** Configurable corner radius (default 18pt, continuous); tint; `.regular` or `.clear` glass strength for lightweight fields.
 
-**iOS 26 native behavior.** Native `TextField` positioned over `.glassEffect` background.
+**iOS 26 native behavior.** Native `TextField` positioned over a `UIGlassEffect` background.
 
-**iOS 17/18 fallback behavior.** Native `TextField` over the shared fallback stack; placeholder color follows the system secondary label.
+**iOS 17/18 fallback behavior.** Native `TextField` over a `UIBlurEffect` fallback; placeholder color follows the system secondary label.
 
 **Source.** `Sources/FlyChat/Core/Visual/Primitives/FCLGlassTextField.swift:32-42`.
 
@@ -146,6 +150,7 @@ public init(
     title: String,
     badgeCount: Int? = nil,
     tint: FCLChatColorToken? = nil,
+    surfaceStyle: FCLGlassSurfaceStyle = .regular,
     action: (() -> Void)? = nil,
     @ViewBuilder accessory: () -> Accessory = { EmptyView() }
 )
@@ -153,7 +158,7 @@ public init(
 
 **States.** Default, pressed (when `action` is non-nil), disabled, selected (via tint differentiation at the call site).
 
-**Variants.** Plain title; optional badge count; optional accessory view (icon, dot, indicator); optional action (non-interactive when `nil`).
+**Variants.** Plain title; optional badge count; optional accessory view (icon, dot, indicator); optional action (non-interactive when `nil`); `.regular` or `.clear` glass strength.
 
 **iOS 26 native behavior.** Title + accessory layered over native glass pill; `glassEffectID` enables morphing when a chip group is wrapped in `FCLGlassToolbar`.
 
@@ -219,4 +224,4 @@ public init(
 
 ## Adding a new primitive
 
-Any new visible element must use an existing `FCLGlass*` primitive or a new primitive that follows the same recipe: iOS 26 native glass branch with `.glassEffect(_:in:)`, `GlassEffectContainer`, and morph semantics; iOS 17/18 fallback assembling the shared `FCLGlassFallbackBackground` stack; a `tint` prop of type `FCLChatColorToken?`; `#Preview` blocks covering both styles and both accessibility branches (availability-gated); a unit test exercising resolver precedence. New primitives live under `Sources/FlyChat/Core/Visual/Primitives/` and are added to this document in the same pull request.
+Any new visible element must use an existing `FCLGlass*` primitive or a new primitive that follows the same recipe: iOS 26 native glass through `UIGlassEffect`, iOS 17/18 fallback through `UIVisualEffectView` + `UIBlurEffect`, a `tint` prop of type `FCLChatColorToken?`, `#Preview` blocks covering both styles and both accessibility branches (availability-gated), and a unit test exercising resolver precedence. New primitives live under `Sources/FlyChat/Core/Visual/Primitives/` and are added to this document in the same pull request.

@@ -8,7 +8,7 @@ FlyChat treats its visual identity as an engineered aesthetic, not a product bra
 
 - **SwiftUI-first.** UIKit appears only where SwiftUI does not cover the capability. Every visible surface is composed in SwiftUI, with explicit, narrow bridges for camera capture, host-app embedding, and the avatar image cache.
 - **iOS-native material.** Semantic colors flow through `FCLPalette` so the library adapts automatically to light, dark, and Increase Contrast. System fonts are the default typography. The three iOS accessibility environment values are honored as first-class inputs.
-- **Liquid Glass aesthetic.** A library-wide visual-style toggle resolves every chrome surface to either iOS 26 native `.glassEffect` or an iOS 17/18 layered material fallback. Flipping the toggle rethemes the entire library from a single call site.
+- **Liquid Glass aesthetic.** A library-wide visual-style toggle resolves every chrome surface to either iOS 26 native `UIGlassEffect` or an iOS 17/18 `UIVisualEffectView` blur fallback. Flipping the toggle rethemes the entire library from a single call site.
 - **iMessage-tail bubble mechanics.** Per-corner animatable radii with an animatable tail; grouping-aware rendering decides when the tail appears and where the reduced-radius corner sits.
 - **Telegram-inspired spacing and attachment grid.** Dynamic max-width ratios, aspect-aware media layout, timestamps rendered inside the bubble rather than between rows.
 - **Zero-dependencies, accessibility-first.** Apple-only stack, no third-party packages. `reduceTransparency`, `reduceMotion`, and `showButtonShapes` each produce a documented rendering branch across every primitive.

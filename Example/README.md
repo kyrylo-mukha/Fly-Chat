@@ -13,8 +13,9 @@ A runnable UIKit demo for the FlyChat Swift Package.
 The entry screen offers two integration styles, each wiring the `FCLUIKitBridge` wrappers into a
 themed chat list and conversation:
 
-- **Liquid Glass** — translucent glass chrome (`FCLVisualStyle.liquidGlass`; native on iOS 26,
-  layered fallback on iOS 17/18).
+- **Liquid Glass** — translucent glass chrome (`FCLVisualStyle.liquidGlass`; native `UIGlassEffect`
+  on iOS 26, `UIVisualEffectView` blur fallback on iOS 17/18). The chat input uses separate
+  circular attach/send buttons and a rounded glass composer field over the scrolling messages.
 - **Solid Backgrounds** — opaque, solid element backgrounds (`FCLVisualStyle.default`).
 
 The photo-library attachment flow works on the simulator; the camera requires a physical device.

@@ -2,14 +2,14 @@ import SwiftUI
 
 /// Rectangular glass surface with configurable corner radius.
 ///
-/// On iOS 26+ uses `.glassEffect(.regular, in:)`. On iOS 17/18 composites the
-/// shared fallback "glass stack" (material + tint overlay + inner highlight +
-/// edge stroke + outer shadow). When `\.accessibilityReduceTransparency` is
-/// `true`, the material is replaced with an opaque fill taken from
-/// ``FCLVisualStyleDelegate/reducedTransparencyBackground``.
+/// On iOS 26+ uses UIKit's native `UIGlassEffect` inside `UIVisualEffectView`.
+/// On older iOS versions it falls back to a `UIBlurEffect`-backed
+/// `UIVisualEffectView`, keeping the same shape without painting an opaque
+/// backing behind the content.
 public struct FCLGlassContainer<Content: View>: View {
     private let cornerRadius: CGFloat
     private let tintOverride: FCLChatColorToken?
+    private let surfaceStyle: FCLGlassSurfaceStyle
     private let content: Content
 
     @Environment(\.fclExplicitVisualStyle) private var explicitStyle
@@ -26,10 +26,12 @@ public struct FCLGlassContainer<Content: View>: View {
     public init(
         cornerRadius: CGFloat = 16,
         tint: FCLChatColorToken? = nil,
+        surfaceStyle: FCLGlassSurfaceStyle = .regular,
         @ViewBuilder content: () -> Content
     ) {
         self.cornerRadius = cornerRadius
         self.tintOverride = tint
+        self.surfaceStyle = surfaceStyle
         self.content = content()
     }
 
@@ -43,41 +45,28 @@ public struct FCLGlassContainer<Content: View>: View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
 
         switch resolved {
-        case .liquidGlassNative:
-            #if os(iOS)
-            if #available(iOS 26, *) {
-                content
-                    .glassEffect(.regular, in: shape)
-            } else {
-                fallback(shape: shape, tint: tint)
-            }
-            #else
-            fallback(shape: shape, tint: tint)
-            #endif
-        case .liquidGlassFallback:
-            fallback(shape: shape, tint: tint)
+        case .liquidGlassNative, .liquidGlassFallback:
+            content
+                .background(
+                    FCLLiquidGlassSurface(
+                        shape: shape,
+                        tint: tint,
+                        isInteractive: false,
+                        surfaceStyle: surfaceStyle,
+                        resolvedStyle: resolved,
+                        reduceTransparency: reduceTransparency,
+                        reducedTransparencyBackground: reducedBackground,
+                        colorScheme: colorScheme,
+                        legibilityWeight: legibilityWeight
+                    )
+                    .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+                )
         case .opaque:
             content
                 .background(
                     shape.fill((tint ?? reducedBackground).color)
                 )
         }
-    }
-
-    @ViewBuilder
-    private func fallback(shape: RoundedRectangle, tint: FCLChatColorToken?) -> some View {
-        content
-            .background(
-                FCLGlassFallbackBackground(
-                    shape: shape,
-                    tint: tint,
-                    reduceTransparency: reduceTransparency,
-                    reducedTransparencyBackground: reducedBackground,
-                    colorScheme: colorScheme,
-                    legibilityWeight: legibilityWeight
-                )
-                .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
-            )
     }
 }
 

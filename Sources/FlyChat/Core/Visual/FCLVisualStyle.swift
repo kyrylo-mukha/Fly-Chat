@@ -5,9 +5,9 @@ import SwiftUI
 /// Library-wide visual style applied to ``FCLGlass`` primitives.
 ///
 /// The style controls how a primitive renders on the current OS. On iOS 26+ the
-/// native Liquid Glass APIs are used; on iOS 17/18 a visually-matched fallback
-/// (material + edge highlight + inner glint + shadow) approximates the native
-/// look. The ``FCLVisualStyleResolver`` collapses the caller-facing enum to a
+/// native Liquid Glass APIs are used; on iOS 17/18 a `UIVisualEffectView`
+/// blur fallback keeps the same clipped shapes. The ``FCLVisualStyleResolver``
+/// collapses the caller-facing enum to a
 /// concrete ``FCLResolvedVisualStyle`` that the primitive's body branches on.
 public enum FCLVisualStyle: Sendable, Hashable {
     /// Glass appearance — native on iOS 26+, fallback on iOS 17/18.
@@ -254,67 +254,3 @@ extension View {
     }
 }
 #endif
-
-// MARK: - Shared fallback recipe
-
-/// Shared iOS 17/18 fallback "glass stack" for any `InsettableShape`.
-/// Layer order: material → tint overlay → top inner highlight → edge stroke.
-struct FCLGlassFallbackBackground<S: InsettableShape>: View {
-    let shape: S
-    let tint: FCLChatColorToken?
-    let reduceTransparency: Bool
-    let reducedTransparencyBackground: FCLChatColorToken
-    let colorScheme: ColorScheme
-    let legibilityWeight: LegibilityWeight?
-
-    var body: some View {
-        shape
-            .fill(base)
-            .overlay {
-                if let tint {
-                    shape.fill(tint.color.opacity(tintOpacity))
-                }
-            }
-            .overlay {
-                shape.fill(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(colorScheme == .dark ? 0.14 : 0.22),
-                            .clear
-                        ],
-                        startPoint: .top,
-                        endPoint: .center
-                    )
-                )
-            }
-            .overlay {
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(topStrokeOpacity),
-                            .white.opacity(0.06)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 0.5
-                )
-            }
-    }
-
-    private var base: AnyShapeStyle {
-        if reduceTransparency {
-            return AnyShapeStyle(reducedTransparencyBackground.color)
-        } else {
-            return AnyShapeStyle(.ultraThinMaterial)
-        }
-    }
-
-    private var tintOpacity: Double {
-        colorScheme == .dark ? 0.12 : 0.18
-    }
-
-    private var topStrokeOpacity: Double {
-        legibilityWeight == .bold ? 0.55 : 0.35
-    }
-}

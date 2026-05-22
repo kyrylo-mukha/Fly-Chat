@@ -2,16 +2,15 @@ import SwiftUI
 
 /// Rounded-rectangle text field with a glass surface and focus ring.
 ///
-/// On iOS 26+ wraps the field in a container with `.glassEffect(.regular.interactive(true), in:)`.
-/// On iOS 17/18 composites the shared fallback glass stack and renders an
-/// animated focus stroke when the field is focused. A nil-op
-/// `\.accessibilityReduceMotion` is still safe — the focus ring animation
-/// collapses to `.linear(0.12)`.
+/// On iOS 26+ wraps the field in UIKit's native `UIGlassEffect`. On iOS 17/18
+/// it falls back to a `UIBlurEffect`-backed `UIVisualEffectView` and renders an
+/// animated focus stroke when the field is focused.
 public struct FCLGlassTextField: View {
     @Binding private var text: String
     private let placeholder: String
     private let cornerRadius: CGFloat
     private let tintOverride: FCLChatColorToken?
+    private let surfaceStyle: FCLGlassSurfaceStyle
 
     @FocusState private var focused: Bool
 
@@ -33,12 +32,14 @@ public struct FCLGlassTextField: View {
         text: Binding<String>,
         placeholder: String,
         cornerRadius: CGFloat = 18,
-        tint: FCLChatColorToken? = nil
+        tint: FCLChatColorToken? = nil,
+        surfaceStyle: FCLGlassSurfaceStyle = .regular
     ) {
         self._text = text
         self.placeholder = placeholder
         self.cornerRadius = cornerRadius
         self.tintOverride = tint
+        self.surfaceStyle = surfaceStyle
     }
 
     public var body: some View {
@@ -56,45 +57,28 @@ public struct FCLGlassTextField: View {
             .padding(.vertical, 10)
 
         switch resolved {
-        case .liquidGlassNative:
-            #if os(iOS)
-            if #available(iOS 26, *) {
-                field
-                    .background(
-                        shape.fill(Color.clear)
-                            .glassEffect(.regular.interactive(true), in: shape)
+        case .liquidGlassNative, .liquidGlassFallback:
+            field
+                .background(
+                    FCLLiquidGlassSurface(
+                        shape: shape,
+                        tint: tint,
+                        isInteractive: true,
+                        surfaceStyle: surfaceStyle,
+                        resolvedStyle: resolved,
+                        reduceTransparency: reduceTransparency,
+                        reducedTransparencyBackground: reducedBackground,
+                        colorScheme: colorScheme,
+                        legibilityWeight: legibilityWeight
                     )
-                    .overlay(focusStroke(shape: shape, tint: tint))
-            } else {
-                fallback(shape: shape, tint: tint, field: field)
-            }
-            #else
-            fallback(shape: shape, tint: tint, field: field)
-            #endif
-        case .liquidGlassFallback:
-            fallback(shape: shape, tint: tint, field: field)
+                    .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+                )
+                .overlay(focusStroke(shape: shape, tint: tint))
         case .opaque:
             field
                 .background(shape.fill((tint ?? reducedBackground).color))
                 .overlay(focusStroke(shape: shape, tint: tint))
         }
-    }
-
-    @ViewBuilder
-    private func fallback(shape: RoundedRectangle, tint: FCLChatColorToken?, field: some View) -> some View {
-        field
-            .background(
-                FCLGlassFallbackBackground(
-                    shape: shape,
-                    tint: tint,
-                    reduceTransparency: reduceTransparency,
-                    reducedTransparencyBackground: reducedBackground,
-                    colorScheme: colorScheme,
-                    legibilityWeight: legibilityWeight
-                )
-                .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
-            )
-            .overlay(focusStroke(shape: shape, tint: tint))
     }
 
     @ViewBuilder

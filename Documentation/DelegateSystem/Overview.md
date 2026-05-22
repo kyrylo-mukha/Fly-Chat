@@ -472,7 +472,7 @@ public protocol FCLVisualStyleDelegate: AnyObject {
 
 Values:
 
-- `.liquidGlass` — iOS 26+ native `.glassEffect`, with a layered material fallback on iOS 17 / 18.
+- `.liquidGlass` — iOS 26+ native `UIGlassEffect`, with a `UIVisualEffectView` blur fallback on iOS 17 / 18.
 - `.default` — opaque surface drawn from `FCLAppearanceDelegate` color tokens.
 - `.system` — adaptive system materials based on the active color scheme.
 

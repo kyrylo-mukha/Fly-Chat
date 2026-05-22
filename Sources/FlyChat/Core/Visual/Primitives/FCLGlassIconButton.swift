@@ -2,14 +2,14 @@ import SwiftUI
 
 /// Circular icon button with a glass surface.
 ///
-/// On iOS 26+ renders an SF Symbol inside a `.buttonStyle(.glass)` button. On
-/// iOS 17/18 composites the shared fallback glass stack on a `Circle` shape,
-/// with a slightly more pronounced press-shrink (0.9) than the pill button.
-/// Default size is 44 × 44 to meet Apple's minimum hit-target guideline.
+/// On iOS 26+ renders an SF Symbol over UIKit's native `UIGlassEffect`. On
+/// iOS 17/18 it keeps the same circular control and uses a `UIBlurEffect`
+/// fallback through `UIVisualEffectView`.
 public struct FCLGlassIconButton: View {
     private let systemImage: String
     private let size: CGFloat
     private let tintOverride: FCLChatColorToken?
+    private let surfaceStyle: FCLGlassSurfaceStyle
     private let action: () -> Void
 
     @Environment(\.fclExplicitVisualStyle) private var explicitStyle
@@ -31,11 +31,13 @@ public struct FCLGlassIconButton: View {
         systemImage: String,
         size: CGFloat = 44,
         tint: FCLChatColorToken? = nil,
+        surfaceStyle: FCLGlassSurfaceStyle = .regular,
         action: @escaping () -> Void
     ) {
         self.systemImage = systemImage
         self.size = size
         self.tintOverride = tint
+        self.surfaceStyle = surfaceStyle
         self.action = action
     }
 
@@ -50,26 +52,8 @@ public struct FCLGlassIconButton: View {
 
         let core: AnyView = {
             switch resolved {
-            case .liquidGlassNative:
-                #if os(iOS)
-                if #available(iOS 26, *) {
-                    return AnyView(
-                        Button(action: action) {
-                            Image(systemName: systemImage)
-                                .frame(width: size, height: size)
-                        }
-                        .buttonStyle(.glass)
-                        .tint(tint?.color)
-                        .clipShape(Circle())
-                    )
-                } else {
-                    return AnyView(fallback(tint: tint))
-                }
-                #else
-                return AnyView(fallback(tint: tint))
-                #endif
-            case .liquidGlassFallback:
-                return AnyView(fallback(tint: tint))
+            case .liquidGlassNative, .liquidGlassFallback:
+                return AnyView(glassButton(tint: tint, resolved: resolved))
             case .opaque:
                 return AnyView(
                     Button(action: action) {
@@ -105,13 +89,15 @@ public struct FCLGlassIconButton: View {
     }
 
     @ViewBuilder
-    private func fallback(tint: FCLChatColorToken?) -> some View {
+    private func glassButton(tint: FCLChatColorToken?, resolved: FCLResolvedVisualStyle) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .frame(width: size, height: size)
         }
-        .buttonStyle(FCLGlassFallbackIconButtonStyle(
+        .buttonStyle(FCLGlassIconButtonStyle(
             tint: tint,
+            surfaceStyle: surfaceStyle,
+            resolvedStyle: resolved,
             reduceTransparency: reduceTransparency,
             reducedTransparencyBackground: reducedBackground,
             reduceMotion: reduceMotion,
@@ -121,8 +107,10 @@ public struct FCLGlassIconButton: View {
     }
 }
 
-struct FCLGlassFallbackIconButtonStyle: ButtonStyle {
+struct FCLGlassIconButtonStyle: ButtonStyle {
     let tint: FCLChatColorToken?
+    let surfaceStyle: FCLGlassSurfaceStyle
+    let resolvedStyle: FCLResolvedVisualStyle
     let reduceTransparency: Bool
     let reducedTransparencyBackground: FCLChatColorToken
     let reduceMotion: Bool
@@ -132,9 +120,12 @@ struct FCLGlassFallbackIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
-                FCLGlassFallbackBackground(
+                FCLLiquidGlassSurface(
                     shape: Circle(),
                     tint: tint,
+                    isInteractive: true,
+                    surfaceStyle: surfaceStyle,
+                    resolvedStyle: resolvedStyle,
                     reduceTransparency: reduceTransparency,
                     reducedTransparencyBackground: reducedTransparencyBackground,
                     colorScheme: colorScheme,

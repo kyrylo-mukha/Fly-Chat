@@ -85,7 +85,7 @@ private final class StyleCardControl: UIControl {
 
         let background: UIView
         if style.prefersGlassCard {
-            background = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+            background = Self.glassBackgroundView()
         } else {
             let solid = UIView()
             solid.backgroundColor = style.accent
@@ -132,5 +132,20 @@ private final class StyleCardControl: UIControl {
 
     override var isHighlighted: Bool {
         didSet { alpha = isHighlighted ? 0.85 : 1.0 }
+    }
+
+    private static func glassBackgroundView() -> UIView {
+        guard !UIAccessibility.isReduceTransparencyEnabled else {
+            let solid = UIView()
+            solid.backgroundColor = .secondarySystemBackground
+            return solid
+        }
+
+        if #available(iOS 26, *) {
+            let effect = UIGlassEffect(style: .regular)
+            return UIVisualEffectView(effect: effect)
+        } else {
+            return UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+        }
     }
 }
