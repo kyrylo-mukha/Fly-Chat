@@ -175,7 +175,8 @@ struct FCLInputBar: View {
             .submitLabel(returnKeySends ? .send : .return)
             .onSubmit { if returnKeySends { onSend() } }
             .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+            .padding(.vertical, 8)
+            .frame(minHeight: 36)
     }
 
     @ViewBuilder
@@ -183,14 +184,14 @@ struct FCLInputBar: View {
         if showAttachButton {
             FCLGlassIconButton(
                 systemImage: "paperclip",
-                size: 44,
+                size: 36,
                 action: { presentAttachmentPicker() }
             )
             .accessibilityLabel("Attach file")
             .background(
                 Circle()
                     .fill(Color.clear)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 36, height: 36)
                     .allowsHitTesting(false)
                     .modifier(FCLPickerZoomSource(
                         sourceID: "FCLAttachmentPicker",
@@ -224,7 +225,7 @@ struct FCLInputBar: View {
         )
         return FCLGlassIconButton(
             systemImage: "paperplane.fill",
-            size: 44,
+            size: 36,
             tint: FCLAppearanceDefaults.senderBubbleColor,
             action: onSend
         )

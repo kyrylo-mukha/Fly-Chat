@@ -102,10 +102,10 @@ public struct FCLChatScreen: View {
 
     public var body: some View {
         messagesList(availableWidth: screenWidth)
+            .background(FCLPalette.systemBackground)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 inputBarSection
             }
-            .background(FCLPalette.systemBackground)
             .transaction { transaction in
                 if isReturningFromBackground {
                     transaction.disablesAnimations = true
@@ -286,6 +286,7 @@ public struct FCLChatScreen: View {
             .hideFCLChatSectionSeparatorsIfAvailable()
         }
         .listStyle(PlainListStyle())
+        .scrollContentBackground(.hidden)
         .modifier(FCLBottomAnchoredChatModifier())
         .onTapGesture(perform: dismissKeyboard)
         .simultaneousGesture(
